@@ -2,6 +2,8 @@
 
 FigPal is a Figma plugin with an AI agent in it. The agent runs on pi-durable inside the plugin UI. It reads and changes the open file through the Figma Plugin API. Threads stay in storage and continue after you close and open the plugin again.
 
+FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpi`. UI and server: `https://figma.maxschulmeister.dev`.
+
 The old FigPal (a code generator that you start from quick actions) is on branch `backup/original-main`. A tarball of the old folder is at `~/Documents/figpal-backup-20261029-222910.tar.gz` (it includes `.env`).
 
 ## Goals
@@ -19,7 +21,8 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 
 - Access to a code repository (code ↔ design). See [Later](#later-optional-node-host).
 - Figma's own AI features (`generate_image`, Figma Make). The Plugin API does not give access to them.
-- Publication to the Figma Community.
+- Publication. FigPal stays a development plugin.
+- Figma in a browser. Figma Desktop is the only target.
 
 ## Decisions
 
@@ -28,7 +31,10 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 | Agent runtime | `@earendil-works/pi-durable` in the browser | It is durable, it has forks and conversations, and it runs in a browser. |
 | Base code | A new, thin core. Copy selected MIT modules from figma-console-mcp and figwright when a feature needs them. | figma-console-mcp is a 59k-line Node MCP server. Its value is mostly in tool schemas (about 48k tokens). Its `EXECUTE_CODE` core is about 60 lines. A fork diverges on the first day. |
 | Figma access | One tool that runs Plugin API JavaScript (`figma_execute`), plus a screenshot tool | Frontier models know the Plugin API well. Figma's own `use_figma` uses the same model. It covers Motion, variables, components, Slots, shaders, Draw, FigJam and Slides. |
-| UI hosting | The plugin iframe goes to a hosted page on a dedicated subdomain on the VPS (for example `figma.maxschulmeister.dev`), behind Cloudflare | The default plugin iframe has a `null` origin. IndexedDB does not work there. A real origin also lets the UI use a same-origin proxy. |
+| Plugin ID | `figpi` (development plugin, not released) | clientStorage data belongs to the plugin ID. Do not change it. |
+| Figma client | Figma Desktop only | Enough for this use. Less to test. |
+| UI hosting | The plugin iframe goes to `https://figma.maxschulmeister.dev` on the VPS | The default plugin iframe has a `null` origin. IndexedDB does not work there. A real origin also lets the UI use a same-origin proxy. |
+| Server | One Dokploy app: Bun + Hono. It serves the UI and `/api/proxy`. | The VPS already deploys apps with Dokploy from GitHub with a Dockerfile, and `kick-sync` already uses Bun. Hono is small and supports static files and streamed `fetch` proxying. |
 | Large data | IndexedDB on the hosted origin | No 5 MB limit. pi-durable has an IndexedDB backend. |
 | Small data and secrets | `figma.clientStorage` (5 MB, per plugin ID) | Official, private to the plugin, works from the main thread. |
 | Threads | Per Figma file | User request. |
@@ -66,13 +72,13 @@ Other facts:
 ## Architecture
 
 ```
-Figma (desktop or web)
+Figma Desktop
 └─ FigPal plugin
    ├─ code.js (main thread)
    │   ├─ execute queue: figma_execute, screenshots, createImage
    │   ├─ events: selection and page changes → UI
    │   └─ clientStorage: secrets, settings, thread index for each file
-   └─ iframe → https://figma.<domain>/   (hosted UI)
+   └─ iframe → https://figma.maxschulmeister.dev/   (hosted UI)
        ├─ React + assistant-ui
        ├─ pi-durable Harness
        │   ├─ IndexedDB "figpal:file:<fileId>"  (threads, tasks, transcripts)
@@ -80,7 +86,7 @@ Figma (desktop or web)
        ├─ extensions: figma · subagent · skills · web
        └─ models: Anthropic direct · ChatGPT direct or through the proxy
 
-VPS (behind Cloudflare), same origin
+VPS: host Caddy (TLS) → Dokploy Traefik → figpal container (Bun + Hono), same origin
 ├─ static files of the hosted UI
 └─ /api/proxy  (secret header, host allowlist, size limits, rate limit)
     skills.sh · chatgpt.com (if needed) · image hosts without CORS
@@ -103,7 +109,8 @@ figpal/
 ├─ plugin/                 manifest.json, src/code.ts (built to code.js)
 ├─ web/                    hosted UI (Vite + React + assistant-ui + pi-durable)
 │  └─ src/extensions/      figma/, subagent/, skills/, web/
-├─ proxy/                  small HTTP service for /api/proxy on the VPS
+├─ server/                 Bun + Hono: static UI and /api/proxy (Dokploy app)
+├─ Dockerfile              builds web/ and server/ into one image
 └─ shared/                 message protocol types (UI ↔ code.js)
 ```
 
@@ -112,11 +119,12 @@ figpal/
 ### Plugin (`plugin/`)
 
 - `manifest.json`:
+  - `id: "figpi"`, `name: "FigPal"`, `editorType: ["figma"]` (add `figjam` and `slides` later).
   - `documentAccess: "dynamic-page"`, `enablePrivatePluginApi: true` (for `figma.fileKey`).
   - `networkAccess.allowedDomains`: the hosted UI domain, the model APIs, `api.figma.com`, GitHub, the image and search services. Use `"*"` with a `reasoning` text if the list becomes too long.
   - `devAllowedDomains`: `http://localhost:<port>` for the UI dev server.
 - `code.ts`:
-  - `figma.showUI('<script>location.href="https://figma.<domain>/"</script>', { themeColors: true, width, height })`. In development, use the local dev server URL.
+  - `figma.showUI('<script>location.href="https://figma.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. In development, use the local dev server URL (a build flag selects it).
   - Message router with request IDs.
   - **Execute:** wrap the code in an async IIFE and run it with `eval` (Figma blocks the `AsyncFunction` constructor). Top-level `await` and `return` are supported. The result is JSON. There is a timeout and an output limit (about 20 KB, like `use_figma`). Copy the result analysis from figma-console-mcp `code.js` (MIT).
   - **Helpers** in the execute scope (`pi.*`):
@@ -198,9 +206,25 @@ figpal/
   - `image_search(q)` with Openverse and Wikimedia Commons (no key), or Unsplash and Pexels (key).
   - To put an image on the canvas, `figma_execute` calls `figma.createImageAsync(url)`. If that fails, the UI gets the bytes through the proxy and sends a `Uint8Array` to `figma.createImage`.
 
-### Proxy (`proxy/`)
+### Server (`server/`)
 
-- Small service on the VPS, on the same origin as the UI (for example a Node service behind the existing web server).
+One Bun + Hono service, deployed as a Dokploy app.
+
+- Routes:
+  - `/` serves the built UI (`web/dist`). `index.html` gets `Cache-Control: no-cache`. Hashed assets are immutable.
+  - `/api/proxy` (rules below).
+  - `/healthz` for the Dokploy health check.
+  - `/migrate` later, for a domain migration.
+- No `X-Frame-Options`. Figma must show the page in its iframe. As hardening, try `Content-Security-Policy: frame-ancestors https://www.figma.com` (spike 0.12).
+- Deployment on the VPS (facts from 2026-10-29):
+  - Dokploy v0.30 builds the app from a private GitHub repo with the `Dockerfile`. Secrets are Dokploy environment variables.
+  - Add the domain `figma.maxschulmeister.dev` to the app in Dokploy. `caddy-dokploy-sync` (a systemd path unit) then makes the host Caddy block for it. Caddy gets the TLS certificate.
+  - DNS: `*.maxschulmeister.dev` points to the VPS. The records are DNS-only (Cloudflare does not proxy them). The subdomain already resolves.
+- Development: Vite serves the UI on `localhost`. Its dev proxy sends `/api/*` to a local Bun server.
+
+#### `/api/proxy` rules
+
+- Same origin as the UI, so CORS does not apply.
 - Rules:
   - A secret header is required. The secret is in clientStorage and you set it in the settings.
   - Host allowlist: `skills.sh`, `chatgpt.com` (only if needed), and image hosts (`GET` only, `image/*` only, size limit).
@@ -246,11 +270,11 @@ Each phase ends with its checks.
 
 ### Phase 0: spike (remove the main risks)
 
-Build the minimum: a plugin that goes to a local and a hosted page, with one hard-coded tool.
+Build the minimum: a plugin that goes to a local and a hosted page, with one hard-coded tool. Deploy a server skeleton (static page + `/healthz`) as a Dokploy app on `figma.maxschulmeister.dev`.
 
 | # | Check | Pass condition |
 |---|---|---|
-| 0.1 | IndexedDB in the hosted iframe | Data stays after you restart Figma Desktop. Also check Figma in a browser. |
+| 0.1 | IndexedDB in the hosted iframe | Data stays after you restart Figma Desktop. |
 | 0.2 | `networkAccess` with a hosted iframe | Calls to the UI origin and `api.anthropic.com` work. Calls to domains that are not on the list fail. |
 | 0.3 | Claude setup-token from the iframe | A streamed answer works. If the browser drops the `user-agent` header, record the effect. |
 | 0.4 | ChatGPT | Device login works. Record the result of a direct inference call. Test the proxy fallback. |
@@ -261,6 +285,7 @@ Build the minimum: a plugin that goes to a local and a hosted page, with one har
 | 0.9 | `createImageAsync` | Works with an image URL from a host without CORS. |
 | 0.10 | `figma.fileKey` | Available in a development plugin with `enablePrivatePluginApi`. |
 | 0.11 | Hidden UI | After `figma.ui.hide()`, the iframe keeps running and a run continues. |
+| 0.12 | `frame-ancestors https://www.figma.com` | Figma Desktop still shows the page. If not, remove the header. |
 
 Write the results in `docs/spike.md`. Change this plan where a check fails.
 
@@ -364,13 +389,13 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 | Subscription terms of the providers | Account risk | Check the terms. Keep API keys as an alternative. |
 | Browser drops the `user-agent` header for Claude subscription calls | Claude calls can fail | Spike 0.3. Fallback: proxy. |
 | ChatGPT inference blocked by CORS | No direct ChatGPT | Proxy. Cloudflare in front of `chatgpt.com` can challenge VPS IPs. |
+| VPS or app is down | The plugin cannot load its UI | Dokploy restarts the app. Later: a service worker caches the UI. |
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
 | Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. |
 
 ## Open questions
 
-1. The final plugin ID. Keep `figpal-ai-code-generator` or choose a new one now. It must never change after the first release.
-2. The subdomain for the UI and the proxy.
-3. Is support for Figma in a browser required, or only Figma Desktop?
-4. Which proxy stack on the VPS (Node, Bun, or a Caddy/Nginx route to a small service)?
+1. The name of the private GitHub repo that Dokploy deploys from (for example `maxschulmeister/figpal`).
+
+Decided on 2026-10-29: plugin ID `figpi`, development plugin only, Figma Desktop only, domain `figma.maxschulmeister.dev`, server on Dokploy with Bun + Hono.
