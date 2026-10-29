@@ -1,0 +1,48 @@
+# Cursor Rules for FigPal Project
+
+This file contains project-specific rules for the AI assistant in Cursor to follow when working on this Figma Plugin project. These rules are derived from PRD.md and system_prompt.md, along with additional security guidelines.
+
+## General Guidelines
+
+- Strictly follow the Product Requirements Document (PRD) outlined in `PRD.md` for all implementations, including functional and non-functional requirements.
+- The plugin has no custom UI and uses Figma's quick actions menu for input.
+- Use Vercel AI SDK with OpenRouter connector for LLM integration.
+- Ensure all generated code is executable in Figma's plugin environment.
+- Implement error handling, logging, and feedback using `figma.notify` and `console.log`/`console.error`.
+- For complex features, consider npm modules based on GitHub stars, TypeScript usage, and bundle size, preferring shadcn/ui and radix components.
+
+## Code Generation Rules (Based on system_prompt.md)
+
+- When generating code for user prompts, produce ONLY a single async JavaScript function named 'main' that takes no arguments (e.g., `async function main() { ... }`).
+- Use exclusively the Figma Plugin API (via the `figma` object) and standard JavaScript. Do not include external libraries.
+- Handle asynchronous operations with `await` (e.g., `await figma.loadFontAsync({ family: "Roboto", style: "Regular" })`).
+- Provide user-facing feedback using `figma.notify("Your message here")`. Use `console.log()` and `console.error()` only for supplementary debugging.
+- Ensure the code is error-free: Check for selections, handle cases like no current page, etc.
+- Always close the plugin at the end of execution using `figma.closePlugin()`, optionally with a success or error message.
+- Output ONLY the function code in responses. No explanations, no extra text, no wrappers.
+- Incorporate key Figma Plugin API elements as needed: e.g., `figma.currentPage`, `figma.currentPage.selection`, `figma.createRectangle()`, `figma.createText()`, `figma.currentPage.appendChild(node)`, etc.
+
+## Security and Access Rules
+
+- .env\* files (e.g., .env, .env.local) contain sensitive information and can ONLY be read through the terminal command 'cat'. Do not attempt to read, access, or modify them in any other way, such as using read_file tool or direct file operations.
+- Validate generated code before execution to ensure it only uses Figma API calls and avoids forbidden actions like network requests.
+- Sanitize LLM outputs to prevent invalid or malicious code.
+
+## Implementation Principles
+
+- Implement solutions in logical stages, pausing after each meaningful component for review.
+- Implement only what is explicitly requested; for ambiguities, choose the minimal viable interpretation.
+- After implementing a component, summarize what was completed and classify changes by impact (Small, Medium, Large).
+- For Large changes, outline the plan before proceeding.
+- Provide testable increments, usage examples, and identify edge cases.
+
+## Framework-Specific Guidelines
+
+- Follow JavaScript/TypeScript best practices: Use descriptive variable names, proper error handling, early returns, const for functions (e.g., `const toggle = () =>`).
+- In TypeScript, import existing types before defining new ones; use `import type`.
+- For HTML, use semantic elements, accessibility best practices, and ARIA roles.
+- Prefer SASS over pure CSS; implement dark mode only if requested.
+- Use `https://placehold.co/{width}x{height}` for placeholder images and add alt text.
+- Only use icons from the project's existing icon set; if none, ask the user.
+
+Remember to balance efficiency with user control, and be responsive to feedback.
