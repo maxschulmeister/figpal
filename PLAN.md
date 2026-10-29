@@ -2,7 +2,7 @@
 
 FigPal is a Figma plugin with an AI agent in it. The agent runs on pi-durable inside the plugin UI. It reads and changes the open file through the Figma Plugin API. Threads stay in storage and continue after you close and open the plugin again.
 
-FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpi`. UI and server: `https://figma.maxschulmeister.dev`.
+FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpal`. UI and server: `https://figma.maxschulmeister.dev`.
 
 The old FigPal (a code generator that you start from quick actions) is on branch `backup/original-main`. A tarball of the old folder is at `~/Documents/figpal-backup-20261029-222910.tar.gz` (it includes `.env`).
 
@@ -31,7 +31,7 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 | Agent runtime | `@earendil-works/pi-durable` in the browser | It is durable, it has forks and conversations, and it runs in a browser. |
 | Base code | A new, thin core. Copy selected MIT modules from figma-console-mcp and figwright when a feature needs them. | figma-console-mcp is a 59k-line Node MCP server. Its value is mostly in tool schemas (about 48k tokens). Its `EXECUTE_CODE` core is about 60 lines. A fork diverges on the first day. |
 | Figma access | One tool that runs Plugin API JavaScript (`figma_execute`), plus a screenshot tool | Frontier models know the Plugin API well. Figma's own `use_figma` uses the same model. It covers Motion, variables, components, Slots, shaders, Draw, FigJam and Slides. |
-| Plugin ID | `figpi` (development plugin, not released) | clientStorage data belongs to the plugin ID. Do not change it. |
+| Plugin ID | `figpal` (development plugin, not released) | clientStorage data belongs to the plugin ID. Do not change it. |
 | Figma client | Figma Desktop only | Enough for this use. Less to test. |
 | UI hosting | The plugin iframe goes to `https://figma.maxschulmeister.dev` on the VPS | The default plugin iframe has a `null` origin. IndexedDB does not work there. A real origin also lets the UI use a same-origin proxy. |
 | Server | One Dokploy app: Bun + Hono. It serves the UI and `/api/proxy`. | The VPS already deploys apps with Dokploy from GitHub with a Dockerfile, and `kick-sync` already uses Bun. Hono is small and supports static files and streamed `fetch` proxying. |
@@ -119,7 +119,7 @@ figpal/
 ### Plugin (`plugin/`)
 
 - `manifest.json`:
-  - `id: "figpi"`, `name: "FigPal"`, `editorType: ["figma"]` (add `figjam` and `slides` later).
+  - `id: "figpal"`, `name: "FigPal"`, `editorType: ["figma"]` (add `figjam` and `slides` later).
   - `documentAccess: "dynamic-page"`, `enablePrivatePluginApi: true` (for `figma.fileKey`).
   - `networkAccess.allowedDomains`: the hosted UI domain, the model APIs, `api.figma.com`, GitHub, the image and search services. Use `"*"` with a `reasoning` text if the list becomes too long.
   - `devAllowedDomains`: `http://localhost:<port>` for the UI dev server.
@@ -398,4 +398,4 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 
 1. The name of the private GitHub repo that Dokploy deploys from (for example `maxschulmeister/figpal`).
 
-Decided on 2026-10-29: plugin ID `figpi`, development plugin only, Figma Desktop only, domain `figma.maxschulmeister.dev`, server on Dokploy with Bun + Hono.
+Decided on 2026-10-29: plugin ID `figpal`, development plugin only, Figma Desktop only, domain `figma.maxschulmeister.dev`, server on Dokploy with Bun + Hono.
