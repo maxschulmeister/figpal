@@ -2,7 +2,7 @@
 
 FigPal is a Figma plugin with an AI agent in it. The agent runs on pi-durable inside the plugin UI. It reads and changes the open file through the Figma Plugin API. Threads stay in storage and continue after you close and open the plugin again.
 
-FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpal`. UI and server: `https://figma.maxschulmeister.dev`.
+FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpal`. UI: `https://figpal.maxschulmeister.dev` (static files on the VPS, only reachable through Tailscale). Repo: `github.com/maxschulmeister/figpal` (private).
 
 The old FigPal (a code generator that you start from quick actions) is on branch `backup/original-main`. A tarball of the old folder is at `~/Documents/figpal-backup-20261029-222910.tar.gz` (it includes `.env`).
 
@@ -33,8 +33,9 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 | Figma access | One tool that runs Plugin API JavaScript (`figma_execute`), plus a screenshot tool | Frontier models know the Plugin API well. Figma's own `use_figma` uses the same model. It covers Motion, variables, components, Slots, shaders, Draw, FigJam and Slides. |
 | Plugin ID | `figpal` (development plugin, not released) | clientStorage data belongs to the plugin ID. Do not change it. |
 | Figma client | Figma Desktop only | Enough for this use. Less to test. |
-| UI hosting | The plugin iframe goes to `https://figma.maxschulmeister.dev` on the VPS | The default plugin iframe has a `null` origin. IndexedDB does not work there. A real origin also lets the UI use a same-origin proxy. |
-| Server | One Dokploy app: Bun + Hono. It serves the UI and `/api/proxy`. | The VPS already deploys apps with Dokploy from GitHub with a Dockerfile, and `kick-sync` already uses Bun. Hono is small and supports static files and streamed `fetch` proxying. |
+| UI hosting | The plugin iframe goes to `https://figpal.maxschulmeister.dev` | The default plugin iframe has a `null` origin. IndexedDB does not work there. A real origin also lets the UI use same-origin proxy routes. A hosted UI needs less code than a bundled UI with a separate storage page. |
+| Server | Static files, served by the host Caddy. Tailscale only. No app process, no container. | The VPS already serves Tailscale-only sites this way (`system.` and `manifest.maxschulmeister.dev`). It puts the least on the server. Visitors from the internet get a 404. |
+| Proxy | Caddy `reverse_proxy` routes to fixed hosts, only when a spike shows the need | No code. No secret is needed, because only the tailnet can reach the site. |
 | Large data | IndexedDB on the hosted origin | No 5 MB limit. pi-durable has an IndexedDB backend. |
 | Small data and secrets | `figma.clientStorage` (5 MB, per plugin ID) | Official, private to the plugin, works from the main thread. |
 | Threads | Per Figma file | User request. |
@@ -54,7 +55,7 @@ CORS preflight results from the plugin origins (`null` and `https://www.figma.co
 | `api.githubcopilot.com`, `api.github.com/copilot_internal/v2/token` | Allowed |
 | `api.figma.com` | Allowed (`X-Figma-Token`, `Authorization`) |
 | `api.github.com`, `raw.githubusercontent.com` | Allowed |
-| `skills.sh/api/search`, `skills.sh/api/download/...` | No CORS header. Use the proxy. |
+| `skills.sh/api/search`, `skills.sh/api/download/...` | No CORS header. Use a Caddy route or the GitHub fallback. |
 | Tavily, Openverse, Wikimedia Commons, Unsplash, Pexels, Jina Reader | Allowed |
 
 Other facts:
@@ -69,6 +70,14 @@ Other facts:
 - `figma.createImageAsync(url)` accepts PNG, JPEG and GIF up to 4096 px. The docs do not say if CORS applies.
 - Figma runs one plugin at a time in a file.
 
+VPS facts (read-only checks):
+
+- Ubuntu 24.04. Host Caddy v2.11 handles TLS on ports 80 and 443. Dokploy (Docker Swarm, Traefik) runs other apps.
+- `*.maxschulmeister.dev` points to the VPS. The records are DNS-only (Cloudflare does not proxy them).
+- CoreDNS listens on the Tailscale IP `100.110.230.14`. Its `hosts` block resolves private names (for example `system.maxschulmeister.dev`) to that IP for tailnet devices.
+- Caddy blocks for private names use `@tailscale remote_ip 100.64.0.0/10 fd7a:115c:a1e0::/48`. Other requests get `404`.
+- This Mac resolves `system.maxschulmeister.dev` to `100.110.230.14` and gets `200`.
+
 ## Architecture
 
 ```
@@ -78,18 +87,20 @@ Figma Desktop
    │   ├─ execute queue: figma_execute, screenshots, createImage
    │   ├─ events: selection and page changes → UI
    │   └─ clientStorage: secrets, settings, thread index for each file
-   └─ iframe → https://figma.maxschulmeister.dev/   (hosted UI)
+   └─ iframe → https://figpal.maxschulmeister.dev/   (hosted UI)
        ├─ React + assistant-ui
        ├─ pi-durable Harness
        │   ├─ IndexedDB "figpal:file:<fileId>"  (threads, tasks, transcripts)
        │   └─ IndexedDB "figpal:global"          (skills, agents)
        ├─ extensions: figma · subagent · skills · web
-       └─ models: Anthropic direct · ChatGPT direct or through the proxy
+       └─ models: Anthropic direct · ChatGPT direct or through a Caddy route
 
-VPS: host Caddy (TLS) → Dokploy Traefik → figpal container (Bun + Hono), same origin
-├─ static files of the hosted UI
-└─ /api/proxy  (secret header, host allowlist, size limits, rate limit)
-    skills.sh · chatgpt.com (if needed) · image hosts without CORS
+VPS (reached through Tailscale)
+├─ CoreDNS: figpal.maxschulmeister.dev → 100.110.230.14 for tailnet devices
+└─ host Caddy: figpal.maxschulmeister.dev, @tailscale only, else 404
+    ├─ file_server /srv/figpal   (built UI)
+    └─ optional reverse_proxy routes, same origin:
+        /api/skills/* → skills.sh · /api/chatgpt/* → chatgpt.com
 ```
 
 ### Message flow for a tool call
@@ -109,8 +120,7 @@ figpal/
 ├─ plugin/                 manifest.json, src/code.ts (built to code.js)
 ├─ web/                    hosted UI (Vite + React + assistant-ui + pi-durable)
 │  └─ src/extensions/      figma/, subagent/, skills/, web/
-├─ server/                 Bun + Hono: static UI and /api/proxy (Dokploy app)
-├─ Dockerfile              builds web/ and server/ into one image
+├─ deploy/                 Caddy block, CoreDNS line, deploy script (rsync to /srv/figpal)
 └─ shared/                 message protocol types (UI ↔ code.js)
 ```
 
@@ -121,10 +131,11 @@ figpal/
 - `manifest.json`:
   - `id: "figpal"`, `name: "FigPal"`, `editorType: ["figma"]` (add `figjam` and `slides` later).
   - `documentAccess: "dynamic-page"`, `enablePrivatePluginApi: true` (for `figma.fileKey`).
-  - `networkAccess.allowedDomains`: the hosted UI domain, the model APIs, `api.figma.com`, GitHub, the image and search services. Use `"*"` with a `reasoning` text if the list becomes too long.
+  - `networkAccess.allowedDomains`: `https://figpal.maxschulmeister.dev`, the model APIs, `api.figma.com`, GitHub, the image and search services. Use `"*"` with a `reasoning` text if the list becomes too long.
   - `devAllowedDomains`: `http://localhost:<port>` for the UI dev server.
 - `code.ts`:
-  - `figma.showUI('<script>location.href="https://figma.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. In development, use the local dev server URL (a build flag selects it).
+  - `figma.showUI('<script>location.href="https://figpal.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. In development, use the local dev server URL (a build flag selects it).
+  - **Load check:** `code.js` waits for a `ready` message from the UI. If no message comes in time, it shows a small local page: "Cannot reach FigPal. Connect Tailscale and run the plugin again."
   - Message router with request IDs.
   - **Execute:** wrap the code in an async IIFE and run it with `eval` (Figma blocks the `AsyncFunction` constructor). Top-level `await` and `return` are supported. The result is JSON. There is a timeout and an output limit (about 20 KB, like `use_figma`). Copy the result analysis from figma-console-mcp `code.js` (MIT).
   - **Helpers** in the execute scope (`pi.*`):
@@ -143,7 +154,7 @@ figpal/
 - Screens:
   - Thread list for the current file: new, fork, rename, delete.
   - Chat: streamed text, tool calls (collapsible), subagent transcripts under their call, attachments.
-  - Settings: providers and models, model allowlist for subagents, agents (Markdown editor), skills, web search, proxy secret, export and import.
+  - Settings: providers and models, model allowlist for subagents, agents (Markdown editor), skills, web search, export and import.
 - Every user message gets a short context block: file name, page, selection (IDs, names, types).
 - Harness setup for each file: `IndexedDbStorage.open("figpal:file:<fileId>")` inside a Web Lock, then `harness.resume()`. Call `navigator.storage.persist()`.
 - If a second plugin window opens the same file, it opens the storage with `readOnly: true` and shows a notice.
@@ -152,7 +163,7 @@ figpal/
 
 - A credential store in clientStorage, by provider.
 - **Claude:** you paste the token from `claude setup-token`. No refresh is needed.
-- **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference first tries a direct call. If CORS blocks it, it goes through the proxy.
+- **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference first tries a direct call. If CORS blocks it, the provider base URL changes to the Caddy route `/api/chatgpt/backend-api`.
 - **API keys:** for every provider that allows browser calls.
 - **Provider wrapper:** wrap the pi-ai provider to add server tools with `onPayload`:
   - Anthropic: `web_search_20250305`, `web_fetch_20250910`.
@@ -190,7 +201,7 @@ figpal/
   - `skill_grep(name, pattern)`, for large references such as the Plugin API typings.
 - Install:
   - Paste `npx skills add owner/repo[@skill]`, a skills.sh URL, or a GitHub URL.
-  - Search and download use the skills.sh API through the proxy.
+  - Search and download use the skills.sh API through the Caddy route `/api/skills/*`.
   - The fallback is the GitHub Trees API plus `raw.githubusercontent.com` (60 requests per hour without a token).
   - You can also upload a zip.
 - Update: compare `hash`, like the skills CLI.
@@ -204,38 +215,75 @@ figpal/
   - `web_fetch(url)`.
 - Images:
   - `image_search(q)` with Openverse and Wikimedia Commons (no key), or Unsplash and Pexels (key).
-  - To put an image on the canvas, `figma_execute` calls `figma.createImageAsync(url)`. If that fails, the UI gets the bytes through the proxy and sends a `Uint8Array` to `figma.createImage`.
+  - To put an image on the canvas, `figma_execute` calls `figma.createImageAsync(url)`. If that fails and the image host allows CORS, the UI gets the bytes and sends a `Uint8Array` to `figma.createImage`. If neither works (spike 0.9), decide about a small image proxy. Caddy cannot proxy arbitrary hosts without code.
 
-### Server (`server/`)
+### Hosting (`deploy/`)
 
-One Bun + Hono service, deployed as a Dokploy app.
+Static files only. The host Caddy serves them. Only tailnet devices can reach them. The server stores no user data: threads stay in Figma Desktop's IndexedDB on the Mac.
 
-- Routes:
-  - `/` serves the built UI (`web/dist`). `index.html` gets `Cache-Control: no-cache`. Hashed assets are immutable.
-  - `/api/proxy` (rules below).
-  - `/healthz` for the Dokploy health check.
-  - `/migrate` later, for a domain migration.
-- No `X-Frame-Options`. Figma must show the page in its iframe. As hardening, try `Content-Security-Policy: frame-ancestors https://www.figma.com` (spike 0.12).
-- Deployment on the VPS (facts from 2026-10-29):
-  - Dokploy v0.30 builds the app from a private GitHub repo with the `Dockerfile`. Secrets are Dokploy environment variables.
-  - Add the domain `figma.maxschulmeister.dev` to the app in Dokploy. `caddy-dokploy-sync` (a systemd path unit) then makes the host Caddy block for it. Caddy gets the TLS certificate.
-  - DNS: `*.maxschulmeister.dev` points to the VPS. The records are DNS-only (Cloudflare does not proxy them). The subdomain already resolves.
-- Development: Vite serves the UI on `localhost`. Its dev proxy sends `/api/*` to a local Bun server.
+Setup on the VPS (one time, in Phase 0, with your approval):
 
-#### `/api/proxy` rules
+1. CoreDNS: add `100.110.230.14 figpal.maxschulmeister.dev` to the `hosts` block in `/etc/coredns/Corefile`. Restart CoreDNS.
+2. Caddy: add this block to `/etc/caddy/Caddyfile`, next to `system.maxschulmeister.dev`. Do not add it to `dokploy-apps.caddy`, because `caddy-dokploy-sync` writes that file. Run `caddy validate`, then reload Caddy.
 
-- Same origin as the UI, so CORS does not apply.
-- Rules:
-  - A secret header is required. The secret is in clientStorage and you set it in the settings.
-  - Host allowlist: `skills.sh`, `chatgpt.com` (only if needed), and image hosts (`GET` only, `image/*` only, size limit).
-  - A rate limit is applied. Bodies are streamed. Credentials are never logged.
-- It is never an open proxy.
+```caddyfile
+figpal.maxschulmeister.dev {
+	@tailscale remote_ip 100.64.0.0/10 fd7a:115c:a1e0::/48
+	handle @tailscale {
+		# Optional proxy routes go here (see below).
+		root * /srv/figpal
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}
+```
+
+3. Create `/srv/figpal`.
+
+Deployment: `pnpm deploy:web` builds `web/` and runs `rsync -az --delete web/dist/ root@maxschulmeister.dev:/srv/figpal/`.
+
+Headers:
+
+- No `X-Frame-Options`. Figma must show the page in its iframe.
+- As hardening, try `Content-Security-Policy: frame-ancestors https://www.figma.com` (spike 0.12).
+
+Development: Vite serves the UI on `localhost`. The development build of the plugin goes to that URL. Vite's dev proxy has the same `/api/*` routes as Caddy.
+
+#### Optional proxy routes
+
+Add a route only when a spike shows that a direct call fails. The routes are on the same origin as the UI, so CORS does not apply. Only the tailnet can reach them, so they need no secret. Examples:
+
+```caddyfile
+handle_path /api/skills/* {
+	rewrite * /api{uri}
+	reverse_proxy https://skills.sh {
+		header_up Host skills.sh
+		header_up -Origin
+	}
+}
+handle_path /api/chatgpt/* {
+	reverse_proxy https://chatgpt.com {
+		header_up Host chatgpt.com
+		header_up -Origin
+	}
+}
+```
+
+Rules:
+
+- Fixed hosts only. Never an open proxy.
+- Caddy must not log request headers (credentials).
 
 ## Storage summary
 
 | Store | Scope | Contents |
 |---|---|---|
-| `clientStorage` | Plugin ID, device | Model credentials, proxy secret, Tavily and Figma tokens, settings, thread index `{ fileId → [{ threadId, title, updatedAt }] }` |
+| `clientStorage` | Plugin ID, device | Model credentials, Tavily and Figma tokens, settings, thread index `{ fileId → [{ threadId, title, updatedAt }] }` |
 | IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: conversations, tasks, transcripts, attachments |
 | IndexedDB `figpal:global` | Hosted origin | Skills, agent definitions |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
@@ -270,14 +318,14 @@ Each phase ends with its checks.
 
 ### Phase 0: spike (remove the main risks)
 
-Build the minimum: a plugin that goes to a local and a hosted page, with one hard-coded tool. Deploy a server skeleton (static page + `/healthz`) as a Dokploy app on `figma.maxschulmeister.dev`.
+Build the minimum: a plugin that goes to a local and a hosted page, with one hard-coded tool. Do the one-time VPS setup (CoreDNS line, Caddy block, `/srv/figpal`) and deploy a test page.
 
 | # | Check | Pass condition |
 |---|---|---|
 | 0.1 | IndexedDB in the hosted iframe | Data stays after you restart Figma Desktop. |
 | 0.2 | `networkAccess` with a hosted iframe | Calls to the UI origin and `api.anthropic.com` work. Calls to domains that are not on the list fail. |
 | 0.3 | Claude setup-token from the iframe | A streamed answer works. If the browser drops the `user-agent` header, record the effect. |
-| 0.4 | ChatGPT | Device login works. Record the result of a direct inference call. Test the proxy fallback. |
+| 0.4 | ChatGPT | Device login works. Record the result of a direct inference call. If it fails, test the Caddy route `/api/chatgpt/*`. |
 | 0.5 | pi-durable browser bundle | It builds with Vite. Record the bundle size (QuickJS, photon, TypeBox). |
 | 0.6 | Execute | `eval` of an async IIFE works. Timeout and output limit work. |
 | 0.7 | Resume | Close the plugin during a run. Open it again. The run continues, and `figma_execute` gives `interrupted`. |
@@ -286,6 +334,9 @@ Build the minimum: a plugin that goes to a local and a hosted page, with one har
 | 0.10 | `figma.fileKey` | Available in a development plugin with `enablePrivatePluginApi`. |
 | 0.11 | Hidden UI | After `figma.ui.hide()`, the iframe keeps running and a run continues. |
 | 0.12 | `frame-ancestors https://www.figma.com` | Figma Desktop still shows the page. If not, remove the header. |
+| 0.13 | Tailscale DNS in Figma Desktop | Figma Desktop (Electron) resolves `figpal.maxschulmeister.dev` to `100.110.230.14` and loads the page. A request from outside the tailnet gets `404`. |
+| 0.14 | Tailscale off | The plugin shows the "Connect Tailscale" page. It does not hang. |
+| 0.15 | skills.sh | Record if search and download need the Caddy route. Test the GitHub fallback. |
 
 Write the results in `docs/spike.md`. Change this plan where a check fails.
 
@@ -307,7 +358,7 @@ Checks:
 
 - Thread list for each file: new, fork, rename, delete, last open thread.
 - Settings: credentials, default model, thinking level.
-- ChatGPT device login, with the proxy fallback if needed.
+- ChatGPT device login, with the Caddy route if needed.
 - Read-only mode for a second window.
 
 Checks:
@@ -319,7 +370,7 @@ Checks:
 ### Phase 3: skills
 
 - Global skills store, prompt section, `skill_read`, `skill_grep`.
-- Install from skills.sh (proxy), GitHub fallback, zip upload, update, enable and disable.
+- Install from skills.sh (Caddy route), GitHub fallback, zip upload, update, enable and disable.
 
 Checks:
 
@@ -342,7 +393,7 @@ Checks:
 ### Phase 5: web
 
 - Provider wrapper for native search and fetch.
-- Tavily fallback, `image_search`, image placement with the proxy fallback.
+- Tavily fallback, `image_search`, image placement (`createImageAsync`, then direct bytes).
 
 Checks:
 
@@ -387,15 +438,24 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 |---|---|---|
 | pi-durable is experimental, and its API changes without notice | Breaks on upgrade | Pin the version. Put the pi-durable API behind a small adapter. |
 | Subscription terms of the providers | Account risk | Check the terms. Keep API keys as an alternative. |
-| Browser drops the `user-agent` header for Claude subscription calls | Claude calls can fail | Spike 0.3. Fallback: proxy. |
-| ChatGPT inference blocked by CORS | No direct ChatGPT | Proxy. Cloudflare in front of `chatgpt.com` can challenge VPS IPs. |
-| VPS or app is down | The plugin cannot load its UI | Dokploy restarts the app. Later: a service worker caches the UI. |
+| Browser drops the `user-agent` header for Claude subscription calls | Claude calls can fail | Spike 0.3. Fallback: a Caddy route to `api.anthropic.com` that sets the header. |
+| ChatGPT inference blocked by CORS | No direct ChatGPT | Caddy route. Cloudflare in front of `chatgpt.com` can challenge VPS IPs. |
+| VPS is down or Tailscale is off | The plugin cannot load its UI | Caddy runs as a system service. The plugin shows "Connect Tailscale". Later: a service worker caches the UI. |
+| Figma Desktop does not use the Tailscale DNS | The UI does not load | Spike 0.13. Fallback: a Tailscale-only Caddy site on the `ts.maxschulmeister.dev` names, or the Tailscale IP with its own certificate. |
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
 | Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. |
 
+## Decision log
+
+2026-10-29:
+
+- Plugin ID `figpal`. Development plugin only. Figma Desktop only.
+- Hosted UI (option C) instead of a bundled UI with a storage page (option B): less code, and both need the VPS at start.
+- UI on `figpal.maxschulmeister.dev`: static files through the host Caddy, Tailscale only. No Dokploy app and no server process.
+- Proxy routes in Caddy only when a spike shows the need.
+- Private GitHub repo `maxschulmeister/figpal` as the remote (backup, not for deployment).
+
 ## Open questions
 
-1. The name of the private GitHub repo that Dokploy deploys from (for example `maxschulmeister/figpal`).
-
-Decided on 2026-10-29: plugin ID `figpal`, development plugin only, Figma Desktop only, domain `figma.maxschulmeister.dev`, server on Dokploy with Bun + Hono.
+None at the moment.
