@@ -14,6 +14,7 @@ import type { Attachment, FileInfo } from "@figpal/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentModels, startAgent, userInput } from "./agent";
 import type { Bridge } from "./bridge";
+import { currentThread } from "./threads";
 import { toThread } from "./transcript";
 
 function anthropicAnswer(): Response {
@@ -69,6 +70,8 @@ const FILE: FileInfo = {
 	selection: [{ id: "1:2", name: "Card", type: "FRAME" }],
 };
 
+const SCRIPT = { model: { provider: "faux", modelId: "script" } };
+
 /** A scripted model: it calls the tool, then answers with the text of the tool result. */
 function scriptedModels(toolName: string, args: Parameters<typeof fauxToolCall>[1]) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "script", input: ["text", "image"] }] });
@@ -98,7 +101,8 @@ function fakeBridge(reply: (params: unknown) => { result: unknown; attachments?:
 }
 
 async function run(models: ReturnType<typeof createModels>, bridge: Pick<Bridge, "request">, text = "Check the card") {
-	const { harness, root } = await startAgent(new MemoryStorage(), { models, bridge, model: { provider: "faux", modelId: "script" } });
+	const harness = await startAgent(new MemoryStorage(), { models, bridge });
+	const root = await currentThread(harness, SCRIPT);
 	const submission = await root.submit(userInput(text, FILE), context);
 	const settled = await submission.wait(context);
 	const view = (await root.viewState(context)).value;
@@ -161,7 +165,8 @@ describe("figma tools", () => {
 		const { models } = scriptedModels("figma_execute", { code: "await new Promise(() => {})" });
 		// code.js cannot stop the code, so the request never ends.
 		const bridge = { request: () => new Promise(() => {}) } as unknown as Pick<Bridge, "request">;
-		const { harness, root } = await startAgent(new MemoryStorage(), { models, bridge, model: { provider: "faux", modelId: "script" } });
+		const harness = await startAgent(new MemoryStorage(), { models, bridge });
+		const root = await currentThread(harness, SCRIPT);
 		const submission = await root.submit(userInput("Hang", FILE), context);
 		await vi.waitFor(async () => {
 			const live = (await root.viewState(context)).value.docs["pi.live"] as { tools?: { status: string }[] };

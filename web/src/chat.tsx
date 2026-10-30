@@ -12,18 +12,21 @@ import {
 	ThreadPrimitive,
 	type ThreadMessageLike,
 	type ToolCallMessagePartComponent,
+	useAuiState,
 	useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { ConversationView } from "@earendil-works/pi-durable";
+import type { ImageContent, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
+import type { AgentState, Conversation, ConversationView, EntryId } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
-import { Collapsible, createIcon, IconButton, Text } from "figma-kit";
-import { type ComponentProps, createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { Button, CheckmarkIcon, ChevronDownIcon, Collapsible, createIcon, DropdownMenu, IconButton, Text } from "figma-kit";
+import { type ComponentProps, createContext, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
-import { type Agent, userInput } from "./agent";
+import { userInput } from "./agent";
+import { PROVIDERS, type Settings } from "./settings";
 import { toThread } from "./transcript";
 
 const SendIcon = createIcon({
@@ -35,22 +38,39 @@ const StopIcon = createIcon({
 	path: <rect fill="var(--color-icon)" x="8" y="8" width="8" height="8" rx="1" />,
 });
 
-/** Opens a link in the browser: the plugin window cannot open one. */
-const OpenExternal = createContext<(url: string) => void>(() => {});
+type Actions = {
+	/** Opens a link in the browser: the plugin window cannot open one. */
+	openExternal(url: string): void;
+	/** Opens a new thread with the history up to the entry. */
+	fork(at: EntryId): void;
+};
+const ChatActions = createContext<Actions>({ openExternal() {}, fork() {} });
 
 const TOOL_LABELS: Record<string, string> = { figma_execute: "Run code", figma_screenshot: "Screenshot" };
 
 /** The messages are already in the assistant-ui format. A stable function keeps assistant-ui's message cache. */
 const asIs = (message: ThreadMessageLike) => message;
 
-export function Chat(props: { agent: Agent; file: FileInfo; menu: ReactNode; openExternal(url: string): void }) {
-	const { agent, file } = props;
+type ChatProps = Actions & {
+	thread: Conversation;
+	file: FileInfo;
+	models: Models;
+	/** Provider IDs with a saved credential: the model picker shows their models. */
+	connected: ReadonlySet<string>;
+	/** A message was sent. */
+	onSend(text: string): void;
+	/** The user picked a model or thinking level. New threads use it too. */
+	onModelChange(settings: Settings): void;
+};
+
+export function Chat(props: ChatProps) {
+	const { thread: conversation, file } = props;
 	const [view, setView] = useState<ConversationView>();
 	const [failure, setFailure] = useState<string>();
 	useEffect(() => {
 		let state: AttachedReplicatedState<ConversationView> | undefined;
 		let closed = false;
-		agent.root.viewState(context).then(
+		conversation.viewState(context).then(
 			(attached) => {
 				if (closed) return attached.dispose();
 				state = attached;
@@ -63,7 +83,7 @@ export function Chat(props: { agent: Agent; file: FileInfo; menu: ReactNode; ope
 			closed = true;
 			state?.dispose();
 		};
-	}, [agent]);
+	}, [conversation]);
 
 	const thread = useMemo(() => (view ? toThread(view) : undefined), [view]);
 	const runtime = useExternalStoreRuntime<ThreadMessageLike>({
@@ -74,15 +94,17 @@ export function Chat(props: { agent: Agent; file: FileInfo; menu: ReactNode; ope
 		onNew: async (message) => {
 			const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 			try {
-				await agent.root.submit(userInput(text, file), context);
+				await conversation.submit(userInput(text, file), context);
+				props.onSend(text);
 			} catch (error) {
 				console.error("FigPal could not send the message:", error);
 				// assistant-ui puts the text back into the message field.
 				throw new MessageNotSentError(String(error));
 			}
 		},
-		onCancel: () => agent.root.abort(context),
+		onCancel: () => conversation.abort(context),
 	});
+	const actions = useMemo(() => ({ openExternal: props.openExternal, fork: props.fork }), [props.openExternal, props.fork]);
 
 	if (failure) return <p className="p-6 text-danger">Cannot open the chat: {failure}</p>;
 	const retry = thread?.retry;
@@ -93,7 +115,7 @@ export function Chat(props: { agent: Agent; file: FileInfo; menu: ReactNode; ope
 		: "No selection";
 
 	return (
-		<OpenExternal.Provider value={props.openExternal}>
+		<ChatActions.Provider value={actions}>
 			<AssistantRuntimeProvider runtime={runtime}>
 				<ThreadPrimitive.Root className="flex h-full flex-col">
 					<ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4">
@@ -127,13 +149,120 @@ export function Chat(props: { agent: Agent; file: FileInfo; menu: ReactNode; ope
 							</ComposerPrimitive.Root>
 							<div className="flex items-center justify-between gap-2">
 								<Text className="truncate text-secondary">{selection}</Text>
-								{props.menu}
+								<ModelPicker
+									conversation={conversation}
+									agent={thread?.agent}
+									models={props.models}
+									connected={props.connected}
+									onChange={props.onModelChange}
+								/>
 							</div>
 						</ThreadPrimitive.ViewportFooter>
 					</ThreadPrimitive.Viewport>
 				</ThreadPrimitive.Root>
 			</AssistantRuntimeProvider>
-		</OpenExternal.Provider>
+		</ChatActions.Provider>
+	);
+}
+
+const THINKING_LABELS: Record<ModelThinkingLevel, string> = {
+	off: "Off",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "Extra high",
+	max: "Max",
+};
+
+/** The model and thinking level of the thread. pi-durable uses "off" when the thread has no thinking level. */
+function ModelPicker(props: {
+	conversation: Conversation;
+	agent: AgentState | undefined;
+	models: Models;
+	connected: ReadonlySet<string>;
+	onChange(settings: Settings): void;
+}) {
+	const ref = props.agent?.model;
+	const thinkingLevel = props.agent?.thinkingLevel ?? "off";
+	const model = ref && props.models.getModel(ref.provider, ref.modelId);
+	// A model without reasoning has only "off".
+	const levels = model ? getSupportedThinkingLevels(model) : [];
+	const canThink = ref !== undefined && levels.length > 1;
+
+	// Saved for new threads only when the thread took it.
+	const choose = (next: Settings) =>
+		props.conversation.configure(next, context).then(
+			() => props.onChange(next),
+			(error) => console.error("FigPal could not change the model:", error),
+		);
+	const chooseModel = (provider: string, modelId: string) => {
+		const next = props.models.getModel(provider, modelId);
+		// The nearest level that the new model has, as pi-ai sends it.
+		if (next) void choose({ model: { provider, modelId }, thinkingLevel: clampThinkingLevel(next, thinkingLevel) });
+	};
+
+	return (
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger render={<Button variant="text" className="gap-1 text-secondary" />}>
+				{model?.name ?? "Model"}
+				{canThink && ` · ${THINKING_LABELS[thinkingLevel]}`}
+				<ChevronDownIcon size="4" />
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Portal>
+				<DropdownMenu.Positioner side="top" align="end" sideOffset={4}>
+					<DropdownMenu.Popup style={{ minWidth: 220 }}>
+						{PROVIDERS.filter((provider) => props.connected.has(provider.id)).map((provider, index) => (
+							<DropdownMenu.RadioGroup
+								key={provider.id}
+								value={ref?.provider === provider.id ? ref.modelId : ""}
+								onValueChange={(modelId: string) => chooseModel(provider.id, modelId)}
+							>
+								{index > 0 && <DropdownMenu.Separator />}
+								<DropdownMenu.GroupLabel>{provider.label}</DropdownMenu.GroupLabel>
+								{props.models
+									.getModels(provider.id)
+									// Dated IDs repeat a model that is also in the list without a date.
+									.filter((item) => !/-\d{8}$/.test(item.id))
+									.map((item) => (
+										<DropdownMenu.RadioItem key={item.id} value={item.id}>
+											<DropdownMenu.RadioItemIndicator>
+												<CheckmarkIcon size="4" />
+											</DropdownMenu.RadioItemIndicator>
+											{item.name}
+										</DropdownMenu.RadioItem>
+									))}
+							</DropdownMenu.RadioGroup>
+						))}
+						{canThink && <DropdownMenu.Separator />}
+						{canThink && (
+							<DropdownMenu.SubmenuRoot>
+								<DropdownMenu.SubmenuTrigger>Thinking: {THINKING_LABELS[thinkingLevel]}</DropdownMenu.SubmenuTrigger>
+								<DropdownMenu.Portal>
+									<DropdownMenu.Positioner sideOffset={12} alignOffset={-8}>
+										<DropdownMenu.Popup style={{ minWidth: 140 }}>
+											<DropdownMenu.RadioGroup
+												value={thinkingLevel}
+												onValueChange={(level: ModelThinkingLevel) => void choose({ model: ref, thinkingLevel: level })}
+											>
+												{levels.map((level) => (
+													<DropdownMenu.RadioItem key={level} value={level}>
+														<DropdownMenu.RadioItemIndicator>
+															<CheckmarkIcon size="4" />
+														</DropdownMenu.RadioItemIndicator>
+														{THINKING_LABELS[level]}
+													</DropdownMenu.RadioItem>
+												))}
+											</DropdownMenu.RadioGroup>
+										</DropdownMenu.Popup>
+									</DropdownMenu.Positioner>
+								</DropdownMenu.Portal>
+							</DropdownMenu.SubmenuRoot>
+						)}
+					</DropdownMenu.Popup>
+				</DropdownMenu.Positioner>
+			</DropdownMenu.Portal>
+		</DropdownMenu.Root>
 	);
 }
 
@@ -150,14 +279,30 @@ function UserMessage() {
 
 function AssistantMessage() {
 	return (
-		<MessagePrimitive.Root className="flex flex-col gap-2 text-lg break-words">
+		<MessagePrimitive.Root className="group/message flex flex-col gap-2 text-lg break-words">
 			<MessagePrimitive.Parts components={PARTS} />
 			<MessagePrimitive.Error>
 				<ErrorPrimitive.Root className="rounded-md bg-danger-tertiary px-3 py-2 text-danger">
 					<ErrorPrimitive.Message />
 				</ErrorPrimitive.Root>
 			</MessagePrimitive.Error>
+			<ForkButton />
 		</MessagePrimitive.Root>
+	);
+}
+
+/** Shown on hover, after the answer ended. */
+function ForkButton() {
+	const { fork } = useContext(ChatActions);
+	const at = useAuiState((state) => state.message.metadata.custom.lastEntryId) as EntryId | undefined;
+	const running = useAuiState((state) => state.thread.isRunning);
+	if (at === undefined || running) return null;
+	return (
+		<div className="-mt-1 flex opacity-0 group-hover/message:opacity-100 focus-within:opacity-100">
+			<Button variant="text" className="text-secondary" onClick={() => fork(at)}>
+				Fork from here
+			</Button>
+		</div>
 	);
 }
 
@@ -168,7 +313,7 @@ function Working({ status }: EmptyMessagePartProps) {
 }
 
 function ExternalLink({ href, children }: ComponentProps<"a">) {
-	const openExternal = useContext(OpenExternal);
+	const { openExternal } = useContext(ChatActions);
 	return (
 		<a
 			href={href}

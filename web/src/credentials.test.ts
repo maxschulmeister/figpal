@@ -54,4 +54,34 @@ describe("clientStorageCredentials", () => {
 		]);
 		expect((await store.list()).map((info) => info.providerId)).toEqual(["anthropic", "openai"]);
 	});
+
+	it("does not lose a write when two FigPal windows write at the same time", async () => {
+		const { bridge } = fakeStorage();
+		// Two windows: two stores on the same clientStorage. Each read takes a moment, as a round trip to code.js does.
+		const slow = { request: async (type: string, params: never) => {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			return bridge.request(type as never, params);
+		} } as unknown as Pick<Bridge, "request">;
+		await Promise.all([
+			clientStorageCredentials(slow).modify("anthropic", async () => ({ type: "api_key", key: "a" })),
+			clientStorageCredentials(slow).modify("openai-codex", async () => ({ type: "oauth", access: "b", refresh: "c", expires: 1 })),
+		]);
+		expect((await clientStorageCredentials(bridge).list()).map((info) => info.providerId)).toEqual(["anthropic", "openai-codex"]);
+	});
+
+	it("stops waiting for the lock when the caller stops, and then writes nothing", async () => {
+		const { data, bridge } = fakeStorage();
+		// Another window holds the lock.
+		let release = () => {};
+		const held = navigator.locks.request("figpal.credentials", () => new Promise<void>((resolve) => (release = resolve)));
+		const controller = new AbortController();
+		const write = clientStorageCredentials(bridge).modify("anthropic", async () => ({ type: "api_key", key: "a" }), {
+			signal: controller.signal,
+		});
+		controller.abort();
+		await expect(write).rejects.toThrow();
+		release();
+		await held;
+		expect(data.has("figpal.credentials")).toBe(false);
+	});
 });

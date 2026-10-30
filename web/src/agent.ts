@@ -1,56 +1,55 @@
 // The FigPal agent: a pi-durable Harness for one Figma file, with Claude through the Anthropic route.
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { CredentialStore } from "@earendil-works/pi-ai";
+import type { Api, CredentialStore, Model, Provider, StreamOptions } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import {
-	type Conversation,
-	createRegistry,
-	Harness,
-	type InputSubmissionDraft,
-	type ModelRef,
-	type Storage,
-} from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type InputSubmissionDraft, type Storage } from "@earendil-works/pi-durable";
 import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
 import type { FileInfo, NodeSummary } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
-import { ANTHROPIC_ROUTE, throughRoute } from "./providers/anthropic-route";
+import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
+import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { wrapAnthropicProvider } from "./providers/pi-black";
 import { UserText } from "./transcript";
 
-export const DEFAULT_MODEL: ModelRef = { provider: "anthropic", modelId: "claude-sonnet-5-5" };
+/** Sends the requests of `provider` to the route at `baseUrl`, with an extra stream option. */
+function throughRoute(provider: Provider, baseUrl: string, extra: Pick<StreamOptions, "fetch" | "transport">): Provider {
+	return {
+		...provider,
+		stream: (model, context, options) => provider.stream({ ...model, baseUrl } as Model<Api>, context, { ...options, ...extra }),
+		streamSimple: (model, context, options) => provider.streamSimple({ ...model, baseUrl }, context, { ...options, ...extra }),
+	};
+}
 
-export type Agent = { harness: Harness; root: Conversation };
-
-/** Anthropic refuses browser requests for subscription accounts, so Claude requests go through the route. */
+/** Claude and ChatGPT. Both go through routes on the page origin: their APIs refuse these browser requests. */
 export function createAgentModels(credentials: CredentialStore, origin: string): Models {
 	const models = createModels({ credentials });
-	models.setProvider(throughRoute(wrapAnthropicProvider(anthropicProvider()), `${origin}${ANTHROPIC_ROUTE}`));
+	// Around Pi Black, so that Pi Black wraps fetchAsServer.
+	const claude = wrapAnthropicProvider(anthropicProvider());
+	models.setProvider(throughRoute(claude, `${origin}${ANTHROPIC_ROUTE}`, { fetch: fetchAsServer }));
+	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
+	models.setProvider(throughRoute(chatgptProvider(), `${origin}${CHATGPT_ROUTE}`, { transport: "sse" }));
 	return models;
 }
 
-/** Opens the Harness on `storage` and continues the runs that a restart stopped. */
-export async function startAgent(
-	storage: Storage,
-	options: { models: Models; bridge: Pick<Bridge, "request">; model?: ModelRef },
-): Promise<Agent> {
+/** Opens the Harness on `storage` and continues the runs that a restart stopped. `threads.ts` opens the threads. */
+export async function startAgent(storage: Storage, options: { models: Models; bridge: Pick<Bridge, "request"> }): Promise<Harness> {
 	const registry = createRegistry();
 	registry.install(figmaExtension(options.bridge));
 	// pi-durable reports failures of the storage, tasks and extensions here, and nowhere else.
 	const onReport = (error: unknown, info: unknown) => console.error("FigPal agent:", info, error);
 	const harness = await Harness.open(storage, { models: options.models, registry, onReport }, context);
-	const root = await harness.root(context, { agent: { model: options.model ?? DEFAULT_MODEL } });
 	harness.resume();
-	return { harness, root };
+	return harness;
 }
 
 /**
  * Opens the agent of a file in the browser. The storage of a file can have one owner at a time, so a Web Lock guards
  * it while the page lives. Returns "locked" if another FigPal window has the file open.
  */
-export function openAgent(fileId: string, options: { models: Models; bridge: Pick<Bridge, "request"> }): Promise<Agent | "locked"> {
+export function openAgent(fileId: string, options: { models: Models; bridge: Pick<Bridge, "request"> }): Promise<Harness | "locked"> {
 	const name = `figpal:file:${fileId}`;
 	// Without this, the browser can clear IndexedDB (and the threads) when the disk is full.
 	navigator.storage.persist().catch((error) => console.error("FigPal storage:", error));

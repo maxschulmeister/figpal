@@ -25,8 +25,8 @@ const toolResult = (id: number, toolCallId: string, content: unknown[], isError 
 });
 const system = { id: 2, conversationId: 1, kind: "pi.system", model: [{ role: "system", content: "", toolsAdded: [], timestamp: 1 }] };
 
-function view(entries: unknown[], live: object = {}): ConversationView {
-	return { conversation: { id: 1 }, entries, docs: { "pi.live": live } } as unknown as ConversationView;
+function view(entries: unknown[], live: object = {}, agent?: object): ConversationView {
+	return { conversation: { id: 1 }, entries, docs: { "pi.live": live, "pi.agent": agent } } as unknown as ConversationView;
 }
 
 describe("toThread", () => {
@@ -50,6 +50,8 @@ describe("toThread", () => {
 				id: "after-1",
 				role: "assistant",
 				status: { type: "complete", reason: "stop" },
+				// A fork from this message keeps the history up to its last entry.
+				metadata: { custom: { lastEntryId: 5 } },
 				content: [
 					{ type: "reasoning", text: "A frame with auto layout." },
 					{ type: "text", text: "I make it." },
@@ -107,6 +109,7 @@ describe("toThread", () => {
 				id: "after-1",
 				role: "assistant",
 				status: { type: "running" },
+				metadata: { custom: { lastEntryId: 3 } },
 				content: [
 					{ type: "text", text: "Hm." },
 					{ type: "text", text: "Now the screenshot." },
@@ -117,5 +120,10 @@ describe("toThread", () => {
 		// The first answer of a run starts the assistant message, with the same ID that the committed answer gets.
 		const first = toThread(view([userEntry(1, "Check it")], live)).messages;
 		expect(first[1]).toMatchObject({ id: "after-1", status: { type: "running" } });
+	});
+
+	it("gives the model and thinking level of the thread", () => {
+		const agent = { model: { provider: "anthropic", modelId: "claude-opus-5-5" }, thinkingLevel: "high" };
+		expect(toThread(view([], {}, agent)).agent).toEqual(agent);
 	});
 });

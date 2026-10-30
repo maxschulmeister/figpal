@@ -14,36 +14,35 @@ function isCredentials(value: unknown): value is Credentials {
 	);
 }
 
-/** All credentials are one clientStorage value. Writes run one after the other, so a write cannot lose another one. */
+/**
+ * All credentials are one clientStorage value. FigPal windows of other files share it, so writes run one after the
+ * other in a Web Lock: a write cannot lose another one, and an OAuth refresh runs only once.
+ */
 export function clientStorageCredentials(bridge: Pick<Bridge, "request">): CredentialStore {
 	const load = async (): Promise<Credentials> => {
 		const { result } = await bridge.request("storage-get", { key: KEY });
 		return isCredentials(result) ? result : {};
 	};
 	const save = (credentials: Credentials) => bridge.request("storage-set", { key: KEY, value: credentials });
-
-	let writes: Promise<unknown> = Promise.resolve();
-	const serialized = <T>(write: () => Promise<T>): Promise<T> => {
-		const run = writes.then(write);
-		writes = run.catch(() => undefined);
-		return run;
-	};
+	// The signal stops only the wait for the lock, not a write that holds it.
+	const serialized = <T>(write: () => Promise<T>, signal?: AbortSignal) =>
+		navigator.locks.request(KEY, { signal }, write) as Promise<T>;
 
 	return {
 		read: async (providerId) => (await load())[providerId],
 		list: async () => Object.entries(await load()).map(([providerId, { type }]) => ({ providerId, type })),
-		modify: (providerId, update) =>
+		modify: (providerId, update, options) =>
 			serialized(async () => {
 				const credentials = await load();
 				const next = await update(credentials[providerId]);
 				if (next === undefined) return credentials[providerId];
 				await save({ ...credentials, [providerId]: next });
 				return next;
-			}),
-		delete: (providerId) =>
+			}, options?.signal),
+		delete: (providerId, options) =>
 			serialized(async () => {
 				const { [providerId]: _, ...rest } = await load();
 				await save(rest);
-			}),
+			}, options?.signal),
 	};
 }

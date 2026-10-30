@@ -1,31 +1,72 @@
-// Start-up and everything around the chat: the Claude token and the menu.
+// Start-up and everything around the chat: the threads, the accounts and the settings.
 
+import type { AttachedReplicatedState } from "@earendil-works/chord";
+import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import type { AgentChange, Conversation, ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
 import { type FileInfo, UI_ORIGINS, type UiSource } from "@figpal/shared";
-import { Button, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Paragraph, Text, Tooltip } from "figma-kit";
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
-import { type Agent, createAgentModels, openAgent } from "./agent";
+import { Button, ChevronDownIcon, ChevronLeftIcon, Dialog, IconButton, Paragraph, PlusIcon, SlidersIcon, Text, Tooltip } from "figma-kit";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Accounts, errorText } from "./accounts";
+import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { clientStorageCredentials } from "./credentials";
+import { loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
+import { ThreadList, threadTitle } from "./thread-list";
+import {
+	currentThread,
+	deleteThread,
+	forkThread,
+	newThread,
+	noteMessage,
+	renameThread,
+	selectThread,
+	type ThreadList as List,
+	Threads,
+} from "./threads";
 
 type Phase =
 	| { kind: "starting" }
 	| { kind: "failed"; message: string }
 	| { kind: "locked" }
-	| { kind: "ready"; agent: Agent };
+	| { kind: "ready"; harness: Harness };
 
 const INIT_TIMEOUT_MS = 5000;
 /** The UI source of this page: the remote UI (VPS) or the local UI (Vite dev server). */
 const uiSource = (Object.keys(UI_ORIGINS) as UiSource[]).find((source) => UI_ORIGINS[source] === location.origin);
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** The agent of a new thread: the saved model, or the default model of the first connected provider. */
+function newThreadAgent(settings: Settings, connected: ReadonlySet<string>): AgentChange | undefined {
+	if (connected.has(settings.model.provider)) return settings;
+	const provider = PROVIDERS.find((item) => connected.has(item.id));
+	return provider && { ...settings, model: { provider: provider.id, modelId: provider.defaultModel } };
+}
+
+/** Errors of actions after the start: the chat stays open. */
+const report = (error: unknown) => console.error("FigPal:", error);
 
 export function App({ bridge }: { bridge: Bridge }) {
 	const [phase, setPhase] = useState<Phase>({ kind: "starting" });
 	const [file, setFile] = useState<FileInfo>();
-	const [hasToken, setHasToken] = useState<boolean>();
-	const [tokenDialog, setTokenDialog] = useState(false);
+	const [connected, setConnected] = useState<ReadonlySet<string>>();
+	const [settings, setSettings] = useState<Settings>();
+	const [thread, setThread] = useState<Conversation>();
+	const [list, setList] = useState<List>();
+	const [showThreads, setShowThreads] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const busy = useRef(false);
 	const credentials = useMemo(() => clientStorageCredentials(bridge), [bridge]);
+	const models = useMemo(() => createAgentModels(credentials, location.origin), [credentials]);
+
+	const fail = useCallback((error: unknown) => setPhase({ kind: "failed", message: errorText(error) }), []);
+	const openExternal = useCallback(
+		(url: string) => bridge.request("open-external", { url }).catch((error) => console.error("FigPal:", error)),
+		[bridge],
+	);
+	const refreshConnected = useCallback(
+		() => credentials.list().then((list) => setConnected(new Set(list.map((info) => info.providerId))), fail),
+		[credentials, fail],
+	);
 
 	useEffect(() => {
 		if (window.parent === window) {
@@ -53,94 +94,165 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const fileId = file?.fileId;
 	useEffect(() => {
 		if (!fileId) return;
-		// The first failure stays: a later result must not hide it.
-		const fail = (error: unknown) => setPhase({ kind: "failed", message: errorText(error) });
-		credentials.read("anthropic").then((credential) => setHasToken(credential !== undefined), fail);
-		openAgent(fileId, { models: createAgentModels(credentials, location.origin), bridge }).then(
-			(agent) =>
+		void refreshConnected();
+		loadSettings(bridge).then(setSettings, fail);
+		openAgent(fileId, { models, bridge }).then(
+			// The first failure stays: a later result must not hide it.
+			(harness) =>
 				setPhase((current) =>
-					current.kind === "failed" ? current : agent === "locked" ? { kind: "locked" } : { kind: "ready", agent },
+					current.kind === "failed" ? current : harness === "locked" ? { kind: "locked" } : { kind: "ready", harness },
 				),
 			fail,
 		);
-	}, [fileId, credentials, bridge]);
+	}, [fileId, models, bridge, refreshConnected, fail]);
 
-	const saveToken = async (token: string) => {
-		await credentials.modify("anthropic", async () => ({ type: "api_key", key: token }));
-		setHasToken(true);
-	};
-	const removeToken = async () => {
-		await credentials.delete("anthropic");
-		setHasToken(false);
-	};
+	const harness = phase.kind === "ready" ? phase.harness : undefined;
+	const ready = harness !== undefined && settings !== undefined && connected !== undefined;
+	// Undefined until a provider is connected, so that the first thread gets a model that works.
+	const agent = useMemo(() => settings && connected && newThreadAgent(settings, connected), [settings, connected]);
+
+	// The open thread, once. Later changes come from the thread actions.
+	useEffect(() => {
+		if (!harness || !agent || thread) return;
+		currentThread(harness, agent).then(setThread, fail);
+	}, [harness, agent, thread, fail]);
+
+	// The thread list exists once a thread is open (currentThread makes it).
+	const hasThread = thread !== undefined;
+	useEffect(() => {
+		if (!harness || !hasThread) return;
+		let state: AttachedReplicatedState<Readonly<List> | null> | undefined;
+		let closed = false;
+		harness.documentState(Threads, context).then((attached) => {
+			if (closed) return attached?.dispose();
+			state = attached;
+			attached?.subscribe((value) => setList(value ?? undefined));
+		}, fail);
+		return () => {
+			closed = true;
+			state?.dispose();
+		};
+	}, [harness, hasThread, fail]);
 
 	if (phase.kind === "failed") return <Notice>{phase.message}</Notice>;
 	if (phase.kind === "locked")
 		return <Notice>FigPal is open for this file in another window. Close it, then run FigPal again.</Notice>;
-	if (phase.kind === "starting" || !file || hasToken === undefined) return null;
-	if (!hasToken)
+	if (!ready || !file) return null;
+
+	const accounts = (
+		<Accounts connected={connected} models={models} credentials={credentials} openExternal={openExternal} onChange={refreshConnected} />
+	);
+	if (!agent)
 		return (
-			<div className="flex h-full flex-col justify-center gap-3 p-6">
+			<div className="flex h-full flex-col justify-center gap-4 p-6">
 				<Text size="large" weight="strong">
-					Connect Claude
+					Connect a model
 				</Text>
-				<TokenForm onSave={saveToken} />
+				{accounts}
 			</div>
 		);
 
+	/** One thread action at a time: a double click must not make two threads. Then the chat shows, or the list stays. */
+	const run = (action: () => Promise<Conversation>, showChat = true) => {
+		if (busy.current) return;
+		busy.current = true;
+		action()
+			.then((next) => {
+				setThread(next);
+				if (showChat) setShowThreads(false);
+			}, fail)
+			.finally(() => {
+				busy.current = false;
+			});
+	};
+	const current = list?.threads.find((info) => info.id === thread?.id);
 	const otherUi: UiSource = uiSource === "local" ? "remote" : "local";
-	const menu = (
-		<DropdownMenu.Root>
-			<Tooltip content="More">
-				<DropdownMenu.Trigger render={<IconButton aria-label="More" />}>
-					<EllipsisIcon />
-				</DropdownMenu.Trigger>
-			</Tooltip>
-			<DropdownMenu.Portal>
-				<DropdownMenu.Positioner sideOffset={6} align="end">
-					<DropdownMenu.Popup style={{ minWidth: 180 }}>
-						<DropdownMenu.Item onClick={() => setTokenDialog(true)}>Claude token…</DropdownMenu.Item>
-						<DropdownMenu.Item onClick={() => bridge.switchUi(otherUi)}>Use the {otherUi} UI</DropdownMenu.Item>
-					</DropdownMenu.Popup>
-				</DropdownMenu.Positioner>
-			</DropdownMenu.Portal>
-		</DropdownMenu.Root>
-	);
 
 	return (
-		<>
-			<Chat
-				agent={phase.agent}
-				file={file}
-				menu={menu}
-				openExternal={(url) => bridge.request("open-external", { url }).catch((error) => console.error("FigPal:", error))}
-			/>
-			<Dialog.Root open={tokenDialog} onOpenChange={setTokenDialog}>
+		<div className="flex h-full flex-col">
+			<header className="flex h-10 shrink-0 items-center gap-1 border-b border-default px-2">
+				{showThreads ? (
+					<>
+						<IconButton aria-label="Back to the chat" onClick={() => setShowThreads(false)}>
+							<ChevronLeftIcon />
+						</IconButton>
+						<Text weight="strong">Chats</Text>
+					</>
+				) : (
+					<Button variant="text" className="min-w-0 gap-1" onClick={() => setShowThreads(true)}>
+						<span className="truncate">{threadTitle(current)}</span>
+						<ChevronDownIcon size="4" />
+					</Button>
+				)}
+				<div className="ml-auto flex gap-1">
+					<Tooltip content="New chat">
+						<IconButton aria-label="New chat" onClick={() => run(() => newThread(harness, agent))}>
+							<PlusIcon />
+						</IconButton>
+					</Tooltip>
+					<Tooltip content="Settings">
+						<IconButton aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+							<SlidersIcon />
+						</IconButton>
+					</Tooltip>
+				</div>
+			</header>
+			<main className="min-h-0 flex-1 overflow-y-auto">
+				{showThreads && list ? (
+					<ThreadList
+						list={list}
+						onOpen={(id: ConversationId) =>
+							id === thread?.id ? setShowThreads(false) : run(() => selectThread(harness, id))
+						}
+						onRename={(id, title) => renameThread(harness, id, title).catch(report)}
+						// Keep the handle of the open thread, so that its chat does not load again.
+						onDelete={(id) =>
+							run(async () => {
+								const next = await deleteThread(harness, id, agent);
+								return next.id === thread?.id ? thread : next;
+							}, false)
+						}
+					/>
+				) : (
+					thread && (
+						<Chat
+							key={thread.id}
+							thread={thread}
+							file={file}
+							models={models}
+							connected={connected}
+							openExternal={openExternal}
+							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
+							onSend={(text) => noteMessage(harness, thread.id, text).catch(report)}
+							onModelChange={(next) => {
+								setSettings(next);
+								saveSettings(bridge, next).catch(report);
+							}}
+						/>
+					)
+				)}
+			</main>
+			<Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
 				<Dialog.Portal>
 					<Dialog.Backdrop />
 					<Dialog.Popup placement="center">
 						<Dialog.Header>
-							<Dialog.Title>Claude token</Dialog.Title>
+							<Dialog.Title>Settings</Dialog.Title>
 							<Dialog.Controls>
 								<Dialog.Close />
 							</Dialog.Controls>
 						</Dialog.Header>
+						<Dialog.Section>{accounts}</Dialog.Section>
 						<Dialog.Section>
-							<TokenForm
-								onSave={async (token) => {
-									await saveToken(token);
-									setTokenDialog(false);
-								}}
-								onRemove={async () => {
-									await removeToken();
-									setTokenDialog(false);
-								}}
-							/>
+							<div className="flex items-center justify-between gap-2">
+								<Text className="text-secondary">This window uses the {uiSource} UI.</Text>
+								<Button onClick={() => bridge.switchUi(otherUi)}>Use the {otherUi} UI</Button>
+							</div>
 						</Dialog.Section>
 					</Dialog.Popup>
 				</Dialog.Portal>
 			</Dialog.Root>
-		</>
+		</div>
 	);
 }
 
@@ -149,50 +261,5 @@ function Notice({ children }: { children: ReactNode }) {
 		<div className="flex h-full items-center justify-center p-6 text-center">
 			<Paragraph>{children}</Paragraph>
 		</div>
-	);
-}
-
-function TokenForm({ onSave, onRemove }: { onSave(token: string): Promise<void>; onRemove?(): Promise<void> }) {
-	const [value, setValue] = useState("");
-	const [error, setError] = useState<string>();
-
-	const submit = (event: FormEvent) => {
-		event.preventDefault();
-		// A token copied from Terminal can contain line breaks. Tokens never contain white space.
-		const token = value.replace(/\s+/g, "");
-		if (!token.startsWith("sk-ant-")) {
-			setError("This is not a Claude token. It starts with sk-ant-.");
-			return;
-		}
-		onSave(token).catch((reason) => setError(errorText(reason)));
-	};
-
-	return (
-		<form className="flex flex-col gap-3" onSubmit={submit}>
-			<Paragraph>
-				In Terminal, run <code>claude setup-token</code>. Then paste the token here.
-			</Paragraph>
-			<Input
-				type="password"
-				aria-label="Claude token"
-				placeholder="sk-ant-oat01-…"
-				value={value}
-				onChange={(event) => {
-					setValue(event.target.value);
-					setError(undefined);
-				}}
-			/>
-			{error && <Text className="text-danger">{error}</Text>}
-			<div className="flex justify-end gap-2">
-				{onRemove && (
-					<Button type="button" onClick={() => onRemove().catch((reason) => setError(errorText(reason)))}>
-						Remove token
-					</Button>
-				)}
-				<Button type="submit" variant="primary" disabled={!value.trim()}>
-					Save
-				</Button>
-			</div>
-		</form>
 	);
 }
