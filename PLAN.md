@@ -29,6 +29,7 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 | Topic | Decision | Reason |
 |---|---|---|
 | Agent runtime | `@earendil-works/pi-durable` in the browser | It is durable, it has forks and conversations, and it runs in a browser. |
+| UI components | Chat: assistant-ui. All other UI (settings, lists, dialogs): [figma-kit](https://github.com/tigranpetrossian/figma-kit) (React, Base UI, UI3 look, Tailwind v4, MIT, beta) | The user wants a Figma look outside the chat. `@create-figma-plugin/ui` is Preact, and its last release is from 2025-08. figma-kit is React like assistant-ui, and both use Tailwind v4. The hosted page does not get Figma's tokens: import `figma-kit/figma-development-theme.css` and set the theme class from the URL hash (spike 0.16). Pin the beta version. |
 | Base code | A new, thin core. Copy selected MIT modules from figma-console-mcp and figwright when a feature needs them. | figma-console-mcp is a 59k-line Node MCP server. Its value is mostly in tool schemas (about 48k tokens). Its `EXECUTE_CODE` core is about 60 lines. A fork diverges on the first day. |
 | Figma access | One tool that runs Plugin API JavaScript (`figma_execute`), plus a screenshot tool | Frontier models know the Plugin API well. Figma's own `use_figma` uses the same model. It covers Motion, variables, components, Slots, shaders, Draw, FigJam and Slides. |
 | Plugin ID | `figpal` (development plugin, not released) | clientStorage data belongs to the plugin ID. Do not change it. |
@@ -50,17 +51,8 @@ CORS preflight results from the plugin origins (`null` and `https://www.figma.co
 |---|---|
 | `api.anthropic.com/v1/messages` | Allowed (`*`), including `x-app`, `user-agent` and `anthropic-dangerous-direct-browser-access`. Only if the request has `anthropic-dangerous-direct-browser-access` (pi-ai sends it). |
 | `api.openai.com/v1` | Allowed (`*`) |
-
-Facts from the spike (see `docs/spike.md`):
-
-- `networkAccess` does not apply to the navigated (hosted) iframe. It applies to `code.js` and to the first document.
-- Figma adds the `--figma-color-*` variables only to the first document. `code.js` gives the theme class to the hosted UI in the URL hash.
-- Figma Desktop 126 (Chromium 150) loads `http://localhost` in the plugin iframe. Local Network Access does not block it.
-- In Figma Desktop, messages from `code.js` do not come from `window.parent`. The UI checks the origin (`https://www.figma.com`), not the source window.
-- `chatgpt.com` allows CORS from `http://localhost:5173`, but not from the hosted origin.
-- A Sign in with ChatGPT token on `api.openai.com` accepts only newer models (not `gpt-4`).
 | `platform.claude.com/v1/oauth/token` | Blocked ("Disallowed CORS origin") |
-| `chatgpt.com/backend-api/codex` | Blocked ("Disallowed CORS origin") |
+| `chatgpt.com/backend-api/codex` | Blocked ("Disallowed CORS origin"). Allowed only from `http://localhost` origins. |
 | `auth.openai.com` (token, device code) | Allowed |
 | `api.githubcopilot.com`, `api.github.com/copilot_internal/v2/token` | Allowed |
 | `api.figma.com` | Allowed (`X-Figma-Token`, `Authorization`) |
@@ -70,7 +62,7 @@ Facts from the spike (see `docs/spike.md`):
 
 Other facts:
 
-- `claude setup-token` makes a long-lived `sk-ant-oat01-…` token. pi-ai sends it as a Bearer token with the browser header.
+- `claude setup-token` makes a long-lived `sk-ant-oat01-…` token. pi-ai sends it as a Bearer token. Anthropic refuses browser requests for subscription accounts, so FigPal sends Claude requests through the route `/api/anthropic`, which removes the browser headers (spike 0.3).
 - The pi-ai OAuth login modules use Node (`node:http` callback server). pi has headless logins: a Claude setup-token, a Codex device code, and the GitHub device flow.
 - The pi-ai Codex WebSocket transport sends headers. A browser WebSocket cannot send headers.
 - pi-ai has `onPayload` for Anthropic and Codex requests. pi-durable does not expose it. pi-ai does not parse server tool blocks.
@@ -79,6 +71,15 @@ Other facts:
 - `figma.fileKey` is only available to private plugins with `enablePrivatePluginApi`.
 - `figma.createImageAsync(url)` accepts PNG, JPEG and GIF up to 4096 px. The docs do not say if CORS applies.
 - Figma runs one plugin at a time in a file.
+
+Facts from the spike (see `docs/spike.md`):
+
+- `networkAccess` does not apply to the navigated (hosted) iframe. It applies to `code.js` and to the first document.
+- Figma adds the `--figma-color-*` variables only to the first document. `code.js` gives the theme class to the hosted UI in the URL hash.
+- Figma Desktop 126 (Chromium 150) loads `http://localhost` in the plugin iframe. Local Network Access does not block it.
+- In Figma Desktop, messages from `code.js` do not come from `window.parent`. The UI checks the origin (`https://www.figma.com`), not the source window.
+- `chatgpt.com` allows CORS from `http://localhost:5173`, but not from the hosted origin.
+- A Sign in with ChatGPT token on `api.openai.com` accepts only newer models (not `gpt-4`).
 
 VPS facts (read-only checks):
 
@@ -144,7 +145,7 @@ figpal/
   - `networkAccess.allowedDomains`: `https://figpal.maxschulmeister.dev`, the model APIs, `api.figma.com`, GitHub, the image and search services. Use `"*"` with a `reasoning` text if the list becomes too long.
   - `devAllowedDomains`: `http://localhost:<port>` for the UI dev server.
 - `code.ts`:
-  - `figma.showUI('<script>location.href="https://figpal.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. The menu command **FigPal (dev server)** uses the local dev server URL instead.
+  - `figma.showUI('<script>location.href="https://figpal.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. A setting in clientStorage (`figpal.ui`: `remote` or `local`) selects the UI URL. `local` is the Vite dev server. The window title shows the setting ("FigPal (remote)"). The page and the offline page can switch it.
   - **Load check:** `code.js` waits for a `ready` message from the UI. If no message comes in time, it shows a small local page: "Cannot reach FigPal. Connect Tailscale and run the plugin again."
   - Message router with request IDs.
   - **Execute:** wrap the code in an async IIFE and run it with indirect `eval` (global scope, no access to the plugin's locals). Top-level `await` and `return` are supported. The result is JSON. There is a timeout and an output limit (about 20 KB, like `use_figma`). Copy the result analysis from figma-console-mcp `code.js` (MIT).
@@ -173,7 +174,7 @@ figpal/
 
 - A credential store in clientStorage, by provider.
 - **Claude:** you paste the token from `claude setup-token`. No refresh is needed. A browser port of Pi Black wraps the Anthropic provider for OAuth request compatibility (Claude Code `2.1.280`). API-key requests stay unchanged. See [Pi Black integration](docs/pi-black.md) for the pinned source, checks, and limits.
-- **ChatGPT:** first choice (spike 0.4 B): pi-ai's "Sign in with ChatGPT" for `api.openai.com`, which allows CORS. The user pastes the `127.0.0.1:1455` redirect URL. Then no `chatgpt.com` route is necessary. Fallback: device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference first tries a direct call. If CORS blocks it, the provider base URL changes to the Caddy route `/api/chatgpt/backend-api`.
+- **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference goes through the route `/api/chatgpt/backend-api` (Caddy, and the dev server), because `chatgpt.com` allows CORS only from `localhost` (spike 0.4). pi-ai's "Sign in with ChatGPT" (`api.openai.com`) fails from the remote origin.
 - **API keys:** for every provider that allows browser calls.
 - **Provider wrapper:** wrap the pi-ai provider to add server tools with `onPayload`:
   - Anthropic: `web_search_20250305`, `web_fetch_20250910`.
@@ -427,7 +428,7 @@ Checks:
 
 - Run in background (hidden UI).
 - Domain migration and export/import.
-- Light and dark theme with Figma theme colors.
+- Light and dark theme: figma-kit tokens, theme class from the URL hash (spike 0.16).
 - Token budget check.
 
 Checks:
@@ -449,7 +450,7 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 |---|---|---|
 | pi-durable is experimental, and its API changes without notice | Breaks on upgrade | Pin the version. Put the pi-durable API behind a small adapter. |
 | Subscription terms of the providers | Account risk | Check the terms. Keep API keys as an alternative. |
-| Browser drops the `user-agent` header for Claude subscription calls | Claude calls can fail | Spike 0.3. Fallback: a Caddy route to `api.anthropic.com` that sets the header. |
+| Anthropic refuses browser requests for Claude subscription accounts ("CORS requests are not allowed for this Organization"). Chromium also replaces the `user-agent` that the page sets. | No direct Claude calls from the UI | Spike 0.3: the route `/api/anthropic` (dev server and Caddy) removes the browser headers and sets the Claude Code user-agent. |
 | ChatGPT inference blocked by CORS | No direct ChatGPT | Caddy route. Cloudflare in front of `chatgpt.com` can challenge VPS IPs. |
 | VPS is down or Tailscale is off | The plugin cannot load its UI | Caddy runs as a system service. The plugin shows "Connect Tailscale". Later: a service worker caches the UI. |
 | Figma Desktop does not use the Tailscale DNS | The UI does not load | Spike 0.13. Fallback: a Tailscale-only Caddy site on the `ts.maxschulmeister.dev` names, or the Tailscale IP with its own certificate. |
@@ -471,6 +472,11 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 - Credentials stay in `figma.clientStorage`, also if `figma_execute` code can read them.
 - VPS setup done: CoreDNS line, Caddy block (`deploy/Caddyfile.figpal`), `/srv/figpal`.
 - Run the `simplify` review after each phase.
+
+2026-10-30:
+
+- The hosted UI stays (no local server that must always run). A UI inside the plugin (null origin) has no IndexedDB, and it cannot call Claude.
+- Claude goes through the route `/api/anthropic`: in the dev server and in Caddy on the VPS. The token passes through the VPS. Caddy does not store it.
 
 ## Open questions
 

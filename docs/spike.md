@@ -1,6 +1,6 @@
 # Phase 0 spike
 
-Status: in progress. The VPS setup is done (2026-10-29). Most checks in Figma Desktop are open.
+Status: **done** (2026-10-30). All checks pass on the remote UI in Figma Desktop 126.10.13. The `simplify` review ran after the phase.
 
 ## How to run
 
@@ -8,7 +8,7 @@ Status: in progress. The VPS setup is done (2026-10-29). Most checks in Figma De
 
 1. `pnpm install`, then `pnpm dev`. This starts Vite on `http://localhost:5173` and builds `plugin/dist/code.js`.
 2. In Figma Desktop: **Plugins → Development → Import plugin from manifest…** and select `plugin/manifest.json`.
-3. Open a test file (not a work file). Run **FigPal → FigPal (dev server)**.
+3. Open a test file (not a work file). Run **FigPal**. If the window title is "FigPal (remote)", click **Use the local UI** at the top of the page. The setting stays in clientStorage.
 4. Click the checks on the page. In dev mode, the page also writes the results to `docs/spike-results.local.json`.
 
 The **faux/script** model needs no token: `run: <code>` calls `figma_execute` with the code. Other text gets an echo.
@@ -17,7 +17,7 @@ The **faux/script** model needs no token: `run: <code>` calls `figma_execute` wi
 
 1. VPS setup (done): the CoreDNS line in `deploy/coredns-hosts.txt`, the Caddy block in `deploy/Caddyfile.figpal`, the folder `/srv/figpal`. Backups: `/etc/caddy/Caddyfile.bak-figpal-20261029-230459`, `/etc/coredns/Corefile.bak-figpal-20261029-230549`.
 2. `pnpm deploy:web`.
-3. Run **FigPal → FigPal** and do the checks. Use **Copy as Markdown** to get the results (the dev route does not exist on the VPS).
+3. Run **FigPal**. If the window title is "FigPal (local)", click **Use the remote UI**. Then do the checks. Use **Copy as Markdown** to get the results (the dev route does not exist on the VPS).
 
 Before and after the VPS change, a read-only check compared all Caddy sites (status codes), the Stalwart ports (25, 465, 993, 4190: greetings and certificate) and CoreDNS answers. The only differences were the new `figpal` site and DNS name. The adapted Caddy JSON was the same as before, except the new route and new internal group names. The `layer4` (Stalwart) and TLS configuration did not change.
 
@@ -28,22 +28,22 @@ Before and after the VPS change, a read-only check compared all Caddy sites (sta
 | # | Check | Result | Notes |
 |---|---|---|---|
 | 0.0 | Messages between code.js and the UI | **Pass** | First local run: the UI did not get the replies, because it required `event.source === window.parent`. Second local run: the replies come from another window (`fromParent: false`). The page is three levels deep in `https://www.figma.com` frames. The UI now checks only the origin. |
-| 0.1 | IndexedDB in the hosted iframe | Open | Local run: the visit count goes up between plugin runs. Needs a restart of Figma Desktop, on the hosted origin. |
+| 0.1 | IndexedDB in the hosted iframe | **Pass** | Remote: a mark that the page saved before a restart of Figma Desktop was still there after the restart. `navigator.storage.persist()` returns `false` in the Figma iframe, so the browser can still clear the data under storage pressure. Keep export and import (Phase 7). |
 | 0.2 | `networkAccess` with a hosted iframe | **Changed** | Local run: `example.com` (not in the list) was not blocked, no CSP violation. `networkAccess` does not apply to a navigated iframe. It applies to `code.js` (for example `createImageAsync`) and to the first document. |
-| 0.3 | Claude setup-token | Fail, open | Local run: `401 invalid x-api-key`. pi-ai sent the key as an API key, because it did not contain `sk-ant-oat` (pi-ai's test for a setup-token). The page now removes white space from the token and shows its first 13 characters and length. Needs a new run. |
-| 0.4 | ChatGPT | Partly | Local run: device code login, Codex direct, Codex through the Vite route and **Sign in with ChatGPT** work. The `api.openai.com` call failed only for the model: "The 'gpt-4' model is not supported when using Codex with a ChatGPT account". The quick test now uses `gpt-5.6-luna`. Codex direct works only on `localhost`: `chatgpt.com` allows CORS for `http://localhost:5173`, not for `https://figpal.maxschulmeister.dev`. The VPS route reaches `chatgpt.com` (unauthenticated: 401 JSON, no Cloudflare challenge). See [ChatGPT](#chatgpt). |
+| 0.3 | Claude setup-token | **Pass** | First runs: `401 invalid x-api-key` (the saved key was not a setup-token), then `401 CORS requests are not allowed for this Organization` with a correct `sk-ant-oat01-…` token, local and remote. Anthropic refuses browser requests for this subscription account; Pi Black does not change that. Fix: the route `/api/anthropic` (dev server and Caddy) sends the request without the browser headers and with the Claude Code user-agent (Chromium replaces the user-agent that the page sets). 2026-10-30: pass local and remote (`claude-haiku-5-5`, streamed). |
+| 0.4 | ChatGPT | **Pass (path A)** | Device code login works local and remote. Codex through the route works local (Vite) and remote (Caddy, no Cloudflare challenge). Codex direct works only on `localhost`: `chatgpt.com` allows CORS for `http://localhost:5173`, not for the remote origin. **Sign in with ChatGPT** (path B) logs in local and remote, and its `api.openai.com` call works local, but fails remote with "Connection error". The preflight allows the remote origin, so the ChatGPT backend probably limits CORS to `localhost`, like `chatgpt.com`. Decision: path A (device code + `/api/chatgpt` route). |
 | 0.5 | pi-durable browser bundle | **Pass** | Vite 8 build: main chunk 455 kB (125 kB gzip). Lazy: Anthropic SDK 210 kB (55 kB gzip), OpenAI SDK 278 kB (70 kB gzip), Codex 23 kB. Total `dist` 1.0 MB. No QuickJS or Photon (not imported). Chrome: Harness, `IndexedDbStorage` and the Web Lock work. |
-| 0.6 | Execute | **Pass** | Local run: sample card, output limit, syntax error, `?.` and `??`, timeout, the block during the late run and its end. The sandbox error texts look like QuickJS ("unexpected token in expression"). The AsyncFunction constructor is **not** blocked. A synchronous endless loop cannot time out. |
-| 0.7 | Resume | Partly | Chrome with the faux model: a reload during `figma_execute` gives the `interrupted` result, and the run continues. Needs the test in Figma (close the plugin). |
-| 0.8 | Provider-native search | Open | Needs a token. |
-| 0.9 | `createImageAsync` | Open | Test URLs: `www.google.com` (no CORS header), `upload.wikimedia.org` (CORS `*`), `placehold.co` (not in `allowedDomains`). |
+| 0.6 | Execute | **Pass** | Local and remote runs: sample card, output limit, syntax error, `?.` and `??`, timeout, the block during the late run and its end. The sandbox error texts look like QuickJS ("unexpected token in expression"). The AsyncFunction constructor is **not** blocked. A synchronous endless loop cannot time out. |
+| 0.7 | Resume | **Pass** | Chrome with the faux model, and remote in Figma Desktop: closing the plugin during `figma_execute` gives the `interrupted` result, and the run continues after the next start. |
+| 0.8 | Provider-native search | **Pass** | Remote: Claude (`claude-sonnet-5-5`, `web_search_20250305`) and ChatGPT (Codex `gpt-5.6-luna` through the route, `{ type: "web_search" }`). pi-ai keeps the text and the source URLs. |
+| 0.9 | `createImageAsync` | **Pass** | Remote: `createImageAsync` works with a host without CORS headers (`www.google.com`) and with a CORS host. A host that is not in `allowedDomains` fails: "does not satisfy the allowedDomains specified in the manifest.json". The UI cannot fetch a host without CORS headers. The UI bytes → `createImage` path works for CORS hosts. So images from any URL need `allowedDomains: ["*"]` (with `reasoning`) in Phase 5. |
 | 0.10 | `figma.fileKey` | **Pass** | Local run: `figma.fileKey` is available. FigPal uses it as the file ID. |
-| 0.11 | Hidden UI | Open | The Figma docs say that a hidden UI keeps running. |
-| 0.12 | `frame-ancestors` | Open | Caddy sends the header only for `/?csp=1` (button "0.12"), so a failure does not hide 0.13. |
-| 0.13 | Tailscale DNS in Figma Desktop | Partly | VPS: tailnet → 200, public IP → 404, Let's Encrypt certificate obtained. This Mac resolves the name to `100.110.230.14`. Local run: Figma Desktop loaded `http://localhost:5173`, so Local Network Access does not block the iframe (see below). Needs a hosted run. |
-| 0.14 | Tailscale off | Open | The plugin shows a local page after 10 s with a "Try again" button. |
-| 0.15 | skills.sh | **Pass** | Search and download have no CORS header: the Caddy route is necessary. The route works (Vite proxy in the local run, and Caddy on the VPS). Download format: `{ files: [{ path, contents }], hash }`. GitHub fallback works (Trees API and raw files, CORS `*`). |
-| 0.16 | Theme colors in the hosted iframe | Fails, workaround open | Local runs: no `--figma-color-*` variables in the navigated page, and the first document has no theme class when its script starts. The Figma docs say: do not use `themeColors` if the UI navigates. Workaround: the first document waits for the class (at most 500 ms) and gives it to the page in the URL hash. Tested in Chrome. Needs a new run. |
+| 0.11 | Hidden UI | **Pass** | Remote: while hidden, the page keeps running, but Chromium slows its timers (12 of 22 ticks of 500 ms in 11 s, about 1 per second). A fetch while hidden works. A run continues, slower. |
+| 0.12 | `frame-ancestors` | **Pass** | Remote: Figma Desktop shows the page with `Content-Security-Policy: frame-ancestors https://www.figma.com`. Caddy now sends the header on every response (2026-10-30). |
+| 0.13 | Tailscale DNS in Figma Desktop | **Pass** | Remote run: Figma Desktop loaded `https://figpal.maxschulmeister.dev` (Tailscale address) and `code.js` answered. VPS: public IP → 404. Local Network Access does not block the Tailscale address or `localhost`. |
+| 0.14 | Tailscale off | **Pass** | Remote: with Tailscale off, the error page shows after 10 s. It has **Try again** and **Use the local UI**. |
+| 0.15 | skills.sh | **Pass** | Search and download have no CORS header: the route is necessary. Local (Vite) and remote (Caddy) routes work. Download format: `{ files: [{ path, contents }], hash }`. GitHub fallback works (Trees API and raw files, CORS `*`); the repo has more than one `figma-use/SKILL.md`, so the fallback must select the right path. |
+| 0.16 | Theme colors in the hosted iframe | **Pass with workaround** | No `--figma-color-*` variables in the navigated page, and the first document has no theme class when its script starts. The Figma docs say: do not use `themeColors` if the UI navigates. Workaround (works, local and remote): the first document waits for the class (at most 500 ms) and gives it to the page in the URL hash. The page must supply the token values itself (see the UI library decision in the plan). The "0.12" reload lost the URL hash once and recorded "none"; the button now keeps the hash. |
 
 ## Findings
 
@@ -51,12 +51,9 @@ Before and after the VPS change, a read-only check compared all Caddy sites (sta
 
 Chrome blocks a page on a public origin (`www.figma.com`) when it opens a local address in an iframe: `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` for `http://localhost:5173` in the Chrome test. The Tailscale IP `100.110.230.14` is in `100.64.0.0/10`, which is also a local address for this feature. A cross-origin iframe gets the permission only with `allow="local-network-access"` on the iframe, and Figma controls the plugin iframe.
 
-Figma Desktop 126 runs Electron 43 (Chromium 150). The local run loaded `http://localhost:5173` in the plugin iframe, so Figma Desktop does not block it. The hosted run must confirm this for `100.110.230.14`.
+Figma Desktop 126 runs Electron 43 (Chromium 150). Figma Desktop loaded `http://localhost:5173` (local run) and `https://figpal.maxschulmeister.dev` on `100.110.230.14` (remote run, 0.13). So Figma Desktop does not block local addresses.
 
-If Figma Desktop blocks the Tailscale address:
-
-- Serve the static files on the public IP, without the Tailscale limit. The files contain no secrets. Keep only the routes that are safe as public routes (skills.sh). Remove the `chatgpt.com` route.
-- Or a bundled UI with a separate storage page (option B in the decision log).
+If a later Figma Desktop version blocks the Tailscale address: serve the static files on the public IP (they contain no secrets), or use a bundled UI with a separate storage page (option B in the decision log).
 
 ### ChatGPT
 
@@ -65,7 +62,7 @@ pi-ai 1.4.0 calls the Codex provider "legacy". Its OpenAI provider has **Sign in
 - A: Codex device code, inference directly and through `/api/chatgpt/*`.
 - B: Sign in with ChatGPT, inference directly on `api.openai.com`.
 
-Result (local run): A and B log in. B accepts only newer models (for example `gpt-5.6-luna`, not `gpt-4`). If the B call works with such a model, FigPal needs no `chatgpt.com` route.
+Result: A works local and remote (through the route). B logs in, and its call works local (only newer models such as `gpt-5.6-luna`), but fails remote ("Connection error"). Decision: A, with the `/api/chatgpt` route.
 
 ### Credentials and model code
 
@@ -75,7 +72,7 @@ Result (local run): A and B log in. B accepts only newer models (for example `gp
 
 - The Codex provider has only OAuth auth, and its OAuth module needs Node. pi-ai then ignores an explicit `apiKey` ("Provider is not configured"). The spike gives the provider an API key auth that takes the access token.
 - The Anthropic and OpenAI providers accept an explicit `apiKey`.
-- Claude OAuth requests now use the browser port of [Pi Black](pi-black.md). The adapter passes fake-transport tests with pi-ai and pi-durable 1.4.0. An OPTIONS preflight allows its new headers. Live subscription inference (0.3) and native search (0.8) are still open.
+- Claude OAuth requests now use the browser port of [Pi Black](pi-black.md). The adapter passes fake-transport tests with pi-ai and pi-durable 1.4.0. Live subscription inference (0.3) and native search (0.8) pass through the route `/api/anthropic`.
 
 ### pi-durable
 
@@ -85,8 +82,8 @@ Result (local run): A and B log in. B accepts only newer models (for example `gp
 
 ## Changes to the plan
 
-- Facts: the AsyncFunction constructor is not blocked. Anthropic CORS needs the browser header. skills.sh has no CORS header, so the `/api/skills/*` route is necessary.
+- Facts: the AsyncFunction constructor is not blocked. Anthropic refuses browser requests for subscription accounts, so Claude goes through `/api/anthropic`. skills.sh has no CORS header, so the `/api/skills/*` route is necessary.
 - `networkAccess` does not restrict the hosted UI (0.2).
 - Theme: the hosted UI gets the theme from the URL hash (0.16).
 - Phase 2: no `readOnly` option in `IndexedDbStorage`.
-- 0.4: test Sign in with ChatGPT first. If it works, remove the `chatgpt.com` route.
+- ChatGPT: device code login and the `/api/chatgpt` route (0.4). Sign in with ChatGPT fails from the remote origin.
