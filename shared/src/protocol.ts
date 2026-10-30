@@ -12,8 +12,10 @@ export const UI_ORIGINS = {
 } as const;
 export type UiSource = keyof typeof UI_ORIGINS;
 
-/** Limits of `figma_execute`: code.js applies them, and the tool description tells the model. */
+/** Limits that code.js applies. The tool descriptions tell the model. */
 export const EXECUTE_TIMEOUT_MS = { default: 30_000, max: 300_000 } as const;
+export const EXECUTE_OUTPUT_LIMIT = 20_000;
+export const SCREENSHOT_MAX_PX = 2048;
 
 /** code.js gives the UI Figma's theme class (`figma-light` or `figma-dark`) in this URL hash parameter. */
 export const THEME_HASH_KEY = "figma-theme";
@@ -23,9 +25,7 @@ export type NodeSummary = { id: string; name: string; type: string };
 export type FileInfo = {
 	/** `figma.fileKey` if the plugin can read it, else a UUID kept in the document. */
 	fileId: string;
-	fileKey: string | null;
 	fileName: string;
-	editorType: string;
 	page: NodeSummary;
 	selection: NodeSummary[];
 };
@@ -34,13 +34,11 @@ export type Attachment = { name: string; mime: string; bytes: Uint8Array };
 
 /** Requests from the UI and the result that each one returns. */
 export type Requests = {
-	execute: { params: { code: string; timeoutMs?: number }; result: { value: string; truncated: boolean } };
+	execute: { params: { code: string; timeoutMs?: number }; result: { value: string } };
 	screenshot: { params: { nodeId?: string; scale?: number }; result: { nodeId: string; width: number; height: number } };
 	"storage-get": { params: { key: string }; result: unknown };
 	"storage-set": { params: { key: string; value: unknown }; result: null };
 	"storage-delete": { params: { key: string }; result: null };
-	"create-image": { params: { url?: string; bytes?: Uint8Array }; result: { nodeId: string } };
-	hide: { params: { ms: number }; result: null };
 	"open-external": { params: { url: string }; result: null };
 };
 export type RequestType = keyof Requests;
@@ -76,8 +74,6 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	"storage-get": true,
 	"storage-set": true,
 	"storage-delete": true,
-	"create-image": true,
-	hide: true,
 	"open-external": true,
 };
 
@@ -89,12 +85,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function isUiToPlugin(value: unknown): value is UiToPlugin {
 	if (!isRecord(value)) return false;
 	if (value.kind === "ready" || value.kind === "retry") return true;
-	if (value.kind === "switch-ui") return typeof value.ui === "string" && Object.prototype.hasOwnProperty.call(UI_ORIGINS, value.ui);
+	if (value.kind === "switch-ui") return typeof value.ui === "string" && Object.keys(UI_ORIGINS).includes(value.ui);
 	return (
 		value.kind === "request" &&
 		typeof value.id === "string" &&
 		typeof value.type === "string" &&
-		Object.prototype.hasOwnProperty.call(REQUEST_TYPES, value.type) &&
+		Object.keys(REQUEST_TYPES).includes(value.type) &&
 		isRecord(value.params)
 	);
 }

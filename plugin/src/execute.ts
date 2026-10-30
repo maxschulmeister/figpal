@@ -1,8 +1,6 @@
 // Runs Plugin API JavaScript from the model. Pure logic, so tests can run it without Figma.
 
-import { type Attachment, EXECUTE_TIMEOUT_MS, type NodeSummary, type Result } from "@figpal/shared";
-
-const OUTPUT_LIMIT = 20_000;
+import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, type NodeSummary, type Result } from "@figpal/shared";
 
 type Helpers = {
 	/** Sends a file to the UI with the result. */
@@ -27,6 +25,7 @@ export class ExecuteTimeout extends Error {
  * Indirect `eval` runs in the global scope, so the code cannot see the locals of the plugin.
  */
 function compile(code: string): (figma: unknown, pi: Helpers) => Promise<unknown> {
+	// biome-ignore lint/security/noGlobalEval: figma_execute exists to run the model's code.
 	const indirectEval = eval;
 	return indirectEval(`(async function (figma, pi) {\n${code}\n})`);
 }
@@ -57,15 +56,12 @@ export async function execute(
 }
 
 /** JSON for the model, with nodes as `{ id, name, type }` and an output limit. */
-export function serialize(value: unknown, limit = OUTPUT_LIMIT): Result<"execute"> {
-	if (value === undefined) return { value: "undefined (use `return` to send a value)", truncated: false };
+export function serialize(value: unknown, limit = EXECUTE_OUTPUT_LIMIT): Result<"execute"> {
+	if (value === undefined) return { value: "undefined (use `return` to send a value)" };
 	// No indentation: it makes the output up to 2 times larger, and each result stays in the transcript.
 	const json = JSON.stringify(value, replacer) ?? String(value);
-	if (json.length <= limit) return { value: json, truncated: false };
-	return {
-		value: `${json.slice(0, limit)}\n… [output truncated: ${json.length} characters, limit ${limit}]`,
-		truncated: true,
-	};
+	if (json.length <= limit) return { value: json };
+	return { value: `${json.slice(0, limit)}\n… [output truncated: ${json.length} characters, limit ${limit}]` };
 }
 
 function replacer(_key: string, value: unknown): unknown {

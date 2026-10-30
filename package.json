@@ -8,9 +8,11 @@
 		"build": "pnpm --filter @figpal/plugin build && pnpm --filter @figpal/web build",
 		"test": "vitest run",
 		"typecheck": "pnpm -r typecheck",
+		"lint": "biome lint",
 		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
 		"typescript": "^5.9.3",
 		"vitest": "^4.1.12"
 	}

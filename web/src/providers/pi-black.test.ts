@@ -1,11 +1,10 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { type Context, InMemoryCredentialStore, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSpikeModels, requestSettings } from "../spike/agent";
 import { wrapAnthropicProvider } from "./pi-black";
 
 const context: Context = {
@@ -44,24 +43,27 @@ function captureRequests() {
 	return requests;
 }
 
-async function send(options: SimpleStreamOptions = {}) {
-	const models = createSpikeModels();
+/** A model collection with Pi Black around the Anthropic provider, and `key` as the saved credential. */
+async function piBlackModels(key: string) {
+	const credentials = new InMemoryCredentialStore();
+	await credentials.modify("anthropic", async () => ({ type: "api_key", key }));
+	const models = createModels({ credentials });
+	models.setProvider(wrapAnthropicProvider(anthropicProvider()));
+	return models;
+}
+
+async function send(key: string, options: SimpleStreamOptions = {}) {
+	const models = await piBlackModels(key);
 	const model = models.getModel("anthropic", "claude-sonnet-5-5")!;
 	return models.streamSimple(model, context, { maxTokens: 32, maxRetries: 0, sessionId: "durable-conversation", ...options }).result();
 }
 
-afterEach(() => {
-	requestSettings.keys = {};
-	requestSettings.anthropicBaseUrl = undefined;
-	requestSettings.nativeSearch = false;
-	vi.unstubAllGlobals();
-});
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Pi Black in the pi-durable model collection", () => {
 	it("sends Claude OAuth compatibility fields and keeps the streamed answer and usage", async () => {
-		requestSettings.keys.anthropic = "sk-ant-oat01-test";
 		const requests = captureRequests();
-		const result = await send();
+		const result = await send("sk-ant-oat01-test");
 		expect(result.stopReason).toBe("stop");
 		expect(result.content).toEqual([{ type: "text", text: "PROBE_OK" }]);
 		expect(result.usage).toMatchObject({ input: 10, output: 3 });
@@ -80,9 +82,8 @@ describe("Pi Black in the pi-durable model collection", () => {
 	});
 
 	it("leaves API-key requests equal to the built-in provider", async () => {
-		requestSettings.keys.anthropic = "sk-ant-api03-test";
 		const requests = captureRequests();
-		await send();
+		await send("sk-ant-api03-test");
 		const baseline = createModels();
 		baseline.setProvider(anthropicProvider());
 		await baseline.streamSimple(baseline.getModel("anthropic", "claude-sonnet-5-5")!, context, {
@@ -96,10 +97,11 @@ describe("Pi Black in the pi-durable model collection", () => {
 	});
 
 	it("keeps native search in OAuth requests", async () => {
-		requestSettings.keys.anthropic = "sk-ant-oat01-test";
-		requestSettings.nativeSearch = true;
 		const requests = captureRequests();
-		await send();
+		const search = { type: "web_search_20250305", name: "web_search", max_uses: 3 };
+		await send("sk-ant-oat01-test", {
+			onPayload: (payload) => ({ ...(payload as object), tools: [...((payload as { tools?: unknown[] }).tools ?? []), search] }),
+		});
 		expect(requests[0]!.body.tools).toContainEqual({ type: "web_search_20250305", name: "web_search", max_uses: 3 });
 		expect(requests[0]!.body.system[0]!.text).toMatch(/cch=[0-9a-f]{5};$/);
 	});
@@ -145,17 +147,6 @@ describe("Pi Black in the pi-durable model collection", () => {
 		expect(requests[0]!.headers.get("x-client-request-id")).not.toBe(requests[1]!.headers.get("x-client-request-id"));
 	});
 
-	it("sends OAuth requests through the local route with the Claude Code user-agent", async () => {
-		requestSettings.keys.anthropic = "sk-ant-oat01-test";
-		requestSettings.anthropicBaseUrl = "http://localhost:5173/api/anthropic";
-		const requests = captureRequests();
-		const result = await send();
-		expect(result.content).toEqual([{ type: "text", text: "PROBE_OK" }]);
-		expect(requests[0]!.url).toMatch(/^http:\/\/localhost:5173\/api\/anthropic\/v1\/messages(\?|$)/);
-		expect(requests[0]!.headers.get("x-figpal-user-agent")).toMatch(/^claude-cli\/2\.1\.280 /);
-		expect(requests[0]!.body.system[0]!.text).toMatch(/^x-anthropic-billing-header: /);
-	});
-
 	// The SDK turns an error from fetch into "Connection error.", which pi-ai retries. A Pi Black error stays.
 	it("gives a Pi Black error back as a request error, without a retry", async () => {
 		const requests = captureRequests();
@@ -175,19 +166,10 @@ describe("Pi Black in the pi-durable model collection", () => {
 		expect(requests).toHaveLength(0);
 	});
 
-	it("keeps other providers available without the Anthropic transport", async () => {
-		requestSettings.keys.faux = "sk-ant-oat01-test";
-		const requests = captureRequests();
-		const models = createSpikeModels();
-		const result = await models.streamSimple(models.getModel("faux", "script")!, context).result();
-		expect(result.content).toEqual([{ type: "text", text: "Echo: Reply with exactly: PROBE_OK" }]);
-		expect(requests).toHaveLength(0);
-	});
-
 	it("uses the same pi-durable session header for later messages in a conversation", async () => {
-		requestSettings.keys.anthropic = "sk-ant-oat01-test";
 		const requests = captureRequests();
-		const harness = await Harness.open(new MemoryStorage(), { models: createSpikeModels(), registry: createRegistry() }, BACKGROUND_CONTEXT);
+		const models = await piBlackModels("sk-ant-oat01-test");
+		const harness = await Harness.open(new MemoryStorage(), { models, registry: createRegistry() }, BACKGROUND_CONTEXT);
 		try {
 			const root = await harness.root(BACKGROUND_CONTEXT, { agent: { model: { provider: "anthropic", modelId: "claude-sonnet-5-5" } } });
 			for (const content of ["Reply with exactly: PROBE_OK", "Again"]) {

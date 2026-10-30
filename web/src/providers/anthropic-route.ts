@@ -3,6 +3,8 @@
 // api.anthropic.com without the browser headers: the dev server (web/vite.config.ts) and Caddy on the VPS
 // (deploy/Caddyfile.figpal).
 
+import type { Api, Model, Provider } from "@earendil-works/pi-ai";
+
 export const ANTHROPIC_ROUTE = "/api/anthropic";
 
 /** The browser replaces the user-agent that pi-ai and Pi Black set. The route sets it again from this header. */
@@ -31,3 +33,17 @@ export const fetchAsServer: typeof fetch = (input, init) => {
 	for (const [name, value] of Object.entries(NODE_PLATFORM_HEADERS)) if (headers.has(name)) headers.set(name, value);
 	return fetch(input, { ...init, headers });
 };
+
+/**
+ * Sends the requests of an Anthropic provider to the route at `baseUrl` with `fetchAsServer`. Wrap it around Pi Black:
+ * Pi Black then wraps `fetchAsServer`.
+ */
+export function throughRoute(provider: Provider, baseUrl: string): Provider {
+	return {
+		...provider,
+		stream: (model, context, options) =>
+			provider.stream({ ...model, baseUrl } as Model<Api>, context, { ...options, fetch: fetchAsServer }),
+		streamSimple: (model, context, options) =>
+			provider.streamSimple({ ...model, baseUrl }, context, { ...options, fetch: fetchAsServer }),
+	};
+}

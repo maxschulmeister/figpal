@@ -7,19 +7,8 @@
 	"documentAccess": "dynamic-page",
 	"enablePrivatePluginApi": true,
 	"networkAccess": {
-		"allowedDomains": [
-			"https://figpal.maxschulmeister.dev",
-			"https://api.anthropic.com",
-			"https://api.openai.com",
-			"https://auth.openai.com",
-			"https://chatgpt.com",
-			"https://api.github.com",
-			"https://raw.githubusercontent.com",
-			"https://skills.sh",
-			"https://upload.wikimedia.org",
-			"https://www.google.com"
-		],
-		"reasoning": "FigPal loads its UI from figpal.maxschulmeister.dev and calls model, skill and image services.",
+		"allowedDomains": ["https://figpal.maxschulmeister.dev"],
+		"reasoning": "FigPal loads its UI from figpal.maxschulmeister.dev. The UI makes the model calls.",
 		"devAllowedDomains": ["http://localhost:5173", "ws://localhost:5173"]
 	}
 }

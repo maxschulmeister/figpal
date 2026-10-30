@@ -52,7 +52,6 @@ describe("serialize", () => {
 
 	it("truncates long output", () => {
 		const result = serialize("x".repeat(100), 10);
-		expect(result.truncated).toBe(true);
 		expect(result.value).toMatch(/output truncated: 102 characters, limit 10/);
 	});
 });

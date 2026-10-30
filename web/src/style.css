@@ -1,24 +1,36 @@
-:root {
-	color-scheme: light dark;
-	font: 12px/1.5 Inter, system-ui, sans-serif;
-	color: var(--figma-color-text, CanvasText);
-	background: var(--figma-color-bg, Canvas);
+@import "tailwindcss";
+@import "figma-kit/tailwind.css";
+/* The hosted page does not get Figma's color variables (spike 0.16). This file has them, for the theme class that
+   code.js gives in the URL hash. */
+@import "figma-kit/figma-development-theme.css";
+
+html,
+body,
+#app {
+	height: 100%;
+	margin: 0;
 }
-body { margin: 0; padding: 12px; }
-h1 { font-size: 14px; margin: 0 0 4px; }
-h2 { font-size: 12px; margin: 16px 0 6px; }
-section { border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
-.muted { opacity: 0.7; margin: 4px 0; }
-.small, small { font-size: 11px; }
-.row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; align-items: center; }
-input, textarea, select { font: inherit; box-sizing: border-box; }
-input[type="text"], input[type="password"] { flex: 1; min-width: 160px; }
-textarea { width: 100%; font-family: ui-monospace, monospace; }
-button { font: inherit; padding: 4px 10px; }
-pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; max-height: 320px; overflow: auto; margin: 6px 0; }
-table { width: 100%; border-collapse: collapse; }
-td, th { text-align: left; vertical-align: top; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent); }
-tr.pass td:nth-child(3) { color: #0a7d32; }
-tr.fail td:nth-child(3) { color: #c0262d; }
-ol.open li { margin-bottom: 6px; }
-small.fail { color: #c0262d; }
+
+body {
+	background: var(--figma-color-bg);
+	color: var(--figma-color-text);
+	font-family: var(--font-sans);
+}
+
+/* Markdown in answers. */
+.markdown {
+	> :first-child { margin-top: 0; }
+	> :last-child { margin-bottom: 0; }
+	p, ul, ol, pre, table, blockquote { margin: 0 0 0.5rem; }
+	ul, ol { padding-left: 1.25rem; }
+	ul { list-style: disc; }
+	ol { list-style: decimal; }
+	h1, h2, h3, h4 { font-weight: 550; margin: 0.75rem 0 0.25rem; }
+	a { color: var(--figma-color-text-brand); cursor: pointer; }
+	code { font-family: var(--font-mono); font-size: 0.92em; }
+	:not(pre) > code { background: var(--figma-color-bg-secondary); border-radius: 0.125rem; padding: 0 0.2em; }
+	pre { background: var(--figma-color-bg-secondary); border-radius: 0.3125rem; overflow-x: auto; padding: 0.5rem; }
+	table { border-collapse: collapse; }
+	th, td { border: 1px solid var(--figma-color-border); padding: 0.125rem 0.375rem; text-align: left; }
+	blockquote { border-left: 2px solid var(--figma-color-border-strong); color: var(--figma-color-text-secondary); padding-left: 0.5rem; }
+}

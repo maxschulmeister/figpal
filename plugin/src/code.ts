@@ -4,6 +4,7 @@ import {
 	type Attachment,
 	type FileInfo,
 	isUiToPlugin,
+	SCREENSHOT_MAX_PX,
 	type NodeSummary,
 	type Params,
 	type PluginToUi,
@@ -22,7 +23,6 @@ const UI_OPTIONS: ShowUIOptions = { width: 420, height: 680, themeColors: true }
 const LOAD_TIMEOUT_MS = 10_000;
 const UI_KEY = "figpal.ui";
 const FILE_ID_KEY = "figpal.fileId";
-const MAX_SCREENSHOT_PX = 2048;
 const MAX_SELECTION = 50;
 
 /** A setting in clientStorage. Only the origin of this UI can send requests, and only it gets the replies. */
@@ -108,17 +108,14 @@ function uuid(): string {
 }
 
 function fileInfo(): FileInfo {
-	const fileKey = readFileKey();
-	let fileId = fileKey ?? figma.root.getPluginData(FILE_ID_KEY);
+	let fileId = readFileKey() ?? figma.root.getPluginData(FILE_ID_KEY);
 	if (!fileId) {
 		fileId = uuid();
 		figma.root.setPluginData(FILE_ID_KEY, fileId);
 	}
 	return {
 		fileId,
-		fileKey,
 		fileName: figma.root.name,
-		editorType: figma.editorType,
 		page: summarize(figma.currentPage),
 		selection: selection(),
 	};
@@ -156,7 +153,7 @@ const handlers: Handlers = {
 		if (!node) throw new Error(nodeId ? `No node with ID ${nodeId}` : "Select a node or give a node ID");
 		if (!("exportAsync" in node) || !("width" in node)) throw new Error(`Cannot export a ${node.type} node`);
 		const largest = Math.max(node.width, node.height, 1);
-		const value = Math.min(scale ?? 1, MAX_SCREENSHOT_PX / largest);
+		const value = Math.min(scale ?? 1, SCREENSHOT_MAX_PX / largest);
 		const bytes = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value } });
 		return {
 			result: { nodeId: node.id, width: Math.round(node.width * value), height: Math.round(node.height * value) },
@@ -178,28 +175,6 @@ const handlers: Handlers = {
 		return { result: null };
 	},
 
-	async "create-image"({ url, bytes }) {
-		let image: Image;
-		if (url) image = await figma.createImageAsync(url);
-		else if (bytes) image = figma.createImage(bytes);
-		else throw new Error("Give a URL or bytes");
-		const { width, height } = await image.getSizeAsync();
-		const rect = figma.createRectangle();
-		rect.name = "Image";
-		rect.resize(width, height);
-		rect.fills = [{ type: "IMAGE", imageHash: image.hash, scaleMode: "FILL" }];
-		rect.x = figma.viewport.center.x - width / 2;
-		rect.y = figma.viewport.center.y - height / 2;
-		figma.currentPage.appendChild(rect);
-		return { result: { nodeId: rect.id } };
-	},
-
-	async hide({ ms }) {
-		figma.ui.hide();
-		setTimeout(() => figma.ui.show(), ms);
-		return { result: null };
-	},
-
 	async "open-external"({ url }) {
 		if (!/^https:\/\//.test(url)) throw new Error("Only https URLs can open");
 		figma.openExternal(url);
@@ -208,7 +183,7 @@ const handlers: Handlers = {
 };
 
 /** Calls that change or read the canvas run one at a time. */
-const QUEUED = new Set<RequestType>(["execute", "screenshot", "create-image"]);
+const QUEUED = new Set<RequestType>(["execute", "screenshot"]);
 let queue: Promise<unknown> = Promise.resolve();
 
 async function handle(message: RequestMessage): Promise<void> {

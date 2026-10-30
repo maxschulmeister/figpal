@@ -3,8 +3,9 @@ import { createBridge } from "./bridge";
 
 function setup() {
 	const host = new EventTarget() as unknown as Window;
-	const posted: { message: any; targetOrigin: string }[] = [];
-	const parent = { postMessage: (message: unknown, targetOrigin: string) => posted.push({ message, targetOrigin }) };
+	type Posted = { pluginMessage: { id: string } };
+	const posted: { message: Posted; targetOrigin: string }[] = [];
+	const parent = { postMessage: (message: Posted, targetOrigin: string) => posted.push({ message, targetOrigin }) };
 	const bridge = createBridge(host, parent as unknown as Window);
 	// Node's MessageEvent only accepts a MessagePort as source, so use a plain event with the same fields.
 	const reply = (pluginMessage: unknown, source: unknown = parent, origin = "https://www.figma.com") =>
@@ -19,8 +20,8 @@ describe("bridge", () => {
 		const { message, targetOrigin } = posted[0]!;
 		expect(targetOrigin).toBe("https://www.figma.com");
 		expect(message).toMatchObject({ pluginId: "figpal", pluginMessage: { kind: "request", type: "execute" } });
-		reply({ kind: "response", id: message.pluginMessage.id, ok: true, result: { value: "1", truncated: false }, attachments: [] });
-		await expect(promise).resolves.toEqual({ result: { value: "1", truncated: false }, attachments: [] });
+		reply({ kind: "response", id: message.pluginMessage.id, ok: true, result: { value: "1" }, attachments: [] });
+		await expect(promise).resolves.toEqual({ result: { value: "1" }, attachments: [] });
 	});
 
 	it("asks code.js to switch the UI", () => {
