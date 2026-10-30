@@ -172,7 +172,7 @@ figpal/
 ### Models and authentication
 
 - A credential store in clientStorage, by provider.
-- **Claude:** you paste the token from `claude setup-token`. No refresh is needed.
+- **Claude:** you paste the token from `claude setup-token`. No refresh is needed. A browser port of Pi Black wraps the Anthropic provider for OAuth request compatibility (Claude Code `2.1.280`). API-key requests stay unchanged. See [Pi Black integration](docs/pi-black.md) for the pinned source, checks, and limits.
 - **ChatGPT:** first choice (spike 0.4 B): pi-ai's "Sign in with ChatGPT" for `api.openai.com`, which allows CORS. The user pastes the `127.0.0.1:1455` redirect URL. Then no `chatgpt.com` route is necessary. Fallback: device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference first tries a direct call. If CORS blocks it, the provider base URL changes to the Caddy route `/api/chatgpt/backend-api`.
 - **API keys:** for every provider that allows browser calls.
 - **Provider wrapper:** wrap the pi-ai provider to add server tools with `onPayload`:

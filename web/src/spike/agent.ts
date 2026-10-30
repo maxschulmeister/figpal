@@ -28,6 +28,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
 import type { Bridge } from "../bridge";
+import { wrapAnthropicProvider } from "../providers/pi-black";
 
 export type ProviderId = "anthropic" | "openai" | "openai-codex" | "faux";
 export const PROVIDERS: ProviderId[] = ["anthropic", "openai", "openai-codex", "faux"];
@@ -103,7 +104,7 @@ function browserCodexProvider() {
 
 export function createSpikeModels(): Models {
 	const models = createModels();
-	models.setProvider(anthropicProvider());
+	models.setProvider(wrapAnthropicProvider(anthropicProvider()));
 	models.setProvider(openaiProvider());
 	models.setProvider(browserCodexProvider());
 	models.setProvider(fauxScript());

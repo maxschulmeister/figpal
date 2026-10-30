@@ -75,6 +75,7 @@ Result (local run): A and B log in. B accepts only newer models (for example `gp
 
 - The Codex provider has only OAuth auth, and its OAuth module needs Node. pi-ai then ignores an explicit `apiKey` ("Provider is not configured"). The spike gives the provider an API key auth that takes the access token.
 - The Anthropic and OpenAI providers accept an explicit `apiKey`.
+- Claude OAuth requests now use the browser port of [Pi Black](pi-black.md). The adapter passes fake-transport tests with pi-ai and pi-durable 1.4.0. An OPTIONS preflight allows its new headers. Live subscription inference (0.3) and native search (0.8) are still open.
 
 ### pi-durable
 
