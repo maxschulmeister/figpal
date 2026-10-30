@@ -9,6 +9,7 @@ import {
 	PLUGIN_ID,
 	type RequestType,
 	type Result,
+	type UiSource,
 	type UiToPlugin,
 } from "@figpal/shared";
 
@@ -19,29 +20,24 @@ export type Bridge = {
 	onEvent(listener: (event: EventMessage) => void): () => void;
 	/** Tells code.js that the UI loaded. code.js answers with an `init` event. */
 	ready(): void;
-	diagnostics(): Diagnostics;
+	/** Saves the UI source in code.js, which then opens that UI. */
+	switchUi(ui: UiSource): void;
 };
 
-/** What the bridge saw, to find out how Figma delivers messages. */
-export type Diagnostics = { accepted: number; fromParent: boolean | undefined; ignoredOrigins: string[] };
-
-export function createBridge(host: Window = window, parent: Window = window.parent, targetOrigin = FIGMA_ORIGIN): Bridge {
+export function createBridge(host: Window = window, parent: Window = window.parent): Bridge {
 	const pending = new Map<string, { resolve(reply: Reply<RequestType>): void; reject(error: Error): void }>();
 	const listeners = new Set<(event: EventMessage) => void>();
-	const diagnostics: Diagnostics = { accepted: 0, fromParent: undefined, ignoredOrigins: [] };
 	let nextId = 0;
 
 	host.addEventListener("message", (event: MessageEvent) => {
 		const message: unknown = event.data?.pluginMessage;
 		if (!isPluginToUi(message)) return;
 		// Only a figma.com window can send with this origin. Do not require `event.source === parent`:
-		// in Figma Desktop, messages from code.js did not arrive with that check.
-		if (event.origin !== targetOrigin) {
-			if (!diagnostics.ignoredOrigins.includes(event.origin)) diagnostics.ignoredOrigins.push(event.origin);
+		// in Figma Desktop, messages from code.js come from another window (spike 0.0).
+		if (event.origin !== FIGMA_ORIGIN) {
+			console.warn(`FigPal ignored a message from ${event.origin}`);
 			return;
 		}
-		diagnostics.accepted++;
-		diagnostics.fromParent = event.source === parent;
 		if (message.kind === "event") {
 			for (const listener of listeners) listener(message);
 			return;
@@ -49,12 +45,12 @@ export function createBridge(host: Window = window, parent: Window = window.pare
 		const call = pending.get(message.id);
 		if (!call) return;
 		pending.delete(message.id);
-		if (message.ok) call.resolve({ result: message.result as Result<RequestType>, attachments: message.attachments });
+		if (message.ok) call.resolve({ result: message.result, attachments: message.attachments });
 		else call.reject(new Error(message.error));
 	});
 
 	const post = (message: UiToPlugin) =>
-		parent.postMessage({ pluginMessage: message, pluginId: PLUGIN_ID }, targetOrigin);
+		parent.postMessage({ pluginMessage: message, pluginId: PLUGIN_ID }, FIGMA_ORIGIN);
 
 	return {
 		request(type, params) {
@@ -70,6 +66,6 @@ export function createBridge(host: Window = window, parent: Window = window.pare
 			return () => listeners.delete(listener);
 		},
 		ready: () => post({ kind: "ready" }),
-		diagnostics: () => ({ ...diagnostics, ignoredOrigins: [...diagnostics.ignoredOrigins] }),
+		switchUi: (ui) => post({ kind: "switch-ui", ui }),
 	};
 }

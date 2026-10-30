@@ -1,8 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin, type ProxyOptions } from "vite";
+import { ANTHROPIC_ROUTE, BROWSER_HEADERS, USER_AGENT_HEADER } from "./src/providers/anthropic-route.ts";
 
 const SPIKE_RESULTS = fileURLToPath(new URL("../docs/spike-results.local.json", import.meta.url));
+const MAX_RESULTS_BYTES = 1_000_000;
 
 /** Dev only: the spike page posts its results here, so they do not have to be copied by hand. */
 function spikeResults(): Plugin {
@@ -16,9 +18,16 @@ function spikeResults(): Plugin {
 					res.end();
 					return;
 				}
+				// Other websites can send a simple POST to localhost. Only the spike page may write the file.
+				if (req.headers["sec-fetch-site"] !== "same-origin") {
+					res.statusCode = 403;
+					res.end();
+					return;
+				}
 				let body = "";
 				req.on("data", (chunk) => {
 					body += chunk;
+					if (body.length > MAX_RESULTS_BYTES) req.destroy();
 				});
 				req.on("end", () => {
 					writeFile(SPIKE_RESULTS, body).then(
@@ -42,6 +51,16 @@ const dropOrigin: ProxyOptions["configure"] = (proxy) => {
 	proxy.on("proxyReq", (req) => req.removeHeader("origin"));
 };
 
+/** Anthropic must see a server request: no browser headers, and the Claude Code user-agent that the page wanted. */
+const asServerRequest: ProxyOptions["configure"] = (proxy) => {
+	proxy.on("proxyReq", (req) => {
+		const userAgent = req.getHeader(USER_AGENT_HEADER);
+		if (typeof userAgent === "string") req.setHeader("user-agent", userAgent);
+		for (const name of req.getHeaderNames())
+			if (name === USER_AGENT_HEADER || BROWSER_HEADERS.includes(name) || name.startsWith("sec-")) req.removeHeader(name);
+	});
+};
+
 // The same routes as the Caddy block in deploy/Caddyfile.figpal.
 export default defineConfig({
 	plugins: [spikeResults()],
@@ -60,6 +79,12 @@ export default defineConfig({
 				changeOrigin: true,
 				rewrite: (path) => path.replace(/^\/api\/chatgpt/, ""),
 				configure: dropOrigin,
+			},
+			[ANTHROPIC_ROUTE]: {
+				target: "https://api.anthropic.com",
+				changeOrigin: true,
+				rewrite: (path) => path.slice(ANTHROPIC_ROUTE.length),
+				configure: asServerRequest,
 			},
 		},
 	},

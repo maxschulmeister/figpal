@@ -271,6 +271,25 @@ function requestHeaders(
 	return headers;
 }
 
+/**
+ * FigPal change: the Anthropic SDK turns an error from fetch into "Connection error.", which pi-ai and pi-durable
+ * retry. A Pi Black error does not go away on a retry, so it becomes a 400 response with its message.
+ */
+function errorResponse(message: string): Response {
+	return new Response(
+		JSON.stringify({ type: "error", error: { type: "invalid_request_error", message } }),
+		{ status: 400, headers: { "content-type": "application/json" } },
+	);
+}
+
+function patchOrError(serializedBody: string): string | Response {
+	try {
+		return patchClaudeCodeCch(serializedBody);
+	} catch (error) {
+		return errorResponse(error instanceof Error ? error.message : String(error));
+	}
+}
+
 function createClaudeCodeFetch(
 	fetchImplementation: FetchFunction,
 ): FetchFunction {
@@ -280,21 +299,16 @@ function createClaudeCodeFetch(
 			headers.set("x-client-request-id", crypto.randomUUID());
 
 		if (typeof init?.body === "string") {
-			return fetchImplementation(input, {
-				...init,
-				headers,
-				body: patchClaudeCodeCch(init.body),
-			});
+			const body = patchOrError(init.body);
+			if (body instanceof Response) return body;
+			return fetchImplementation(input, { ...init, headers, body });
 		}
 		if (input instanceof Request) {
-			const body = await input.clone().text();
-			const request = new Request(input, {
-				headers,
-				body: patchClaudeCodeCch(body),
-			});
-			return fetchImplementation(request);
+			const body = patchOrError(await input.clone().text());
+			if (body instanceof Response) return body;
+			return fetchImplementation(new Request(input, { headers, body }));
 		}
-		throw new Error(
+		return errorResponse(
 			"Pi Black OAuth request body is not available for cch patching",
 		);
 	};

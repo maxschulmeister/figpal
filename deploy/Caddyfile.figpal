@@ -11,7 +11,22 @@ figpal.maxschulmeister.dev {
 				header_up -Origin
 			}
 		}
-		# Codex inference: chatgpt.com blocks CORS (spike 0.4). Remove if the api.openai.com login works.
+		# Claude: Anthropic refuses browser requests for subscription accounts (spike 0.3).
+		# Remove the browser headers. Set the Claude Code user-agent, which the browser replaces.
+		handle_path /api/anthropic/* {
+			reverse_proxy https://api.anthropic.com {
+				header_up Host api.anthropic.com
+				header_up User-Agent {http.request.header.X-Figpal-User-Agent}
+				header_up -X-Figpal-User-Agent
+				header_up -Origin
+				header_up -Referer
+				header_up -Anthropic-Dangerous-Direct-Browser-Access
+				header_up -Sec-*
+				header_up -X-Forwarded-*
+				header_up -Via
+			}
+		}
+		# Codex inference: chatgpt.com allows CORS only from localhost (spike 0.4).
 		handle_path /api/chatgpt/* {
 			reverse_proxy https://chatgpt.com {
 				header_up Host chatgpt.com
@@ -20,9 +35,8 @@ figpal.maxschulmeister.dev {
 		}
 		handle {
 			root * /srv/figpal
-			# Spike 0.12: the header only on ?csp=1, so a failure cannot hide the result of 0.13.
-			@csp query csp=1
-			header @csp Content-Security-Policy "frame-ancestors https://www.figma.com"
+			# Only Figma can show the page in a frame (spike 0.12).
+			header Content-Security-Policy "frame-ancestors https://www.figma.com"
 			# Hashed file names under /assets. Everything else (index.html for every route) must revalidate.
 			@immutable path /assets/*
 			header @immutable Cache-Control "public, max-age=31536000, immutable"

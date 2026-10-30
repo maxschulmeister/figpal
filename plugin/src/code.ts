@@ -1,4 +1,4 @@
-// Plugin main thread. Shows the hosted UI and runs its requests against the Plugin API.
+// Plugin main thread. Shows the UI (remote or local) and runs its requests against the Plugin API.
 
 import {
 	type Attachment,
@@ -11,62 +11,84 @@ import {
 	type RequestType,
 	type Result,
 	STORAGE_PREFIX,
+	THEME_HASH_KEY,
+	UI_ORIGINS,
+	type UiSource,
+	type UiToPlugin,
 } from "@figpal/shared";
 import { ExecuteTimeout, execute } from "./execute";
 
-/**
- * The menu command selects the UI: the hosted UI, or the Vite dev server.
- * Only this origin can send requests, and only it gets the replies.
- */
-const UI =
-	figma.command === "dev"
-		? { url: "http://localhost:5173/", origin: "http://localhost:5173" }
-		: { url: "https://figpal.maxschulmeister.dev/", origin: "https://figpal.maxschulmeister.dev" };
-
-const UI_OPTIONS: ShowUIOptions = { width: 420, height: 680, themeColors: true, title: "FigPal" };
+const UI_OPTIONS: ShowUIOptions = { width: 420, height: 680, themeColors: true };
 const LOAD_TIMEOUT_MS = 10_000;
+const UI_KEY = "figpal.ui";
 const FILE_ID_KEY = "figpal.fileId";
 const MAX_SCREENSHOT_PX = 2048;
 const MAX_SELECTION = 50;
 
-const OFFLINE_HTML = `<!doctype html>
+/** A setting in clientStorage. Only the origin of this UI can send requests, and only it gets the replies. */
+let source: UiSource = "remote";
+const uiOrigin = () => UI_ORIGINS[source];
+const uiUrl = () => `${uiOrigin()}/`;
+const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, title: `FigPal (${source})` });
+
+let loadTimer = 0;
+
+function offlineHtml(): string {
+	const other: UiSource = source === "remote" ? "local" : "remote";
+	const hint = source === "remote" ? "Connect Tailscale" : "Start the dev server (pnpm dev)";
+	// JSON has no single quotes, so the attributes use them.
+	const send = (message: UiToPlugin) => `parent.postMessage({ pluginMessage: ${JSON.stringify(message)} }, "*")`;
+	return `<!doctype html>
 <style>
 body { font: 12px/1.5 Inter, system-ui, sans-serif; margin: 16px; color: var(--figma-color-text); background: var(--figma-color-bg); }
 button { font: inherit; padding: 6px 12px; }
 </style>
-<p>Cannot reach FigPal at ${UI.url}. Connect Tailscale (or start the dev server) and try again.</p>
-<button onclick="parent.postMessage({ pluginMessage: { kind: 'retry' } }, '*')">Try again</button>`;
-
-let loadTimer = 0;
+<p>Cannot reach FigPal at ${uiUrl()}. ${hint} and try again.</p>
+<button onclick='${send({ kind: "retry" })}'>Try again</button>
+<button onclick='${send({ kind: "switch-ui", ui: other })}'>Use the ${other} UI</button>`;
+}
 
 /**
- * Figma adds the theme class (`figma-dark` or `figma-light`) to this first document after it starts. The hosted
- * page does not get it, so wait for the class (at most 500 ms) and give it to the page in the URL hash.
+ * Figma adds the theme class (`figma-dark` or `figma-light`) to this first document after it starts. The UI page
+ * does not get it, so wait for the class (at most 500 ms) and give it to the page in the URL hash.
  */
-const BOOTSTRAP_HTML = `<script>
+function bootstrapHtml(): string {
+	return `<script>
 let done = false;
 const go = () => {
 	if (done) return;
 	done = true;
-	location.href = ${JSON.stringify(UI.url)} + "#figma-theme=" + encodeURIComponent(document.documentElement.className);
+	location.href = ${JSON.stringify(`${uiUrl()}#${THEME_HASH_KEY}=`)} + encodeURIComponent(document.documentElement.className);
 };
 if (document.documentElement.className) go();
 new MutationObserver(go).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 setTimeout(go, 500);
 </script>`;
+}
 
-function showHostedUi(): void {
-	figma.showUI(BOOTSTRAP_HTML, UI_OPTIONS);
+function showUi(): void {
+	figma.showUI(bootstrapHtml(), uiOptions());
 	clearTimeout(loadTimer);
-	loadTimer = setTimeout(() => figma.showUI(OFFLINE_HTML, UI_OPTIONS), LOAD_TIMEOUT_MS);
+	loadTimer = setTimeout(() => figma.showUI(offlineHtml(), uiOptions()), LOAD_TIMEOUT_MS);
+}
+
+async function switchUi(next: UiSource): Promise<void> {
+	source = next;
+	// First the UI: if the setting cannot be saved, only the next start uses the old UI.
+	showUi();
+	await figma.clientStorage.setAsync(UI_KEY, next);
 }
 
 function post(message: PluginToUi): void {
-	figma.ui.postMessage(message, { origin: UI.origin });
+	figma.ui.postMessage(message, { origin: uiOrigin() });
 }
 
 function summarize(node: BaseNode): NodeSummary {
 	return { id: node.id, name: node.name, type: node.type };
+}
+
+function selection(): NodeSummary[] {
+	return figma.currentPage.selection.slice(0, MAX_SELECTION).map(summarize);
 }
 
 function readFileKey(): string | null {
@@ -98,7 +120,7 @@ function fileInfo(): FileInfo {
 		fileName: figma.root.name,
 		editorType: figma.editorType,
 		page: summarize(figma.currentPage),
-		selection: figma.currentPage.selection.slice(0, MAX_SELECTION).map(summarize),
+		selection: selection(),
 	};
 }
 
@@ -212,13 +234,25 @@ async function handle(message: RequestMessage): Promise<void> {
 }
 
 figma.ui.onmessage = (message: unknown, { origin }) => {
-	if (!isUiToPlugin(message)) return;
-	// The offline page has a null origin. Its only message shows the hosted UI again.
-	if (message.kind === "retry") {
-		showHostedUi();
+	if (!isUiToPlugin(message)) {
+		// A newer remote UI can send a request type that this code.js does not know. Without a reply, it waits forever.
+		const request = message as { kind?: unknown; id?: unknown; type?: unknown } | null;
+		if (origin === uiOrigin() && request?.kind === "request" && typeof request.id === "string") {
+			const error = `This FigPal plugin does not know the request "${String(request.type)}". Update the plugin.`;
+			post({ kind: "response", id: request.id, ok: false, error });
+		}
 		return;
 	}
-	if (origin !== UI.origin) {
+	// The offline page has a null origin. Its messages only open one of the two UIs.
+	if (message.kind === "retry") {
+		showUi();
+		return;
+	}
+	if (message.kind === "switch-ui") {
+		void switchUi(message.ui);
+		return;
+	}
+	if (origin !== uiOrigin()) {
 		console.warn(`FigPal ignored a message from ${origin}`);
 		return;
 	}
@@ -231,15 +265,20 @@ figma.ui.onmessage = (message: unknown, { origin }) => {
 };
 
 figma.on("selectionchange", () => {
-	post({
-		kind: "event",
-		type: "selection",
-		selection: figma.currentPage.selection.slice(0, MAX_SELECTION).map(summarize),
-	});
+	post({ kind: "event", type: "selection", selection: selection() });
 });
 
 figma.on("currentpagechange", () => {
 	post({ kind: "event", type: "page", page: summarize(figma.currentPage) });
 });
 
-showHostedUi();
+void figma.clientStorage
+	.getAsync(UI_KEY)
+	.then(
+		(saved: unknown) => {
+			if (saved === "local") source = "local";
+		},
+		// Without the setting, open the remote UI.
+		() => undefined,
+	)
+	.then(showUi);

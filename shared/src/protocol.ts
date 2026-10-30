@@ -5,6 +5,19 @@ export const FIGMA_ORIGIN = "https://www.figma.com";
 /** The UI can only read and write clientStorage keys with this prefix. */
 export const STORAGE_PREFIX = "figpal.";
 
+/** Where the UI comes from: the VPS (remote) or the Vite dev server on this Mac (local). */
+export const UI_ORIGINS = {
+	remote: "https://figpal.maxschulmeister.dev",
+	local: "http://localhost:5173",
+} as const;
+export type UiSource = keyof typeof UI_ORIGINS;
+
+/** Limits of `figma_execute`: code.js applies them, and the tool description tells the model. */
+export const EXECUTE_TIMEOUT_MS = { default: 30_000, max: 300_000 } as const;
+
+/** code.js gives the UI Figma's theme class (`figma-light` or `figma-dark`) in this URL hash parameter. */
+export const THEME_HASH_KEY = "figma-theme";
+
 export type NodeSummary = { id: string; name: string; type: string };
 
 export type FileInfo = {
@@ -50,8 +63,11 @@ export type EventMessage =
 	| { kind: "event"; type: "selection"; selection: NodeSummary[] }
 	| { kind: "event"; type: "page"; page: NodeSummary };
 
-/** `ready` tells code.js that the UI loaded. `retry` comes from the offline page. */
-export type UiToPlugin = { kind: "ready" } | { kind: "retry" } | RequestMessage;
+/**
+ * `ready` tells code.js that the UI loaded. `retry` comes from the offline page. `switch-ui` saves the UI source
+ * and opens that UI.
+ */
+export type UiToPlugin = { kind: "ready" } | { kind: "retry" } | { kind: "switch-ui"; ui: UiSource } | RequestMessage;
 export type PluginToUi = ResponseMessage | EventMessage;
 
 const REQUEST_TYPES: Record<RequestType, true> = {
@@ -73,6 +89,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function isUiToPlugin(value: unknown): value is UiToPlugin {
 	if (!isRecord(value)) return false;
 	if (value.kind === "ready" || value.kind === "retry") return true;
+	if (value.kind === "switch-ui") return typeof value.ui === "string" && Object.prototype.hasOwnProperty.call(UI_ORIGINS, value.ui);
 	return (
 		value.kind === "request" &&
 		typeof value.id === "string" &&

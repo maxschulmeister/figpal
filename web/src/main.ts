@@ -4,6 +4,7 @@ import "./style.css";
 import { type Api, contentText, type Model } from "@earendil-works/pi-ai";
 import type { FileInfo } from "@figpal/shared";
 import { createBridge } from "./bridge";
+import { ANTHROPIC_ROUTE } from "./providers/anthropic-route";
 import { type Agent, abort, describeView, openAgent, PROVIDERS, type ProviderId, requestSettings, send, setModel } from "./spike/agent";
 import { type ApiLogin, codexDeviceLogin, finishApiLogin, startApiLogin } from "./spike/chatgpt";
 import {
@@ -18,11 +19,18 @@ import {
 	checkTheme,
 	EXECUTE_SAMPLE,
 	environment,
+	markRestart,
 } from "./spike/checks";
 import { record, resultsView } from "./spike/results";
 import { button, errorText, h, log, logView, row, section } from "./spike/ui";
 
 const bridge = createBridge();
+const uiSource = location.hostname === "localhost" ? "local" : "remote";
+// The dev server and the VPS (Caddy) have the Anthropic route.
+requestSettings.anthropicBaseUrl = location.origin + ANTHROPIC_ROUTE;
+// chatgpt.com allows CORS only from localhost. The dev server and Caddy have this route.
+const CODEX_ROUTE = `${location.origin}/api/chatgpt/backend-api`;
+requestSettings.codexBaseUrl = CODEX_ROUTE;
 const inFigma = window.parent !== window;
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -129,9 +137,9 @@ async function quickTest(provider: ProviderId, modelId?: string): Promise<string
 	return `${provider}/${model.id}: "${text}" (${deltas} text deltas)`;
 }
 
-async function searchTest(): Promise<void> {
+async function searchTest(provider: ProviderId): Promise<void> {
 	if (!agent) throw new Error("Agent is not open");
-	const { provider, modelId } = selectedModel();
+	const modelId = TEST_MODELS[provider];
 	const model = agent.models.getModel(provider, modelId) as Model<Api>;
 	requestSettings.nativeSearch = true;
 	try {
@@ -235,14 +243,17 @@ const chatgptSection = section(
 		}),
 		button("A: Test direct", async () => {
 			requestSettings.codexBaseUrl = undefined;
-			const result = await quickTest("openai-codex").catch(async (error) => {
-				await record("0.4 codex-direct", "fail", errorText(error));
-				throw error;
-			});
+			const result = await quickTest("openai-codex")
+				.catch(async (error) => {
+					await record("0.4 codex-direct", "fail", errorText(error));
+					throw error;
+				})
+				.finally(() => {
+					requestSettings.codexBaseUrl = CODEX_ROUTE;
+				});
 			await record("0.4 codex-direct", "pass", result);
 		}),
 		button("A: Test route", async () => {
-			requestSettings.codexBaseUrl = `${location.origin}/api/chatgpt/backend-api`;
 			const result = await quickTest("openai-codex").catch(async (error) => {
 				await record("0.4 codex-route", "fail", errorText(error));
 				throw error;
@@ -295,24 +306,43 @@ const executeSection = section(
 );
 
 const otherSection = section(
-	"0.2 · 0.8 · 0.9 · 0.11 · 0.12 · 0.15",
+	"0.1 · 0.2 · 0.8 · 0.9 · 0.11 · 0.12 · 0.14 · 0.15",
 	"More checks",
 	row(
+		button("0.1 Before restart", () => markRestart()),
 		button("0.2 Network", () => checkNetwork()),
-		button("0.8 Search (selected model)", () => searchTest()),
+		button("0.8 Search (Claude)", () => searchTest("anthropic")),
+		button("0.8 Search (ChatGPT)", () => searchTest("openai-codex")),
 		button("0.9 Images", () => checkImages(bridge)),
 	),
 	row(
 		button("0.11 Hide for 10 s", async () => log(await checkHidden(bridge))),
 		button("0.15 Skills", () => checkSkills()),
 		button("0.12 Reload with frame-ancestors", () => {
-			location.href = "/?csp=1";
+			// Keep the hash: it has the theme class (0.16).
+			location.href = `/?csp=1${location.hash}`;
 		}),
+		button("0.14 Error page showed", () =>
+			record("0.14", "pass", "With Tailscale off, FigPal showed the error page (you confirmed it)."),
+		),
 	),
 );
 
 app.append(
-	h("header", {}, h("h1", {}, "FigPal spike"), fileLine, envLine),
+	h(
+		"header",
+		{},
+		h("h1", {}, "FigPal spike"),
+		fileLine,
+		envLine,
+		inFigma &&
+			row(
+				h("span", { className: "muted" }, `UI: ${uiSource}`),
+				button(`Use the ${uiSource === "remote" ? "local" : "remote"} UI`, () =>
+					bridge.switchUi(uiSource === "remote" ? "local" : "remote"),
+				),
+			),
+	),
 	section("", "Results", resultsView()),
 	agentSection,
 	chatgptSection,
@@ -327,7 +357,7 @@ async function start(): Promise<void> {
 	// First, so that code.js stops its load timer.
 	file = inFigma ? await waitForInit(5000) : undefined;
 	renderFile();
-	envLine.textContent = environment(bridge);
+	envLine.textContent = environment();
 	if (inFigma)
 		await record("0.0", file ? "pass" : "fail", `init from code.js: ${Boolean(file)}. ${envLine.textContent}`);
 	log(await checkIndexedDb());

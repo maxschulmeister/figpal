@@ -2,7 +2,6 @@
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import {
-	type AssistantMessage,
 	envApiKeyAuth,
 	type FauxResponseFactory,
 	fauxAssistantMessage,
@@ -10,7 +9,6 @@ import {
 	fauxText,
 	fauxToolCall,
 	type Message,
-	type SimpleStreamOptions,
 	Type,
 } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
@@ -27,7 +25,9 @@ import {
 	section,
 } from "@earendil-works/pi-durable";
 import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
+import { EXECUTE_TIMEOUT_MS } from "@figpal/shared";
 import type { Bridge } from "../bridge";
+import { fetchAsServer } from "../providers/anthropic-route";
 import { wrapAnthropicProvider } from "../providers/pi-black";
 
 export type ProviderId = "anthropic" | "openai" | "openai-codex" | "faux";
@@ -38,6 +38,8 @@ export const requestSettings: {
 	keys: Partial<Record<ProviderId, string>>;
 	/** Base URL for openai-codex. Undefined: the direct chatgpt.com URL. */
 	codexBaseUrl?: string;
+	/** Base URL for Anthropic: the local route (see providers/anthropic-route.ts). Undefined: api.anthropic.com. */
+	anthropicBaseUrl?: string;
 	nativeSearch: boolean;
 } = { keys: {}, nativeSearch: false };
 
@@ -50,8 +52,8 @@ export function addNativeSearch(payload: unknown, provider: string): unknown {
 }
 
 /**
- * pi-durable does not pass request options to pi-ai. This wrapper adds the API key, the Codex route and the
- * native search tool to every request.
+ * pi-durable does not pass request options to pi-ai. This wrapper adds the API key, the Codex and Anthropic routes
+ * and the native search tool to every request.
  */
 function withRequestSettings(models: Models): Models {
 	return new Proxy(models, {
@@ -59,14 +61,21 @@ function withRequestSettings(models: Models): Models {
 			if (property === "streamSimple") {
 				const streamSimple: Models["streamSimple"] = (model, request, options) => {
 					const provider = model.provider as ProviderId;
-					const baseUrl = provider === "openai-codex" ? requestSettings.codexBaseUrl : undefined;
+					const baseUrl =
+						provider === "openai-codex"
+							? requestSettings.codexBaseUrl
+							: provider === "anthropic"
+								? requestSettings.anthropicBaseUrl
+								: undefined;
+					const anthropicRoute = provider === "anthropic" && baseUrl !== undefined;
 					return target.streamSimple(baseUrl ? { ...model, baseUrl } : model, request, {
 						...options,
+						...(anthropicRoute && { fetch: fetchAsServer }),
 						apiKey: requestSettings.keys[provider],
 						// A browser WebSocket cannot send headers, so Codex must use SSE.
 						transport: "sse",
 						onPayload: requestSettings.nativeSearch ? (payload) => addNativeSearch(payload, provider) : undefined,
-					} as SimpleStreamOptions);
+					});
 				};
 				return streamSimple;
 			}
@@ -125,7 +134,9 @@ function figmaExtension(bridge: Bridge) {
 					"Run Figma Plugin API JavaScript in the open file. Top-level await works. Use `return` to send a JSON value back. `figma` is the Plugin API.",
 				parameters: Type.Object({
 					code: Type.String({ description: "JavaScript. The body of an async function." }),
-					timeout_ms: Type.Optional(Type.Number({ description: "Default 30000, maximum 300000." })),
+					timeout_ms: Type.Optional(
+						Type.Number({ description: `Default ${EXECUTE_TIMEOUT_MS.default}, maximum ${EXECUTE_TIMEOUT_MS.max}.` }),
+					),
 				}),
 				execute: async (args) => {
 					const { result } = await bridge.request("execute", { code: args.code, timeoutMs: args.timeout_ms });
@@ -211,14 +222,13 @@ export function formatMessage(message: Message): string {
 	if (message.role === "user") return `USER: ${contentText(message.content)}`;
 	if (message.role === "toolResult")
 		return `TOOL ${message.toolName}${message.isError ? " (error)" : ""}: ${contentText(message.content).slice(0, 1000)}`;
-	const assistant = message as AssistantMessage;
-	const error = assistant.errorMessage ? `\n[${assistant.stopReason}] ${assistant.errorMessage}` : "";
-	return `ASSISTANT (${assistant.provider}/${assistant.model}): ${contentText(assistant.content)}${error}`;
+	const error = message.errorMessage ? `\n[${message.stopReason}] ${message.errorMessage}` : "";
+	return `ASSISTANT (${message.provider}/${message.model}): ${contentText(message.content)}${error}`;
 }
 
 /** Transcript lines and the facts for the resume check (0.7). */
 export function describeView(view: ConversationView): { lines: string[]; interrupted: boolean; continuedAfter: boolean; busy: boolean } {
-	const messages = view.entries.flatMap((entry) => (entry.model ?? []) as Message[]);
+	const messages = view.entries.flatMap((entry) => entry.model ?? []);
 	const lines = messages.map(formatMessage);
 	const live = view.docs["pi.live"] as { run?: unknown; generation?: { message?: Message }; tools?: unknown[] } | undefined;
 	if (live?.generation?.message) lines.push(`(streaming) ${formatMessage(live.generation.message)}`);

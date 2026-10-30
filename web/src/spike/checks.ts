@@ -1,8 +1,8 @@
 // Spike checks that do not need the agent.
 
-import type { FileInfo } from "@figpal/shared";
+import { type FileInfo, THEME_HASH_KEY } from "@figpal/shared";
 import type { Bridge } from "../bridge";
-import { addVisit, record } from "./results";
+import { addVisit, all, record } from "./results";
 import { errorText } from "./ui";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,11 +15,20 @@ async function attempt(action: () => Promise<string>): Promise<{ ok: boolean; te
 	}
 }
 
+const RESTART_MARK = "Restart mark set";
+
+/** Before a restart of Figma: the next page load finds this result if IndexedDB keeps its data. */
+export async function markRestart(): Promise<void> {
+	await record("0.1 restart", "todo", `${RESTART_MARK}. Quit Figma, start it again, and run FigPal.`);
+}
+
 export async function checkIndexedDb(): Promise<string> {
 	const visits = await addVisit();
 	const persisted = await navigator.storage?.persist?.().catch(() => false);
-	const detail = `${visits.length} visits since ${visits[0]?.at}. persist(): ${persisted}. Pass if the count goes up after a restart of Figma.`;
-	await record("0.1", visits.length > 1 ? "pass" : "todo", detail);
+	const mark = (await all()).find((result) => result.id === "0.1 restart");
+	const detail = `${visits.length} visits since ${visits[0]?.at}. persist(): ${persisted}.`;
+	if (mark?.status === "todo" && mark.detail.startsWith(RESTART_MARK))
+		await record("0.1 restart", "pass", `The restart mark from ${mark.at} is still there. ${detail}`);
 	return detail;
 }
 
@@ -135,8 +144,9 @@ export async function checkHidden(bridge: Bridge): Promise<string> {
 	await sleep(6_000);
 	clearInterval(timer);
 	document.removeEventListener("visibilitychange", onVisibility);
-	const detail = `${ticks} of 22 timer ticks in 11 s; fetch while hidden: ${fetchWhileHidden.text}; visibility changes: ${visibility.join(", ") || "none"}`;
-	await record("0.11", ticks >= 18 && fetchWhileHidden.ok ? "pass" : "fail", detail);
+	const detail = `${ticks} of 22 timer ticks in 11 s (Chromium can slow timers in a hidden frame to about 1 per second); fetch while hidden: ${fetchWhileHidden.text}; visibility changes: ${visibility.join(", ") || "none"}`;
+	// The page must keep running, also slower: at least 5 ticks and a working fetch.
+	await record("0.11", ticks >= 5 && fetchWhileHidden.ok ? "pass" : "fail", detail);
 	return detail;
 }
 
@@ -189,21 +199,20 @@ export async function checkTheme(): Promise<void> {
 	const style = getComputedStyle(document.documentElement);
 	const bg = style.getPropertyValue("--figma-color-bg").trim();
 	// code.js adds the class of the first (null-origin) document, which has the theme variables, to the hash.
-	const passed = new URLSearchParams(location.hash.slice(1)).get("figma-theme");
+	const passed = new URLSearchParams(location.hash.slice(1)).get(THEME_HASH_KEY);
 	await record(
 		"0.16",
-		bg || passed?.includes("figma-") ? "pass" : "info",
+		bg || passed?.includes("figma-") ? "pass" : "fail",
 		`--figma-color-bg: "${bg}"; html class: "${document.documentElement.className}"; class passed in the hash: "${passed ?? "none"}"; prefers-color-scheme dark: ${matchMedia("(prefers-color-scheme: dark)").matches}`,
 	);
 }
 
 /** Facts about the frame, for the results. */
-export function environment(bridge: Bridge): string {
+export function environment(): string {
 	return [
 		`origin ${location.origin}`,
 		`in iframe ${window.parent !== window}`,
 		`ancestorOrigins ${Array.from(location.ancestorOrigins ?? []).join(", ") || "none"}`,
-		`bridge ${JSON.stringify(bridge.diagnostics())}`,
 		`secure ${isSecureContext}`,
 		`locks ${"locks" in navigator}`,
 		navigator.userAgent,

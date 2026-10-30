@@ -36,9 +36,9 @@ type RequestBody = {
 };
 
 function captureRequests() {
-	const requests: { headers: Headers; body: RequestBody }[] = [];
-	vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (_input, init) => {
-		requests.push({ headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
+	const requests: { url: string; headers: Headers; body: RequestBody }[] = [];
+	vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+		requests.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
 		return response();
 	}));
 	return requests;
@@ -52,6 +52,7 @@ async function send(options: SimpleStreamOptions = {}) {
 
 afterEach(() => {
 	requestSettings.keys = {};
+	requestSettings.anthropicBaseUrl = undefined;
 	requestSettings.nativeSearch = false;
 	vi.unstubAllGlobals();
 });
@@ -142,6 +143,36 @@ describe("Pi Black in the pi-durable model collection", () => {
 		}).result();
 		expect(requests[1]!.body).toEqual(requests[0]!.body);
 		expect(requests[0]!.headers.get("x-client-request-id")).not.toBe(requests[1]!.headers.get("x-client-request-id"));
+	});
+
+	it("sends OAuth requests through the local route with the Claude Code user-agent", async () => {
+		requestSettings.keys.anthropic = "sk-ant-oat01-test";
+		requestSettings.anthropicBaseUrl = "http://localhost:5173/api/anthropic";
+		const requests = captureRequests();
+		const result = await send();
+		expect(result.content).toEqual([{ type: "text", text: "PROBE_OK" }]);
+		expect(requests[0]!.url).toMatch(/^http:\/\/localhost:5173\/api\/anthropic\/v1\/messages(\?|$)/);
+		expect(requests[0]!.headers.get("x-figpal-user-agent")).toMatch(/^claude-cli\/2\.1\.280 /);
+		expect(requests[0]!.body.system[0]!.text).toMatch(/^x-anthropic-billing-header: /);
+	});
+
+	// The SDK turns an error from fetch into "Connection error.", which pi-ai retries. A Pi Black error stays.
+	it("gives a Pi Black error back as a request error, without a retry", async () => {
+		const requests = captureRequests();
+		const models = createModels();
+		models.setProvider(wrapAnthropicProvider(anthropicProvider()));
+		const model = models.getModel("anthropic", "claude-sonnet-5-5")!;
+		// Without max_tokens, the checksum step in the fetch wrapper fails.
+		const withoutMaxTokens = (payload: unknown) => {
+			const { max_tokens: _, ...rest } = payload as Record<string, unknown>;
+			return rest;
+		};
+		const result = await models
+			.streamSimple(model, context, { apiKey: "sk-ant-oat01-test", maxRetries: 1, onPayload: withoutMaxTokens })
+			.result();
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("Pi Black OAuth request is missing model or max_tokens");
+		expect(requests).toHaveLength(0);
 	});
 
 	it("keeps other providers available without the Anthropic transport", async () => {

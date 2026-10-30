@@ -21,7 +21,12 @@ describe("bridge", () => {
 		expect(message).toMatchObject({ pluginId: "figpal", pluginMessage: { kind: "request", type: "execute" } });
 		reply({ kind: "response", id: message.pluginMessage.id, ok: true, result: { value: "1", truncated: false }, attachments: [] });
 		await expect(promise).resolves.toEqual({ result: { value: "1", truncated: false }, attachments: [] });
-		expect(bridge.diagnostics()).toEqual({ accepted: 1, fromParent: true, ignoredOrigins: [] });
+	});
+
+	it("asks code.js to switch the UI", () => {
+		const { bridge, posted } = setup();
+		bridge.switchUi("local");
+		expect(posted[0]!.message).toEqual({ pluginMessage: { kind: "switch-ui", ui: "local" }, pluginId: "figpal" });
 	});
 
 	it("rejects with the error from code.js", async () => {
@@ -38,15 +43,13 @@ describe("bridge", () => {
 		bridge.onEvent((event) => events.push(event));
 		reply({ kind: "event", type: "page", page: { id: "0:1", name: "Page", type: "PAGE" } }, {});
 		expect(events).toHaveLength(1);
-		expect(bridge.diagnostics()).toMatchObject({ accepted: 1, fromParent: false });
 	});
 
-	it("ignores messages from other origins and records them", () => {
+	it("ignores messages from other origins", () => {
 		const { bridge, reply } = setup();
 		const events: unknown[] = [];
 		bridge.onEvent((event) => events.push(event));
 		reply({ kind: "event", type: "page", page: { id: "0:1", name: "Page", type: "PAGE" } }, undefined, "https://evil.example");
 		expect(events).toHaveLength(0);
-		expect(bridge.diagnostics()).toEqual({ accepted: 0, fromParent: undefined, ignoredOrigins: ["https://evil.example"] });
 	});
 });

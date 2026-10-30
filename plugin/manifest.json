@@ -3,10 +3,6 @@
 	"id": "figpal",
 	"api": "1.0.0",
 	"main": "dist/code.js",
-	"menu": [
-		{ "name": "FigPal", "command": "hosted" },
-		{ "name": "FigPal (dev server)", "command": "dev" }
-	],
 	"editorType": ["figma"],
 	"documentAccess": "dynamic-page",
 	"enablePrivatePluginApi": true,

@@ -20,3 +20,5 @@ table { width: 100%; border-collapse: collapse; }
 td, th { text-align: left; vertical-align: top; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent); }
 tr.pass td:nth-child(3) { color: #0a7d32; }
 tr.fail td:nth-child(3) { color: #c0262d; }
+ol.open li { margin-bottom: 6px; }
+small.fail { color: #c0262d; }

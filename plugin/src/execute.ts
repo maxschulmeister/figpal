@@ -1,17 +1,15 @@
 // Runs Plugin API JavaScript from the model. Pure logic, so tests can run it without Figma.
 
-import type { Attachment, Result } from "@figpal/shared";
+import { type Attachment, EXECUTE_TIMEOUT_MS, type NodeSummary, type Result } from "@figpal/shared";
 
-export const OUTPUT_LIMIT = 20_000;
-export const DEFAULT_TIMEOUT_MS = 30_000;
-export const MAX_TIMEOUT_MS = 300_000;
+const OUTPUT_LIMIT = 20_000;
 
-export type Helpers = {
+type Helpers = {
 	/** Sends a file to the UI with the result. */
 	attach(bytes: Uint8Array, options: { mime: string; name: string }): void;
 };
 
-export type ExecuteResult = Result<"execute"> & { attachments: Attachment[] };
+type ExecuteResult = Result<"execute"> & { attachments: Attachment[] };
 
 /** The wait timed out. The sandbox cannot stop the code: `running` settles when the code ends, if it ends. */
 export class ExecuteTimeout extends Error {
@@ -28,7 +26,7 @@ export class ExecuteTimeout extends Error {
  * Compiles the code into an async function, so top-level `await` and `return` work.
  * Indirect `eval` runs in the global scope, so the code cannot see the locals of the plugin.
  */
-export function compile(code: string): (figma: unknown, pi: Helpers) => Promise<unknown> {
+function compile(code: string): (figma: unknown, pi: Helpers) => Promise<unknown> {
 	const indirectEval = eval;
 	return indirectEval(`(async function (figma, pi) {\n${code}\n})`);
 }
@@ -37,7 +35,7 @@ export async function execute(
 	code: string,
 	options: { figma: unknown; timeoutMs?: number },
 ): Promise<ExecuteResult> {
-	const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1), MAX_TIMEOUT_MS);
+	const timeoutMs = Math.min(Math.max(options.timeoutMs ?? EXECUTE_TIMEOUT_MS.default, 1), EXECUTE_TIMEOUT_MS.max);
 	const attachments: Attachment[] = [];
 	const pi: Helpers = {
 		attach(bytes, { mime, name }) {
@@ -61,7 +59,8 @@ export async function execute(
 /** JSON for the model, with nodes as `{ id, name, type }` and an output limit. */
 export function serialize(value: unknown, limit = OUTPUT_LIMIT): Result<"execute"> {
 	if (value === undefined) return { value: "undefined (use `return` to send a value)", truncated: false };
-	const json = JSON.stringify(value, replacer, 2) ?? String(value);
+	// No indentation: it makes the output up to 2 times larger, and each result stays in the transcript.
+	const json = JSON.stringify(value, replacer) ?? String(value);
 	if (json.length <= limit) return { value: json, truncated: false };
 	return {
 		value: `${json.slice(0, limit)}\n… [output truncated: ${json.length} characters, limit ${limit}]`,
@@ -77,7 +76,7 @@ function replacer(_key: string, value: unknown): unknown {
 }
 
 /** A Figma node has only `id` as an own property, so JSON.stringify would give `{"id":…}`. */
-function isNode(value: unknown): value is { id: string; name: string; type: string } {
+function isNode(value: unknown): value is NodeSummary {
 	if (typeof value !== "object" || value === null) return false;
 	const node = value as Record<string, unknown>;
 	return typeof node.id === "string" && typeof node.type === "string" && "removed" in node;

@@ -11,7 +11,6 @@ export const CHECKS: Record<string, string> = {
 	"0.2": "networkAccess with a hosted iframe",
 	"0.3": "Claude setup-token from the iframe",
 	"0.4": "ChatGPT",
-	"0.5": "pi-durable browser bundle",
 	"0.6": "Execute",
 	"0.7": "Resume",
 	"0.8": "Provider-native search",
@@ -24,6 +23,34 @@ export const CHECKS: Record<string, string> = {
 	"0.15": "skills.sh",
 	"0.16": "Theme colors in the hosted iframe",
 };
+
+const REMOTE = location.hostname !== "localhost";
+
+/** What must pass on this origin, and how to run it. Other results (for example "0.4 codex-direct") are facts. */
+const TODO: [id: string, how: string][] = [
+	["0.0", "Automatic when the page opens."],
+	["0.1 restart", "Click “0.1 Before restart”. Quit Figma, start it again, run FigPal."],
+	["0.2", "Click “0.2 Network”."],
+	["0.3", "Save the Claude token. Select a Claude model, click “Quick test”."],
+	["0.4 device-login", "Click “A: Device login”."],
+	["0.4 codex-route", "Click “A: Test route”."],
+	["0.6", "Click “Run all checks” (Execute)."],
+	["0.7", "Click “Resume test”, then “Send”. Close the plugin while the tool runs. Run FigPal again."],
+	["0.8 anthropic", "Click “0.8 Search (Claude)”."],
+	["0.8 openai-codex", "Click “0.8 Search (ChatGPT)”."],
+	["0.9", "Click “0.9 Images”."],
+	["0.10", "Automatic when the page opens."],
+	["0.11", "Click “0.11 Hide for 10 s”."],
+	...(REMOTE
+		? ([
+				["0.12", "Click “0.12 Reload with frame-ancestors”."],
+				["0.13", "Automatic when the page opens."],
+				["0.14", "Turn off Tailscale, run FigPal: the error page must show. Turn on Tailscale, click “0.14 Error page showed”."],
+			] satisfies [string, string][])
+		: []),
+	["0.15", "Click “0.15 Skills”."],
+	["0.16", "Automatic when the page opens."],
+];
 
 const DB_NAME = "figpal:spike";
 
@@ -87,10 +114,38 @@ function markdown(results: CheckResult[]): string {
 	return lines.join("\n");
 }
 
+/** A check is done when it passed, or when it recorded a fact (info). */
+const done = (result: CheckResult | undefined) => result?.status === "pass" || result?.status === "info";
+
 export function resultsView(): HTMLElement {
+	const open = h("ol", { className: "open" });
 	const body = h("tbody");
+	const table = h("table", { hidden: true });
+	const toggle = h("button", { type: "button" });
+	toggle.onclick = () => {
+		table.hidden = !table.hidden;
+		void render();
+	};
 	const render = async () => {
 		const results = await all();
+		const byId = new Map(results.map((r) => [r.id, r]));
+		const missing = TODO.filter(([id]) => !done(byId.get(id)));
+		open.replaceChildren(
+			...missing.map(([id, how]) => {
+				const last = byId.get(id);
+				return h(
+					"li",
+					{},
+					h("strong", {}, `${id} ${CHECKS[id.split(" ")[0] ?? id] ?? ""}`),
+					h("br"),
+					how,
+					last && h("br"),
+					last && h("small", { className: "fail" }, `Last result (${last.status}): ${last.detail}`),
+				);
+			}),
+		);
+		if (missing.length === 0) open.replaceChildren(h("li", {}, "All checks on this origin are done."));
+		toggle.textContent = table.hidden ? `Show all results (${results.length})` : "Hide all results";
 		body.replaceChildren(
 			...results.map((r) =>
 				h(
@@ -108,10 +163,6 @@ export function resultsView(): HTMLElement {
 	void render();
 	const copy = h("button", { type: "button" }, "Copy as Markdown");
 	copy.onclick = async () => copyText(markdown(await all()));
-	return h(
-		"div",
-		{},
-		h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "#"), h("th", {}, "Check"), h("th", {}, "Status"), h("th", {}, "Detail"))), body),
-		copy,
-	);
+	table.append(h("thead", {}, h("tr", {}, h("th", {}, "#"), h("th", {}, "Check"), h("th", {}, "Status"), h("th", {}, "Detail"))), body);
+	return h("div", {}, h("p", { className: "muted" }, "Open checks on this origin:"), open, h("div", { className: "row" }, toggle, copy), table);
 }
