@@ -1,0 +1,38 @@
+# Add to /etc/caddy/Caddyfile, next to system.maxschulmeister.dev (not to dokploy-apps.caddy).
+# Then: caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+figpal.maxschulmeister.dev {
+	@tailscale remote_ip 100.64.0.0/10 fd7a:115c:a1e0::/48
+	handle @tailscale {
+		# skills.sh sends no CORS headers (spike 0.15).
+		handle_path /api/skills/* {
+			rewrite * /api{path}
+			reverse_proxy https://skills.sh {
+				header_up Host skills.sh
+				header_up -Origin
+			}
+		}
+		# Codex inference: chatgpt.com blocks CORS (spike 0.4). Remove if the api.openai.com login works.
+		handle_path /api/chatgpt/* {
+			reverse_proxy https://chatgpt.com {
+				header_up Host chatgpt.com
+				header_up -Origin
+			}
+		}
+		handle {
+			root * /srv/figpal
+			# Spike 0.12: the header only on ?csp=1, so a failure cannot hide the result of 0.13.
+			@csp query csp=1
+			header @csp Content-Security-Policy "frame-ancestors https://www.figma.com"
+			# Hashed file names under /assets. Everything else (index.html for every route) must revalidate.
+			@immutable path /assets/*
+			header @immutable Cache-Control "public, max-age=31536000, immutable"
+			@mutable not path /assets/*
+			header @mutable Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}

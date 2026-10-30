@@ -1,0 +1,2 @@
+# Add to the hosts block of the ".:53" server in /etc/coredns/Corefile. Then: systemctl restart coredns
+        100.110.230.14 figpal.maxschulmeister.dev

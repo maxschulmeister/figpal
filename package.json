@@ -1,0 +1,17 @@
+{
+	"name": "figpal",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@10.33.3",
+	"scripts": {
+		"dev": "pnpm --parallel --filter @figpal/plugin --filter @figpal/web dev",
+		"build": "pnpm --filter @figpal/plugin build && pnpm --filter @figpal/web build",
+		"test": "vitest run",
+		"typecheck": "pnpm -r typecheck",
+		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh"
+	},
+	"devDependencies": {
+		"typescript": "^5.9.3",
+		"vitest": "^4.1.12"
+	}
+}

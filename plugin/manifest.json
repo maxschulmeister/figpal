@@ -1,0 +1,29 @@
+{
+	"name": "FigPal",
+	"id": "figpal",
+	"api": "1.0.0",
+	"main": "dist/code.js",
+	"menu": [
+		{ "name": "FigPal", "command": "hosted" },
+		{ "name": "FigPal (dev server)", "command": "dev" }
+	],
+	"editorType": ["figma"],
+	"documentAccess": "dynamic-page",
+	"enablePrivatePluginApi": true,
+	"networkAccess": {
+		"allowedDomains": [
+			"https://figpal.maxschulmeister.dev",
+			"https://api.anthropic.com",
+			"https://api.openai.com",
+			"https://auth.openai.com",
+			"https://chatgpt.com",
+			"https://api.github.com",
+			"https://raw.githubusercontent.com",
+			"https://skills.sh",
+			"https://upload.wikimedia.org",
+			"https://www.google.com"
+		],
+		"reasoning": "FigPal loads its UI from figpal.maxschulmeister.dev and calls model, skill and image services.",
+		"devAllowedDomains": ["http://localhost:5173", "ws://localhost:5173"]
+	}
+}

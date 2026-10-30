@@ -1,0 +1,22 @@
+:root {
+	color-scheme: light dark;
+	font: 12px/1.5 Inter, system-ui, sans-serif;
+	color: var(--figma-color-text, CanvasText);
+	background: var(--figma-color-bg, Canvas);
+}
+body { margin: 0; padding: 12px; }
+h1 { font-size: 14px; margin: 0 0 4px; }
+h2 { font-size: 12px; margin: 16px 0 6px; }
+section { border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
+.muted { opacity: 0.7; margin: 4px 0; }
+.small, small { font-size: 11px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; align-items: center; }
+input, textarea, select { font: inherit; box-sizing: border-box; }
+input[type="text"], input[type="password"] { flex: 1; min-width: 160px; }
+textarea { width: 100%; font-family: ui-monospace, monospace; }
+button { font: inherit; padding: 4px 10px; }
+pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; max-height: 320px; overflow: auto; margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; }
+td, th { text-align: left; vertical-align: top; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent); }
+tr.pass td:nth-child(3) { color: #0a7d32; }
+tr.fail td:nth-child(3) { color: #c0262d; }

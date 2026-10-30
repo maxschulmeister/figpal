@@ -48,7 +48,17 @@ CORS preflight results from the plugin origins (`null` and `https://www.figma.co
 
 | Endpoint | Result |
 |---|---|
-| `api.anthropic.com/v1/messages` | Allowed (`*`), including `x-app`, `user-agent` and `anthropic-dangerous-direct-browser-access` |
+| `api.anthropic.com/v1/messages` | Allowed (`*`), including `x-app`, `user-agent` and `anthropic-dangerous-direct-browser-access`. Only if the request has `anthropic-dangerous-direct-browser-access` (pi-ai sends it). |
+| `api.openai.com/v1` | Allowed (`*`) |
+
+Facts from the spike (see `docs/spike.md`):
+
+- `networkAccess` does not apply to the navigated (hosted) iframe. It applies to `code.js` and to the first document.
+- Figma adds the `--figma-color-*` variables only to the first document. `code.js` gives the theme class to the hosted UI in the URL hash.
+- Figma Desktop 126 (Chromium 150) loads `http://localhost` in the plugin iframe. Local Network Access does not block it.
+- In Figma Desktop, messages from `code.js` do not come from `window.parent`. The UI checks the origin (`https://www.figma.com`), not the source window.
+- `chatgpt.com` allows CORS from `http://localhost:5173`, but not from the hosted origin.
+- A Sign in with ChatGPT token on `api.openai.com` accepts only newer models (not `gpt-4`).
 | `platform.claude.com/v1/oauth/token` | Blocked ("Disallowed CORS origin") |
 | `chatgpt.com/backend-api/codex` | Blocked ("Disallowed CORS origin") |
 | `auth.openai.com` (token, device code) | Allowed |
@@ -134,10 +144,10 @@ figpal/
   - `networkAccess.allowedDomains`: `https://figpal.maxschulmeister.dev`, the model APIs, `api.figma.com`, GitHub, the image and search services. Use `"*"` with a `reasoning` text if the list becomes too long.
   - `devAllowedDomains`: `http://localhost:<port>` for the UI dev server.
 - `code.ts`:
-  - `figma.showUI('<script>location.href="https://figpal.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. In development, use the local dev server URL (a build flag selects it).
+  - `figma.showUI('<script>location.href="https://figpal.maxschulmeister.dev/"</script>', { themeColors: true, width, height })`. The menu command **FigPal (dev server)** uses the local dev server URL instead.
   - **Load check:** `code.js` waits for a `ready` message from the UI. If no message comes in time, it shows a small local page: "Cannot reach FigPal. Connect Tailscale and run the plugin again."
   - Message router with request IDs.
-  - **Execute:** wrap the code in an async IIFE and run it with `eval` (Figma blocks the `AsyncFunction` constructor). Top-level `await` and `return` are supported. The result is JSON. There is a timeout and an output limit (about 20 KB, like `use_figma`). Copy the result analysis from figma-console-mcp `code.js` (MIT).
+  - **Execute:** wrap the code in an async IIFE and run it with indirect `eval` (global scope, no access to the plugin's locals). Top-level `await` and `return` are supported. The result is JSON. There is a timeout and an output limit (about 20 KB, like `use_figma`). Copy the result analysis from figma-console-mcp `code.js` (MIT).
   - **Helpers** in the execute scope (`pi.*`):
     - `pi.attach(bytes, { mime, name })` sends a file to the UI.
     - `pi.context(node, opts)` returns compact node JSON (port of the figwright serializer, MIT).
@@ -157,13 +167,13 @@ figpal/
   - Settings: providers and models, model allowlist for subagents, agents (Markdown editor), skills, web search, export and import.
 - Every user message gets a short context block: file name, page, selection (IDs, names, types).
 - Harness setup for each file: `IndexedDbStorage.open("figpal:file:<fileId>")` inside a Web Lock, then `harness.resume()`. Call `navigator.storage.persist()`.
-- If a second plugin window opens the same file, it opens the storage with `readOnly: true` and shows a notice.
+- If a second plugin window opens the same file, it shows a notice. (pi-durable 1.4.0 `IndexedDbStorage` has no `readOnly` option.)
 
 ### Models and authentication
 
 - A credential store in clientStorage, by provider.
 - **Claude:** you paste the token from `claude setup-token`. No refresh is needed.
-- **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference first tries a direct call. If CORS blocks it, the provider base URL changes to the Caddy route `/api/chatgpt/backend-api`.
+- **ChatGPT:** first choice (spike 0.4 B): pi-ai's "Sign in with ChatGPT" for `api.openai.com`, which allows CORS. The user pastes the `127.0.0.1:1455` redirect URL. Then no `chatgpt.com` route is necessary. Fallback: device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference first tries a direct call. If CORS blocks it, the provider base URL changes to the Caddy route `/api/chatgpt/backend-api`.
 - **API keys:** for every provider that allows browser calls.
 - **Provider wrapper:** wrap the pi-ai provider to add server tools with `onPayload`:
   - Anthropic: `web_search_20250305`, `web_fetch_20250910`.
@@ -224,7 +234,7 @@ Static files only. The host Caddy serves them. Only tailnet devices can reach th
 Setup on the VPS (one time, in Phase 0, with your approval):
 
 1. CoreDNS: add `100.110.230.14 figpal.maxschulmeister.dev` to the `hosts` block in `/etc/coredns/Corefile`. Restart CoreDNS.
-2. Caddy: add this block to `/etc/caddy/Caddyfile`, next to `system.maxschulmeister.dev`. Do not add it to `dokploy-apps.caddy`, because `caddy-dokploy-sync` writes that file. Run `caddy validate`, then reload Caddy.
+2. Caddy: add this block to `/etc/caddy/Caddyfile`, next to `system.maxschulmeister.dev`. Do not add it to `dokploy-apps.caddy`, because `caddy-dokploy-sync` writes that file. Run `caddy validate`, then reload Caddy. The block below is the outline. The current block, with the proxy routes and correct cache headers, is `deploy/Caddyfile.figpal`.
 
 ```caddyfile
 figpal.maxschulmeister.dev {
@@ -337,6 +347,7 @@ Build the minimum: a plugin that goes to a local and a hosted page, with one har
 | 0.13 | Tailscale DNS in Figma Desktop | Figma Desktop (Electron) resolves `figpal.maxschulmeister.dev` to `100.110.230.14` and loads the page. A request from outside the tailnet gets `404`. |
 | 0.14 | Tailscale off | The plugin shows the "Connect Tailscale" page. It does not hang. |
 | 0.15 | skills.sh | Record if search and download need the Caddy route. Test the GitHub fallback. |
+| 0.16 | Theme colors | Record if Figma adds the `--figma-color-*` variables to the hosted iframe. |
 
 Write the results in `docs/spike.md`. Change this plan where a check fails.
 
@@ -442,9 +453,11 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 | ChatGPT inference blocked by CORS | No direct ChatGPT | Caddy route. Cloudflare in front of `chatgpt.com` can challenge VPS IPs. |
 | VPS is down or Tailscale is off | The plugin cannot load its UI | Caddy runs as a system service. The plugin shows "Connect Tailscale". Later: a service worker caches the UI. |
 | Figma Desktop does not use the Tailscale DNS | The UI does not load | Spike 0.13. Fallback: a Tailscale-only Caddy site on the `ts.maxschulmeister.dev` names, or the Tailscale IP with its own certificate. |
+| Chromium Local Network Access blocks a local address (`localhost`, `100.64.0.0/10`) in the plugin iframe | The dev server and the Tailscale-only UI do not load | Spike 0.13 and the local run. Chrome 156 blocks it. Fallback: static files on the public IP (no secrets in them), or a bundled UI. See `docs/spike.md`. |
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
-| Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. |
+| Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. After a timeout, canvas calls fail until the old call ends. |
+| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage`, also the credentials. With web tools, a prompt injection can send them out. | Accepted (decision 2026-10-29). Keep it in mind for the web tools (Phase 5). |
 
 ## Decision log
 
@@ -455,6 +468,9 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 - UI on `figpal.maxschulmeister.dev`: static files through the host Caddy, Tailscale only. No Dokploy app and no server process.
 - Proxy routes in Caddy only when a spike shows the need.
 - Private GitHub repo `maxschulmeister/figpal` as the remote (backup, not for deployment).
+- Credentials stay in `figma.clientStorage`, also if `figma_execute` code can read them.
+- VPS setup done: CoreDNS line, Caddy block (`deploy/Caddyfile.figpal`), `/srv/figpal`.
+- Run the `simplify` review after each phase.
 
 ## Open questions
 
