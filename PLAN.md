@@ -129,8 +129,8 @@ figpal/
 ├─ PLAN.md
 ├─ package.json            pnpm workspace
 ├─ plugin/                 manifest.json, src/code.ts (built to code.js)
-├─ web/                    hosted UI (Vite + React + assistant-ui + pi-durable)
-│  └─ src/extensions/      figma/, subagent/, skills/, web/
+├─ web/                    hosted UI (Vite + React + assistant-ui + figma-kit + pi-durable)
+│  └─ src/extensions/      figma.ts; later subagent, skills, web
 ├─ deploy/                 Caddy block, CoreDNS line, deploy script (rsync to /srv/figpal)
 └─ shared/                 message protocol types (UI ↔ code.js)
 ```
@@ -161,7 +161,7 @@ figpal/
 
 ### Hosted UI (`web/`)
 
-- React + assistant-ui with an `ExternalStoreRuntime`. pi-durable `watch()` views feed it.
+- React + assistant-ui with an `ExternalStoreRuntime`. The pi-durable `viewState()` of the conversation feeds it (`web/src/transcript.ts`).
 - Screens:
   - Thread list for the current file: new, fork, rename, delete.
   - Chat: streamed text, tool calls (collapsible), subagent transcripts under their call, attachments.
@@ -294,7 +294,7 @@ Rules:
 
 | Store | Scope | Contents |
 |---|---|---|
-| `clientStorage` | Plugin ID, device | Model credentials, Tavily and Figma tokens, settings, thread index `{ fileId → [{ threadId, title, updatedAt }] }` |
+| `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), the UI source (`figpal.ui`), Tavily and Figma tokens, settings, thread index `{ fileId → [{ threadId, title, updatedAt }] }` |
 | IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: conversations, tasks, transcripts, attachments |
 | IndexedDB `figpal:global` | Hosted origin | Skills, agent definitions |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
@@ -354,6 +354,8 @@ Write the results in `docs/spike.md`. Change this plan where a check fails.
 
 ### Phase 1: MVP
 
+Status: code done (2026-10-30). Unit tests, and an end-to-end run in Chrome (fake `code.js`, scripted Anthropic answers, a reload during a tool call) pass. The manual checks in Figma Desktop are open.
+
 - Workspace setup: pnpm, TypeScript, Vite, lint, Vitest.
 - Plugin: router, execute queue, screenshot, file ID, clientStorage API, events.
 - UI: one thread, chat, tool call display.
@@ -371,6 +373,7 @@ Checks:
 - Thread list for each file: new, fork, rename, delete, last open thread.
 - Settings: credentials, default model, thinking level.
 - ChatGPT device login, with the Caddy route if needed.
+- Credential writes in a Web Lock (`figpal:credentials`): two FigPal windows share clientStorage, and an OAuth refresh must run only once (Phase 1 review).
 - Read-only mode for a second window.
 
 Checks:
@@ -477,6 +480,17 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 
 - The hosted UI stays (no local server that must always run). A UI inside the plugin (null origin) has no IndexedDB, and it cannot call Claude.
 - Claude goes through the route `/api/anthropic`: in the dev server and in Caddy on the VPS. The token passes through the VPS. Caddy does not store it.
+- Phase 1:
+  - The chat replaced the spike page. The request types `hide` and `create-image` went with it: Phase 5 (images) and Phase 7 (run in background) add them again. The spike code is in commit `bdd8cd5`.
+  - `allowedDomains` has only the UI origin, because `networkAccess` does not limit the hosted UI (spike 0.2). Phase 5 changes it to `"*"` for images.
+  - Credentials are a pi-ai `CredentialStore` on the clientStorage key `figpal.credentials`. The spike key `figpal.spike.anthropic` is not read: paste the token again once.
+  - The route is a provider wrapper (`throughRoute`), not a proxy around `Models`.
+  - The model is `claude-sonnet-5-5` until the Phase 2 settings.
+  - The file storage is IndexedDB `figpal:file:<fileId>`. The spike databases (`figpal:spike:file:*`) stay unused.
+  - The UI is not in React `StrictMode`: its double start of effects would open the file storage twice, and the Web Lock would refuse the second one.
+  - Lint: Biome, lint rules only (no formatter).
+  - Markdown images in answers show as links. A loaded image URL could send data out without a click (for example after a prompt injection in the file). Tool screenshots are `data:` URLs.
+  - Stop does not wait for code.js: a tool call stops at once. code.js cannot stop the code, and its queue runs the next call after it.
 
 ## Open questions
 

@@ -4,20 +4,9 @@ Status: **done** (2026-10-30). All checks pass on the remote UI in Figma Desktop
 
 ## How to run
 
-### Local (dev server)
+Phase 1 replaced the spike page with the chat. To run the spike page again, check out commit `bdd8cd5`.
 
-1. `pnpm install`, then `pnpm dev`. This starts Vite on `http://localhost:5173` and builds `plugin/dist/code.js`.
-2. In Figma Desktop: **Plugins → Development → Import plugin from manifest…** and select `plugin/manifest.json`.
-3. Open a test file (not a work file). Run **FigPal**. If the window title is "FigPal (remote)", click **Use the local UI** at the top of the page. The setting stays in clientStorage.
-4. Click the checks on the page. In dev mode, the page also writes the results to `docs/spike-results.local.json`.
-
-The **faux/script** model needs no token: `run: <code>` calls `figma_execute` with the code. Other text gets an echo.
-
-### Hosted
-
-1. VPS setup (done): the CoreDNS line in `deploy/coredns-hosts.txt`, the Caddy block in `deploy/Caddyfile.figpal`, the folder `/srv/figpal`. Backups: `/etc/caddy/Caddyfile.bak-figpal-20261029-230459`, `/etc/coredns/Corefile.bak-figpal-20261029-230549`.
-2. `pnpm deploy:web`.
-3. Run **FigPal**. If the window title is "FigPal (local)", click **Use the remote UI**. Then do the checks. Use **Copy as Markdown** to get the results (the dev route does not exist on the VPS).
+VPS setup (done): the CoreDNS line in `deploy/coredns-hosts.txt`, the Caddy block in `deploy/Caddyfile.figpal`, the folder `/srv/figpal`. Backups: `/etc/caddy/Caddyfile.bak-figpal-20261029-230459`, `/etc/coredns/Corefile.bak-figpal-20261029-230549`.
 
 Before and after the VPS change, a read-only check compared all Caddy sites (status codes), the Stalwart ports (25, 465, 993, 4190: greetings and certificate) and CoreDNS answers. The only differences were the new `figpal` site and DNS name. The adapted Caddy JSON was the same as before, except the new route and new internal group names. The `layer4` (Stalwart) and TLS configuration did not change.
 

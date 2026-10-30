@@ -1,6 +1,6 @@
 # Pi Black for pi-durable
 
-FigPal applies Pi Black compatibility to Anthropic OAuth requests in the browser. Use the existing Claude token field and **Save token** button. No Pi CLI extension install is needed.
+FigPal applies Pi Black compatibility to Anthropic OAuth requests in the browser. Paste the token from `claude setup-token` in FigPal: at the first start, or in **More → Claude token…**. No Pi CLI extension install is needed.
 
 ## Source and scope
 
@@ -11,13 +11,13 @@ FigPal applies Pi Black compatibility to Anthropic OAuth requests in the browser
 
 The upstream package is a Node-based Pi extension, not a pi-durable browser extension. FigPal copies its request code without its CLI registration or local identity discovery. No new dependency or server process is needed. The provider context type is updated from `Context` to `TranscriptContext` for pi-ai 1.4.0.
 
-`createSpikeModels()` wraps only `anthropicProvider()`. Requests with a token that contains `sk-ant-oat` get:
+`createAgentModels()` (`web/src/agent.ts`) wraps only `anthropicProvider()`: first Pi Black, then `throughRoute()` (the route, see below). Requests with a token that contains `sk-ant-oat` get:
 
 - Billing and Agent SDK system blocks before the FigPal rules.
 - A prompt fingerprint and a seeded XXH64 checksum of the final request body.
 - Claude Code headers, a request UUID, and pi-durable's conversation session ID.
 
-The wrapper keeps the existing payload hook, including native search. The checksum runs after that hook and SDK serialization. API-key requests pass through without changes. Other providers are not wrapped. pi-ai still handles streaming, tools, errors, retries, and usage. Credentials stay in the existing store.
+The wrapper keeps the existing payload hook, including native search. The checksum runs after that hook and SDK serialization. API-key requests pass through without changes. Other providers are not wrapped. pi-ai still handles streaming, tools, errors, retries, and usage. Credentials are in clientStorage (`web/src/credentials.ts`).
 
 The browser does not read `~/.claude.json`. It does not add optional account identity metadata. The setup-token flow does not add OAuth login or refresh.
 
