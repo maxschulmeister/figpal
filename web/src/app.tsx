@@ -4,7 +4,19 @@ import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { AgentChange, Conversation, ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
 import { type FileInfo, UI_ORIGINS, type UiSource } from "@figpal/shared";
-import { Button, ChevronDownIcon, ChevronLeftIcon, Dialog, IconButton, Paragraph, PlusIcon, SlidersIcon, Text, Tooltip } from "figma-kit";
+import {
+	Button,
+	ChevronDownIcon,
+	ChevronLeftIcon,
+	Dialog,
+	IconButton,
+	Paragraph,
+	PlusIcon,
+	SlidersIcon,
+	Tabs,
+	Text,
+	Tooltip,
+} from "figma-kit";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, errorText } from "./accounts";
 import { createAgentModels, openAgent } from "./agent";
@@ -12,6 +24,8 @@ import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { clientStorageCredentials } from "./credentials";
 import { loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
+import { SkillsPanel } from "./skills-panel";
+import { installDefaultSkills } from "./skills/defaults";
 import { ThreadList, threadTitle } from "./thread-list";
 import {
 	currentThread,
@@ -54,6 +68,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const [list, setList] = useState<List>();
 	const [showThreads, setShowThreads] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [settingsTab, setSettingsTab] = useState<string>("models");
 	const busy = useRef(false);
 	const credentials = useMemo(() => clientStorageCredentials(bridge), [bridge]);
 	const models = useMemo(() => createAgentModels(credentials, location.origin), [credentials]);
@@ -94,6 +109,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const fileId = file?.fileId;
 	useEffect(() => {
 		if (!fileId) return;
+		// In the background: the Skills tab shows an error.
+		installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
 		openAgent(fileId, { models, bridge }).then(
@@ -234,21 +251,33 @@ export function App({ bridge }: { bridge: Bridge }) {
 			</main>
 			<Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
 				<Dialog.Portal>
-					<Dialog.Backdrop />
-					<Dialog.Popup placement="center">
-						<Dialog.Header>
-							<Dialog.Title>Settings</Dialog.Title>
-							<Dialog.Controls>
-								<Dialog.Close />
-							</Dialog.Controls>
-						</Dialog.Header>
-						<Dialog.Section>{accounts}</Dialog.Section>
-						<Dialog.Section>
-							<div className="flex items-center justify-between gap-2">
-								<Text className="text-secondary">This window uses the {uiSource} UI.</Text>
-								<Button onClick={() => bridge.switchUi(otherUi)}>Use the {otherUi} UI</Button>
-							</div>
-						</Dialog.Section>
+					<Dialog.Popup size="fullscreen" aria-label="Settings" className="flex flex-col">
+						{/* Both panels stay mounted: a tab switch must not stop a login or an install. */}
+						<Tabs.Root value={settingsTab} onValueChange={setSettingsTab} className="flex min-h-0 flex-1 flex-col">
+							<Dialog.Header>
+								<Tabs.List>
+									<Tabs.Tab value="models">Models</Tabs.Tab>
+									<Tabs.Tab value="skills">Skills</Tabs.Tab>
+								</Tabs.List>
+								<Dialog.Controls>
+									<Dialog.Close />
+								</Dialog.Controls>
+							</Dialog.Header>
+							<Tabs.Panel value="models" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
+								<Dialog.Section>{accounts}</Dialog.Section>
+								<Dialog.Section>
+									<div className="flex items-center justify-between gap-2">
+										<Text className="text-secondary">This window uses the {uiSource} UI.</Text>
+										<Button onClick={() => bridge.switchUi(otherUi)}>Use the {otherUi} UI</Button>
+									</div>
+								</Dialog.Section>
+							</Tabs.Panel>
+							<Tabs.Panel value="skills" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
+								<Dialog.Section>
+									<SkillsPanel />
+								</Dialog.Section>
+							</Tabs.Panel>
+						</Tabs.Root>
 					</Dialog.Popup>
 				</Dialog.Portal>
 			</Dialog.Root>

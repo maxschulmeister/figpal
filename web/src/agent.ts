@@ -9,6 +9,7 @@ import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
 import type { FileInfo, NodeSummary } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
+import { skillsExtension } from "./extensions/skills";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { wrapAnthropicProvider } from "./providers/pi-black";
@@ -38,6 +39,7 @@ export function createAgentModels(credentials: CredentialStore, origin: string):
 export async function startAgent(storage: Storage, options: { models: Models; bridge: Pick<Bridge, "request"> }): Promise<Harness> {
 	const registry = createRegistry();
 	registry.install(figmaExtension(options.bridge));
+	registry.install(skillsExtension());
 	// pi-durable reports failures of the storage, tasks and extensions here, and nowhere else.
 	const onReport = (error: unknown, info: unknown) => console.error("FigPal agent:", info, error);
 	const harness = await Harness.open(storage, { models: options.models, registry, onReport }, context);

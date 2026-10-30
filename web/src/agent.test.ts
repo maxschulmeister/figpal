@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import {
 	type FauxResponseFactory,
