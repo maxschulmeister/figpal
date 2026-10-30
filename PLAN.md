@@ -216,7 +216,7 @@ figpal/
   - The fallback is the GitHub Trees API plus `raw.githubusercontent.com` (60 requests per hour without a token).
   - You can also upload a zip.
 - Update: compare `hash`, like the skills CLI.
-- Suggested skills: Figma's `figma-use`, `figma-use-motion`, `figma-shaders`, `figma-use-figjam`, `figma-use-slides`, `figma-generate-library`. Their repo has no license, so use them only for yourself.
+- Default skills: the 16 skills in `skills/` of Figma's `figma/mcp-server-guide`. FigPal downloads them from skills.sh at the first start. Their repo has no license, so FigPal does not ship them.
 
 #### `web`
 
@@ -386,13 +386,16 @@ Checks:
 
 ### Phase 3: skills
 
+Status: code done (2026-10-30). Unit tests and an end-to-end run in Chrome (real skills.sh and GitHub, scripted Claude) pass: `figma-use` installs, and `skill_grep` finds `interface FrameNode` in its typings. The manual check in Figma Desktop (the model loads the skill when it must) is open.
+
 - Global skills store, prompt section, `skill_read`, `skill_grep`.
 - Install from skills.sh (Caddy route), GitHub fallback, zip upload, update, enable and disable.
 
 Checks:
 
-- Install `figma/mcp-server-guide@figma-use`.
-- The model loads it when it must.
+- The Figma skills install at the first start.
+- Install a skill: paste `npx skills add owner/repo@skill`.
+- The model loads `figma-use` when it must.
 - `skill_grep` finds a type in the typings.
 
 ### Phase 4: subagents
@@ -464,7 +467,7 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
 | Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. After a timeout, canvas calls fail until the old call ends. |
-| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage`, also the credentials. With web tools, a prompt injection can send them out. | Accepted (decision 2026-10-29). Keep it in mind for the web tools (Phase 5). |
+| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage`, also the credentials. A prompt injection (in the file, in a skill, later in web results) can send them out, for example with `figma.openExternal(url)`. | Accepted (decision 2026-10-29). Skills are instructions for the model: install only skills that you trust. Keep it in mind for the web tools (Phase 5). |
 
 ## Decision log
 
@@ -501,6 +504,21 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - Model and thinking level: a picker for the open thread. The last choice is the setting for new threads (clientStorage, all files).
   - ChatGPT: a browser port of pi-ai's device code login and refresh. pi-ai refreshes the token in the credential store's Web Lock. Closing the settings stops a login.
   - The first thread opens only after a provider is connected, with that provider's model. Thread actions run one at a time (a double click makes one thread).
+- Phase 3:
+  - The store is IndexedDB `figpal:global` with object stores for the skill list and for the files of each skill. The list does not load the files (`figma-use` has 650 KB of references). Version 2 adds `meta`.
+  - Default skills: at the first start, FigPal installs the 16 skills in `skills/` of `figma/mcp-server-guide` from skills.sh, in the background (user request). `meta` records when all are installed, so a removed skill stays removed. A failed download is tried again at the next start. The record is in `figpal:global`, not in clientStorage: a cleared database gets the skills again. Some of these skills need Figma MCP tools that FigPal does not have (`create_shader`, `generate_diagram`, `create_new_file`, `create_generative_plugin`) or a codebase (Code Connect, design to code).
+  - The first test in Figma: the model read `figma-use`, then asked for `figma-generate-design` (`figma-use` links `../figma-generate-design/SKILL.md`), which was not installed. Now the section says that such a link is a skill, and what to do when a named skill is not in the list. The error lists the enabled skills.
+  - Install: from skills.sh through `/api/skills`. GitHub only when skills.sh does not answer; an invalid skill from skills.sh stays an error. In a repository, a folder under `skills/` comes first (figma/mcp-server-guide has `figma-use` in two folders). Binary files stay out.
+  - Update: compares the hash of the same source (the skills.sh hash, or the GitHub tree SHA of the folder). A zip has no updates.
+  - `skill_read` gives a long file in parts of at most 40 KB and 1500 lines, below pi-durable's tool output limits (50 KB, 2000 lines), so that the "Read more" note stays.
+  - The skills section tells the model to use `figma_execute` for `use_figma` and `figma_screenshot` for `get_screenshot`, and to do the work of other Figma MCP tools with `figma_execute`.
+  - The agent `skills` filter comes with the agent definitions (Phase 4). Until then, all enabled skills are in the prompt.
+  - Settings is a full-window dialog with the tabs Models and Skills. Both tabs stay mounted, so a tab switch does not stop a login or an install.
+  - `skill_grep` runs in a Web Worker and stops after 2 seconds. A pattern from the model can backtrack for minutes on one line (spike: `interface\s+(\w+\s*)+\{` on the Plugin API typings), and pi-durable runs the tool again after a restart.
+  - Skill names and descriptions go into every system prompt, so the install makes them one line without `<` and `>`, with at most 64 and 1024 characters. The settings show two lines of the description (all of it in the tooltip) and the source.
+  - Find a skill: results show while the user types (skills.sh search after 300 ms, at least 2 characters). A pasted install command or URL shows its skill at once with **Install**; Enter installs it. `owner/repo` without the command is search text (`ui/ux`).
+  - A skill from a repository list installs like any skill: skills.sh first, then the same folder on GitHub.
+  - `figpal:global` closes itself when a newer FigPal upgrades the database (Phase 4 adds agents).
   - figma-kit's submenu trigger makes a Base UI warning in development builds ("render prop received a function named Nr"). Its minified build renames a render function. It is harmless.
 
 ## Open questions
