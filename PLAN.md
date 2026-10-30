@@ -22,6 +22,7 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 - Access to a code repository (code ↔ design). See [Later](#later-optional-node-host).
 - Figma's own AI features (`generate_image`, Figma Make). The Plugin API does not give access to them.
 - Publication. FigPal stays a development plugin.
+- Pi CLI extensions (`export default (pi: ExtensionAPI) => …`, Pi packages on npm). They use `registerCommand`, `pi.on(...)`, `ctx.ui` (terminal UI) and Node APIs, which pi-durable does not have. FigPal has no adapter for them. Installable extensions use the FigPal format (Phase 8).
 - Figma in a browser. Figma Desktop is the only target.
 
 ## Decisions
@@ -296,7 +297,7 @@ Rules:
 |---|---|---|
 | `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), the UI source (`figpal.ui`), Tavily and Figma tokens, settings, thread index `{ fileId → [{ threadId, title, updatedAt }] }` |
 | IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: conversations, tasks, transcripts, attachments |
-| IndexedDB `figpal:global` | Hosted origin | Skills, agent definitions |
+| IndexedDB `figpal:global` | Hosted origin | Skills, agent definitions, installed extensions (Phase 8) |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
 
 Rules:
@@ -439,6 +440,79 @@ Checks:
 - Migrate data between two test subdomains.
 - Measure the token size of the tool schemas and the rules (goal: less than 3k).
 
+### Phase 8: installable extensions
+
+Goal: users install, update and remove extensions in the settings. FigPal does not hard-code them. Users give the extensions (URL, file or code). FigPal has no catalog of extensions.
+
+Facts (pi-durable 1.4.0):
+
+- pi-durable has extensions: `defineExtension({ name, tools, sections, hooks, wraps, tasks })` in a registry (`createRegistry()`). `registry.install()` and `registry.uninstall()` work while the Harness runs. An install with the same name replaces the extension. Work that started keeps the old code. New work uses the new code.
+- The registry is not stored. Conversations store only extension names. After a restart, the host must install the same extensions again. Pending tasks of an extension wait until it is installed again.
+- pi-durable has no loader: no package format, no `pi install`, no file discovery.
+- A pi-durable extension cannot change a provider. Pi Black is a provider wrapper (`Provider → Provider`) that `createAgentModels()` applies. So the format must allow both parts.
+
+#### Module format
+
+An extension is one ESM file (bundled, no bare imports) with a default factory:
+
+```ts
+export default (sdk: FigpalSdk) => ({
+	extension?: Extension,                                          // pi-durable: tools, sections, hooks, wraps, tasks
+	providers?: Record<string, (provider: Provider) => Provider>,  // wrappers by provider ID, for example "anthropic"
+});
+```
+
+- `sdk` gives `defineExtension`, `defineTool`, `section`, `hook`, `ToolTask`, `Type`, and the Figma bridge (`request`). The extension must use the same pi-durable instance as the Harness, or `hook(ToolTask, …)` does not work. A module from a `blob:` URL cannot resolve `@earendil-works/...` imports, so the host gives them.
+- Order of provider wrappers: pi-ai provider → extension wrappers (in install order) → `throughRoute`.
+- Each extension states the `sdk` version that it needs. FigPal refuses an extension for a different version.
+- Write the format in `docs/extensions.md`, with one example extension.
+
+#### Install and storage
+
+- Sources: a URL, a file upload, or pasted code. A URL must allow CORS from the UI origin. FigPal adds no proxy for user URLs.
+- Storage: `figpal:global` IndexedDB, next to the skills: `{ name, version, source, code, hash, enabled }`. Store the code, not only the URL: after a restart, the same code must run.
+- Update: only when the user starts it. Download again, compare `hash`, and show the confirmation again if the code changed.
+- Start: load each enabled extension with `import(URL.createObjectURL(blob))`, before `Harness.open()`. Install its `extension` in the registry, and apply its `providers` in `createAgentModels()`. A provider change needs a new `Models`, so it applies from the next run.
+- A failed load must not stop FigPal: show the error in the settings and start without that extension. `onReport` (`extension_error`) also goes to the settings.
+
+#### Settings UI
+
+- List: name, version, source, enabled, error.
+- Actions: install (URL, file, paste), update, enable or disable, remove.
+- Remove or disable with pending tasks: show the tasks, and abort them before the uninstall. Otherwise they stay blocked.
+
+#### Built in or installable
+
+| Part | Where | Reason |
+|---|---|---|
+| `figma`, `skills`, `subagent`, `web`, Figma depth (Phases 1 to 6) | Built in | FigPal ships them. Their settings UI is part of FigPal. |
+| Pi Black | Installable | Remove it from `createAgentModels()`. The FigPal port is the first test of the `providers` part. Publish it as one ESM file that users can install from a URL. Without it, Claude with a setup-token can fail. Tell users this in the Claude settings. |
+
+An installed extension must not replace a built-in tool or section name. FigPal refuses the install.
+
+#### Security
+
+Other users install extensions, so the confirmation must be clear to people who do not read code.
+
+- An extension runs on the UI origin with full access: the bridge (`figma_execute`, clientStorage with the credentials), IndexedDB, and the network. This is the same trust model as Pi CLI extensions.
+- Before each install and each changed update, show a confirmation:
+  - The source (domain or file name) and the code size.
+  - The tools, sections, hooks and provider wrappers that the extension adds. Get them from a load into a test registry, before the real install.
+  - A warning: "This extension can read your files, your API keys and tokens, and send data to the internet. Install it only if you trust the source."
+  - The code, in a collapsed view.
+- Install only after the user confirms. No automatic update.
+- Not in scope: a sandbox. pi-durable `/codemode` (QuickJS) can run tool code isolated, but then an extension has no hooks, sections or provider wrappers.
+- A CSP must allow `blob:` in `script-src`. Today the UI has no CSP. Keep this in mind for the image rule (`img-src`).
+
+Checks:
+
+- Install Pi Black from a URL. Claude works. Restart Figma: Pi Black loads again and Claude works.
+- Install a test extension with one tool and one section. The model uses the tool. Disable it: the tool is gone from the next request.
+- Restart during a call of a `replay: "safe"` tool from an extension: the call runs again after the extension loads.
+- An extension that throws on load: FigPal starts, and the settings show the error.
+- An extension that defines `figma_execute`: FigPal refuses the install.
+- The confirmation shows the tools and provider wrappers of the test extension before the install.
+
 ## Later: optional Node host
 
 Use it only if you need repo access, long runs while Figma is closed, or a provider that no browser path supports.
@@ -461,6 +535,7 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
 | Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. After a timeout, canvas calls fail until the old call ends. |
+| An installed extension is malicious (Phase 8) | It can read the credentials and the files, and send them out | Clear confirmation before each install and changed update. No automatic update. Extensions cannot replace built-in tools. |
 | Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage`, also the credentials. With web tools, a prompt injection can send them out. | Accepted (decision 2026-10-29). Keep it in mind for the web tools (Phase 5). |
 
 ## Decision log
@@ -491,7 +566,13 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - Lint: Biome, lint rules only (no formatter).
   - Markdown images in answers show as links. A loaded image URL could send data out without a click (for example after a prompt injection in the file). Tool screenshots are `data:` URLs.
   - Stop does not wait for code.js: a tool call stops at once. code.js cannot stop the code, and its queue runs the next call after it.
+- Phase 8, installable extensions, comes after all other phases.
+  - Users give the extensions. FigPal has no catalog.
+  - Other users install extensions too, so the install needs a clear confirmation.
+  - No adapter for Pi CLI extensions.
+  - Pi Black becomes an installable extension.
 
 ## Open questions
 
 None at the moment.
+
