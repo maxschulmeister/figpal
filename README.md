@@ -6,8 +6,8 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 
 1. `pnpm install`, then `pnpm dev`. This starts the local UI (Vite on `http://localhost:5173`) and builds `plugin/dist/code.js`.
 2. In Figma Desktop: **Plugins → Development → Import plugin from manifest…**, then select `plugin/manifest.json`.
-3. Open a test file (not a work file). Run **FigPal**. The window title shows the UI: "FigPal (remote)" or "FigPal (local)". To change it, use the **More** menu (•••) next to the message field.
-4. At the first start, paste a Claude token. In Terminal, `claude setup-token` makes one.
+3. Open a test file (not a work file). Run **FigPal**. The window title shows the UI: "FigPal (remote)" or "FigPal (local)". To change it, use **Settings**.
+4. At the first start, connect a model: paste a Claude token (in Terminal, `claude setup-token` makes one), or sign in with ChatGPT. **Settings** (top right) has both.
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 

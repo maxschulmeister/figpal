@@ -1,6 +1,6 @@
 # Pi Black for pi-durable
 
-FigPal applies Pi Black compatibility to Anthropic OAuth requests in the browser. Paste the token from `claude setup-token` in FigPal: at the first start, or in **More → Claude token…**. No Pi CLI extension install is needed.
+FigPal applies Pi Black compatibility to Anthropic OAuth requests in the browser. Paste the token from `claude setup-token` in FigPal: at the first start, or in **Settings**. No Pi CLI extension install is needed.
 
 ## Source and scope
 

@@ -97,7 +97,7 @@ Figma Desktop
    ├─ code.js (main thread)
    │   ├─ execute queue: figma_execute, screenshots, createImage
    │   ├─ events: selection and page changes → UI
-   │   └─ clientStorage: secrets, settings, thread index for each file
+   │   └─ clientStorage: secrets, settings
    └─ iframe → https://figpal.maxschulmeister.dev/   (hosted UI)
        ├─ React + assistant-ui
        ├─ pi-durable Harness
@@ -174,7 +174,7 @@ figpal/
 
 - A credential store in clientStorage, by provider.
 - **Claude:** you paste the token from `claude setup-token`. No refresh is needed. A browser port of Pi Black wraps the Anthropic provider for OAuth request compatibility (Claude Code `2.1.280`). API-key requests stay unchanged. See [Pi Black integration](docs/pi-black.md) for the pinned source, checks, and limits.
-- **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. Inference goes through the route `/api/chatgpt/backend-api` (Caddy, and the dev server), because `chatgpt.com` allows CORS only from `localhost` (spike 0.4). pi-ai's "Sign in with ChatGPT" (`api.openai.com`) fails from the remote origin.
+- **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. pi-ai's Codex OAuth module needs Node, so `web/src/providers/chatgpt.ts` is a browser port of its device code login and refresh (MIT). Inference goes through the route `/api/chatgpt/backend-api` (Caddy, and the dev server), because `chatgpt.com` allows CORS only from `localhost` (spike 0.4). pi-ai's "Sign in with ChatGPT" (`api.openai.com`) fails from the remote origin.
 - **API keys:** for every provider that allows browser calls.
 - **Provider wrapper:** wrap the pi-ai provider to add server tools with `onPayload`:
   - Anthropic: `web_search_20250305`, `web_fetch_20250910`.
@@ -294,8 +294,8 @@ Rules:
 
 | Store | Scope | Contents |
 |---|---|---|
-| `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), the UI source (`figpal.ui`), Tavily and Figma tokens, settings, thread index `{ fileId → [{ threadId, title, updatedAt }] }` |
-| IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: conversations, tasks, transcripts, attachments |
+| `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), settings (`figpal.settings`: model and thinking level of new threads), the UI source (`figpal.ui`), later Tavily and Figma tokens |
+| IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: the thread list (`figpal.threads`), conversations, tasks, transcripts, attachments |
 | IndexedDB `figpal:global` | Hosted origin | Skills, agent definitions |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
 
@@ -370,17 +370,19 @@ Checks:
 
 ### Phase 2: threads and settings
 
+Status: code done (2026-10-30). Unit tests and an end-to-end run in Chrome (mocked Claude, ChatGPT login and route) pass. The manual checks in Figma Desktop are open.
+
 - Thread list for each file: new, fork, rename, delete, last open thread.
 - Settings: credentials, default model, thinking level.
 - ChatGPT device login, with the Caddy route if needed.
-- Credential writes in a Web Lock (`figpal:credentials`): two FigPal windows share clientStorage, and an OAuth refresh must run only once (Phase 1 review).
-- Read-only mode for a second window.
+- Credential writes in a Web Lock: two FigPal windows share clientStorage, and an OAuth refresh must run only once (Phase 1 review).
+- A second window shows a notice. pi-durable 1.4.0 has no read-only storage (done in Phase 1).
 
 Checks:
 
 - Two files have separate thread lists.
 - Restart Figma: the threads are still there.
-- A second window opens the file as read-only.
+- A second window shows the notice.
 
 ### Phase 3: skills
 
@@ -409,6 +411,7 @@ Checks:
 
 - Provider wrapper for native search and fetch.
 - Tavily fallback, `image_search`, image placement (`createImageAsync`, then direct bytes).
+- Caddy: `Content-Security-Policy: img-src 'self' data:` (and the image hosts that the UI must show), so that no image URL from model output can load without a click. The chat already shows markdown images as links (Phase 1). Follow the VPS procedure.
 
 Checks:
 
@@ -491,6 +494,14 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - Lint: Biome, lint rules only (no formatter).
   - Markdown images in answers show as links. A loaded image URL could send data out without a click (for example after a prompt injection in the file). Tool screenshots are `data:` URLs.
   - Stop does not wait for code.js: a tool call stops at once. code.js cannot stop the code, and its queue runs the next call after it.
+- Phase 2:
+  - The thread list is a pi-durable session document (`figpal.threads`) in the storage of the file, not in clientStorage. A new thread or fork commits together with its list entry. The Phase 1 chat (the root conversation) becomes the first thread.
+  - Delete removes a thread from the list. pi-durable cannot delete a conversation, so its entries stay in IndexedDB.
+  - Fork: "Fork from here" on an answer. The fork keeps the history and the model up to that answer.
+  - Model and thinking level: a picker for the open thread. The last choice is the setting for new threads (clientStorage, all files).
+  - ChatGPT: a browser port of pi-ai's device code login and refresh. pi-ai refreshes the token in the credential store's Web Lock. Closing the settings stops a login.
+  - The first thread opens only after a provider is connected, with that provider's model. Thread actions run one at a time (a double click makes one thread).
+  - figma-kit's submenu trigger makes a Base UI warning in development builds ("render prop received a function named Nr"). Its minified build renames a render function. It is harmless.
 
 ## Open questions
 
