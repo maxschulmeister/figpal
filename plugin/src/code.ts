@@ -121,6 +121,19 @@ function fileInfo(): FileInfo {
 	};
 }
 
+/** A page has no size. Its image shows its content. */
+async function contentSize(page: PageNode): Promise<{ width: number; height: number }> {
+	await page.loadAsync();
+	const boxes = page.children.flatMap((child) => child.absoluteBoundingBox ?? []);
+	if (!boxes.length) throw new Error(`The page ${page.name} is empty`);
+	const left = Math.min(...boxes.map((box) => box.x));
+	const top = Math.min(...boxes.map((box) => box.y));
+	return {
+		width: Math.max(...boxes.map((box) => box.x + box.width)) - left,
+		height: Math.max(...boxes.map((box) => box.y + box.height)) - top,
+	};
+}
+
 function storageKey(key: string): string {
 	if (!key.startsWith(STORAGE_PREFIX)) throw new Error(`Storage keys must start with "${STORAGE_PREFIX}"`);
 	return key;
@@ -149,14 +162,14 @@ const handlers: Handlers = {
 	},
 
 	async screenshot({ nodeId, scale }) {
-		const node = nodeId ? await figma.getNodeByIdAsync(nodeId) : figma.currentPage.selection[0];
-		if (!node) throw new Error(nodeId ? `No node with ID ${nodeId}` : "Select a node or give a node ID");
-		if (!("exportAsync" in node) || !("width" in node)) throw new Error(`Cannot export a ${node.type} node`);
-		const largest = Math.max(node.width, node.height, 1);
-		const value = Math.min(scale ?? 1, SCREENSHOT_MAX_PX / largest);
+		const node = nodeId ? await figma.getNodeByIdAsync(nodeId) : (figma.currentPage.selection[0] ?? figma.currentPage);
+		if (!node) throw new Error(`No node with ID ${nodeId}`);
+		if (!("exportAsync" in node)) throw new Error(`Cannot export a ${node.type} node`);
+		const size = node.type === "PAGE" ? await contentSize(node) : node;
+		const value = Math.min(scale ?? 1, SCREENSHOT_MAX_PX / Math.max(size.width, size.height, 1));
 		const bytes = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value } });
 		return {
-			result: { nodeId: node.id, width: Math.round(node.width * value), height: Math.round(node.height * value) },
+			result: { nodeId: node.id, width: Math.round(size.width * value), height: Math.round(size.height * value) },
 			attachments: [{ name: `${node.name}.png`, mime: "image/png", bytes }],
 		};
 	},

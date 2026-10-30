@@ -67,7 +67,7 @@ export function figmaExtension(bridge: Pick<Bridge, "request">) {
 			defineTool({
 				name: "figma_screenshot",
 				description:
-					`Returns a PNG of a node, to check your work. Without node_id: the first selected node. The longest side is at most ${SCREENSHOT_MAX_PX} px.`,
+					`Returns a PNG of a node or a page, to check your work. Without node_id: the first selected node, else the current page. The longest side is at most ${SCREENSHOT_MAX_PX} px.`,
 				parameters: Type.Object({
 					node_id: Type.Optional(Type.String()),
 					scale: Type.Optional(Type.Number({ description: "Default 1." })),
