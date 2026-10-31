@@ -20,6 +20,7 @@ Plugin API rules:
 - Colors use the range 0 to 1, not 0 to 255.
 - fills, strokes and effects are read-only arrays: copy, change the copy, then assign it.
 - Auto layout: set layoutMode first. Append a child to its auto-layout parent before you set its layoutSizingHorizontal or layoutSizingVertical to "FILL". "HUG" works only on auto-layout frames and text.
+- Images: \`const image = await figma.createImageAsync(url)\` loads a PNG, JPEG or GIF of at most 4096 px. Then set a fill { type: "IMAGE", imageHash: image.hash, scaleMode: "FILL" }.
 - Put new top-level frames next to the existing content, not on top of it.
 - Never call figma.closePlugin, figma.showUI or figma.ui: they stop FigPal.
 - If a call fails, read the error and fix the code. A call that failed can have changed part of the file: check before you run it again.`;

@@ -22,7 +22,7 @@ import { Accounts, errorText } from "./accounts";
 import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
-import { clientStorageCredentials } from "./credentials";
+import { uiCredentials } from "./credentials";
 import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
 import { SkillsPanel } from "./skills-panel";
 import { installDefaultSkills } from "./skills/defaults";
@@ -71,7 +71,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [settingsTab, setSettingsTab] = useState<string>("models");
 	const busy = useRef(false);
-	const credentials = useMemo(() => clientStorageCredentials(bridge), [bridge]);
+	const credentials = useMemo(() => uiCredentials(bridge), [bridge]);
 	const models = useMemo(() => createAgentModels(credentials, location.origin), [credentials]);
 	// The models for subagents: the enabled models of the connected providers. The agent reads them when it needs them,
 	// from the newest settings, without a code.js call.

@@ -1,7 +1,7 @@
 // The FigPal agent: a pi-durable Harness for one Figma file, with Claude through the Anthropic route.
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { Api, CredentialStore, Model, Provider, StreamOptions } from "@earendil-works/pi-ai";
+import type { Api, CredentialStore, Model, Provider, StreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness, type InputSubmissionDraft, type Storage } from "@earendil-works/pi-durable";
@@ -11,17 +11,40 @@ import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
 import { skillsExtension } from "./extensions/skills";
 import { subagentExtension } from "./extensions/subagent";
+import { webExtension } from "./extensions/web";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { wrapAnthropicProvider } from "./providers/pi-black";
 import { UserText } from "./transcript";
 
-/** Sends the requests of `provider` to the route at `baseUrl`, with an extra stream option. */
-function throughRoute(provider: Provider, baseUrl: string, extra: Pick<StreamOptions, "fetch" | "transport">): Provider {
+/**
+ * Sends the requests of `provider` to the route at `baseUrl`, with extra stream options, and adds the provider's own
+ * web search tool (spike 0.8). pi-ai keeps the answer text, not the search results or the citations.
+ */
+function throughRoute(
+	provider: Provider,
+	baseUrl: string,
+	searchTool: object,
+	extra: Pick<StreamOptions, "fetch" | "transport">,
+): Provider {
+	const withSearch = (context: TranscriptContext, options: StreamOptions | undefined): StreamOptions => {
+		// A request without tools is a compaction summary: a search there costs time, and its text would go into the
+		// summary that later turns trust. The tools are in the system messages for every provider.
+		const hasTools = context.messages.some((message) => message.role === "system" && message.toolsAdded?.length);
+		if (!hasTools) return { ...options, ...extra };
+		return {
+			...options,
+			...extra,
+			onPayload: async (payload, model) => {
+				const body = ((await options?.onPayload?.(payload, model)) ?? payload) as { tools?: unknown[] };
+				return { ...body, tools: [...(body.tools ?? []), searchTool] };
+			},
+		};
+	};
 	return {
 		...provider,
-		stream: (model, context, options) => provider.stream({ ...model, baseUrl } as Model<Api>, context, { ...options, ...extra }),
-		streamSimple: (model, context, options) => provider.streamSimple({ ...model, baseUrl }, context, { ...options, ...extra }),
+		stream: (model, context, options) => provider.stream({ ...model, baseUrl } as Model<Api>, context, withSearch(context, options)),
+		streamSimple: (model, context, options) => provider.streamSimple({ ...model, baseUrl }, context, withSearch(context, options)),
 	};
 }
 
@@ -30,9 +53,11 @@ export function createAgentModels(credentials: CredentialStore, origin: string):
 	const models = createModels({ credentials });
 	// Around Pi Black, so that Pi Black wraps fetchAsServer.
 	const claude = wrapAnthropicProvider(anthropicProvider());
-	models.setProvider(throughRoute(claude, `${origin}${ANTHROPIC_ROUTE}`, { fetch: fetchAsServer }));
+	const claudeSearch = { type: "web_search_20250305", name: "web_search", max_uses: 5 };
+	models.setProvider(throughRoute(claude, `${origin}${ANTHROPIC_ROUTE}`, claudeSearch, { fetch: fetchAsServer }));
 	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
-	models.setProvider(throughRoute(chatgptProvider(), `${origin}${CHATGPT_ROUTE}`, { transport: "sse" }));
+	const chatgptSearch = { type: "web_search" };
+	models.setProvider(throughRoute(chatgptProvider(), `${origin}${CHATGPT_ROUTE}`, chatgptSearch, { transport: "sse" }));
 	return models;
 }
 
@@ -48,6 +73,7 @@ export async function startAgent(storage: Storage, options: AgentOptions): Promi
 	const registry = createRegistry();
 	registry.install(figmaExtension(options.bridge));
 	registry.install(skillsExtension());
+	registry.install(webExtension());
 	registry.install(subagentExtension({ subagentModels: options.subagentModels }));
 	// pi-durable reports failures of the storage, tasks and extensions here, and nowhere else.
 	const onReport = (error: unknown, info: unknown) => console.error("FigPal agent:", info, error);

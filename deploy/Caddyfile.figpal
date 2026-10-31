@@ -36,7 +36,8 @@ figpal.maxschulmeister.dev {
 		handle {
 			root * /srv/figpal
 			# Only Figma can show the page in a frame (spike 0.12).
-			header Content-Security-Policy "frame-ancestors https://www.figma.com"
+			# No image loads from a URL in model output without a click (Phase 5). Screenshots are data: URLs.
+			header Content-Security-Policy "frame-ancestors https://www.figma.com; img-src 'self' data:"
 			# Hashed file names under /assets. Everything else (index.html for every route) must revalidate.
 			@immutable path /assets/*
 			header @immutable Cache-Control "public, max-age=31536000, immutable"

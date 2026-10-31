@@ -73,7 +73,7 @@ function assistantParts(
 	results: Map<string, ToolResultMessage>,
 	running: Map<string, unknown>,
 ): Part[] {
-	return response.content.flatMap((block): Part[] => {
+	const parts = response.content.flatMap((block): Part[] => {
 		if (block.type === "text") return [{ type: "text", text: block.text }];
 		if (block.type === "thinking") return [{ type: "reasoning", text: block.thinking }];
 		if (block.type === "toolCall") {
@@ -92,6 +92,14 @@ function assistantParts(
 		}
 		return [];
 	});
+	// Claude splits a cited answer into text blocks, also in the middle of a sentence: one part each would show as
+	// paragraphs.
+	return parts.reduce<Part[]>((joined, part) => {
+		const last = joined.at(-1);
+		if (part.type === "text" && last?.type === "text") joined[joined.length - 1] = { type: "text", text: last.text + part.text };
+		else joined.push(part);
+		return joined;
+	}, []);
 }
 
 function responseStatus(response: AssistantMessage): ThreadMessageLike["status"] {

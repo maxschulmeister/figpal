@@ -7,8 +7,8 @@
 	"documentAccess": "dynamic-page",
 	"enablePrivatePluginApi": true,
 	"networkAccess": {
-		"allowedDomains": ["https://figpal.maxschulmeister.dev"],
-		"reasoning": "FigPal loads its UI from figpal.maxschulmeister.dev. The UI makes the model calls.",
+		"allowedDomains": ["*"],
+		"reasoning": "FigPal loads its UI from figpal.maxschulmeister.dev, and the UI makes the model calls. figma.createImageAsync must load images from any host that the user or the agent finds.",
 		"devAllowedDomains": ["http://localhost:5173", "ws://localhost:5173"]
 	}
 }

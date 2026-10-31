@@ -142,4 +142,23 @@ describe("toThread", () => {
 		const done = toThread(view([userEntry(1, "Go"), call, { ...result, model: [{ ...result.model[0], details }] }]));
 		expect(toolPart(done)).toMatchObject({ toolCallId: "call-1", artifact: details, result: [{ type: "text", text: "Done" }] });
 	});
+
+	it("joins adjacent text blocks: Claude splits a cited answer in the middle of a sentence", () => {
+		const { messages } = toThread(
+			view([
+				userEntry(1, "Who makes Figma?"),
+				assistant(2, [
+					{ type: "text", text: "Based on the search results, " },
+					{ type: "text", text: "Figma, Inc. makes Figma." },
+					{ type: "toolCall", id: "call-1", name: "figma_execute", arguments: { code: "return 1" } },
+					{ type: "text", text: "Done." },
+				]),
+			]),
+		);
+		expect((messages[1]!.content as { type: string; text?: string }[]).map((part) => part.text ?? part.type)).toEqual([
+			"Based on the search results, Figma, Inc. makes Figma.",
+			"tool-call",
+			"Done.",
+		]);
+	});
 });

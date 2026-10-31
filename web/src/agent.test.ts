@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import { zstdDecompressSync } from "node:zlib";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import {
 	type FauxResponseFactory,
@@ -8,6 +9,7 @@ import {
 	fauxToolCall,
 	InMemoryCredentialStore,
 	type Message,
+	Type,
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
@@ -60,6 +62,44 @@ describe("createAgentModels", () => {
 		expect(headers.get("x-figpal-user-agent")).toMatch(/^claude-cli\/2\.1\.280 /);
 		expect(headers.get("x-stainless-runtime")).toBe("node");
 		expect(body.system[0]!.text).toMatch(/^x-anthropic-billing-header: /);
+	});
+
+	it("offers each provider's own web search: Claude and ChatGPT", async () => {
+		const bodies: { route: string; tools?: unknown[] }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async (input, init) => {
+				const body = init?.body;
+				// pi-ai compresses ChatGPT requests with zstd.
+				const text = typeof body === "string" ? body : zstdDecompressSync(body as Uint8Array).toString();
+				bodies.push({ route: new URL(String(input)).pathname.split("/")[2]!, ...JSON.parse(text) });
+				return new Response("unavailable", { status: 503 });
+			}),
+		);
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("anthropic", async () => ({ type: "api_key", key: "sk-ant-oat01-test" }));
+		const part = (value: object) => btoa(JSON.stringify(value)).replace(/=+$/, "");
+		const access = `${part({ alg: "none" })}.${part({ "https://api.openai.com/auth": { chatgpt_account_id: "acct" } })}.sig`;
+		await credentials.modify("openai-codex", async () => ({ type: "oauth", access, refresh: "r", expires: Date.now() + 3_600_000 }));
+		const models = createAgentModels(credentials, "https://figpal.example");
+		const messages = [{ role: "user" as const, content: "Hi", timestamp: 1 }];
+		const agentRequest = { messages, tools: [{ name: "figma_execute", description: "Runs code.", parameters: Type.Object({}) }] };
+		// Only the requests count: the answers are errors.
+		const options = { maxRetries: 0 };
+		const claude = models.getModel("anthropic", "claude-sonnet-5-5")!;
+		await models.streamSimple(claude, agentRequest, options).result();
+		await models.streamSimple(models.getModel("openai-codex", "gpt-6.1-sol")!, agentRequest, options).result();
+		// A request without tools is a compaction summary: it must not search.
+		await models.streamSimple(claude, { messages }, options).result();
+
+		expect(bodies[0]).toMatchObject({ route: "anthropic" });
+		expect(bodies[0]!.tools).toContainEqual({ type: "web_search_20250305", name: "web_search", max_uses: 5 });
+		expect(bodies[1]).toMatchObject({ route: "chatgpt" });
+		expect(bodies[1]!.tools).toContainEqual({ type: "web_search" });
+		expect(bodies[2]?.tools).toBeUndefined();
+		// ChatGPT has the function tools in "input", so the check must not depend on the provider's request format.
+		await models.streamSimple(models.getModel("openai-codex", "gpt-6.1-sol")!, { messages }, options).result();
+		expect(bodies[3]?.tools).toBeUndefined();
 	});
 });
 
