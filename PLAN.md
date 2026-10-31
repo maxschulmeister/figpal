@@ -40,7 +40,7 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 | Large data | IndexedDB on the hosted origin | No 5 MB limit. pi-durable has an IndexedDB backend. |
 | Small data and secrets | `figma.clientStorage` (5 MB, per plugin ID) | Official, private to the plugin, works from the main thread. |
 | Threads | Per Figma file | User request. |
-| Skills and agents | Global (one list for all files) | User request. |
+| Skills | Global (one list for all files) | User request. |
 | Web search | The model provider's own search tool. Tavily is the fallback. | No separate process, no key, and no VPS IP blocks. |
 
 ## Facts we checked (2026-10-29)
@@ -102,7 +102,7 @@ Figma Desktop
        ├─ React + assistant-ui
        ├─ pi-durable Harness
        │   ├─ IndexedDB "figpal:file:<fileId>"  (threads, tasks, transcripts)
-       │   └─ IndexedDB "figpal:global"          (skills, agents)
+       │   └─ IndexedDB "figpal:global"          (skills)
        ├─ extensions: figma · subagent · skills · web
        └─ models: Anthropic direct · ChatGPT direct or through a Caddy route
 
@@ -165,7 +165,7 @@ figpal/
 - Screens:
   - Thread list for the current file: new, fork, rename, delete.
   - Chat: streamed text, tool calls (collapsible), subagent transcripts under their call, attachments.
-  - Settings: providers and models, model allowlist for subagents, agents (Markdown editor), skills, web search, export and import.
+  - Settings: providers and models, enabled models (for the model menu and subagents), skills, web search, export and import.
 - Every user message gets a short context block: file name, page, selection (IDs, names, types).
 - Harness setup for each file: `IndexedDbStorage.open("figpal:file:<fileId>")` inside a Web Lock, then `harness.resume()`. Call `navigator.storage.persist()`.
 - If a second plugin window opens the same file, it shows a notice. (pi-durable 1.4.0 `IndexedDbStorage` has no `readOnly` option.)
@@ -196,17 +196,16 @@ figpal/
 
 #### `subagent`
 
-- One tool: `subagent({ tasks: [{ task, agent?, model? }] })`. It runs all tasks in parallel and returns all answers.
+- One tool: `subagent({ tasks: [{ task, model? }] })`. It runs all tasks in parallel and returns all answers.
 - Each task is a child conversation that the call owns (`ownership: { kind: "task" }`, `replay: "safe"`, like pi-durable example 21).
-- `model` must be in the allowlist from the settings. `agent` names an agent definition.
-- Agent definitions are Markdown files with frontmatter: `name`, `description`, `model`, `thinking`, `skills` (optional; all skills if not set). All tools are available to every agent.
+- A subagent is a copy of the main agent: the same model, tools and skills. `model` must be one of the enabled models in the settings.
 - Subagents cannot start subagents.
 - For parallel canvas work, the orchestrator gives each subagent its own frame or section (node IDs). The `code.js` queue runs Figma calls one at a time.
 
 #### `skills`
 
 - Storage: `figpal:global` IndexedDB, with `{ name, description, files[], source, hash, enabled }`.
-- Prompt section: the name and description of each enabled skill, filtered by the agent's `skills` list.
+- Prompt section: the name and description of each enabled skill.
 - Tools:
   - `skill_read(name, path?)`
   - `skill_grep(name, pattern)`, for large references such as the Plugin API typings.
@@ -294,9 +293,9 @@ Rules:
 
 | Store | Scope | Contents |
 |---|---|---|
-| `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), settings (`figpal.settings`: model and thinking level of new threads), the UI source (`figpal.ui`), later Tavily and Figma tokens |
+| `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), settings (`figpal.settings`: model and thinking level of new threads, enabled models), the UI source (`figpal.ui`), later Tavily and Figma tokens |
 | IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: the thread list (`figpal.threads`), conversations, tasks, transcripts, attachments |
-| IndexedDB `figpal:global` | Hosted origin | Skills, agent definitions |
+| IndexedDB `figpal:global` | Hosted origin | Skills. Version 3 has an empty `agents` store (see [Later tasks](#later-tasks)). |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
 
 Rules:
@@ -400,8 +399,9 @@ Checks:
 
 ### Phase 4: subagents
 
-- Agent definitions in the settings (Markdown editor).
-- Model allowlist.
+Status: code done (2026-10-31). Unit tests (scripted model: parallel run, the model of a task, abort, restart) and an end-to-end run in Chrome (two subagents ask the model at the same time, a reload during a run, Stop) pass. The manual check in Figma Desktop is open.
+
+- Enabled models (like pi's scoped models), for the model menu and for subagents.
 - `subagent` tool with parallel tasks, child transcripts in the UI.
 
 Checks:
@@ -512,7 +512,7 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - Update: compares the hash of the same source (the skills.sh hash, or the GitHub tree SHA of the folder). A zip has no updates.
   - `skill_read` gives a long file in parts of at most 40 KB and 1500 lines, below pi-durable's tool output limits (50 KB, 2000 lines), so that the "Read more" note stays.
   - The skills section tells the model to use `figma_execute` for `use_figma` and `figma_screenshot` for `get_screenshot`, and to do the work of other Figma MCP tools with `figma_execute`.
-  - The agent `skills` filter comes with the agent definitions (Phase 4). Until then, all enabled skills are in the prompt.
+  - The agent `skills` filter was planned with agent definitions in Phase 4. Phase 4 did not add them (see the 2026-10-31 log): all enabled skills are in the prompt.
   - Settings is a full-window dialog with the tabs Models and Skills. Both tabs stay mounted, so a tab switch does not stop a login or an install.
   - `skill_grep` runs in a Web Worker and stops after 2 seconds. A pattern from the model can backtrack for minutes on one line (spike: `interface\s+(\w+\s*)+\{` on the Plugin API typings), and pi-durable runs the tool again after a restart.
   - Skill names and descriptions go into every system prompt, so the install makes them one line without `<` and `>`, with at most 64 and 1024 characters. The settings show two lines of the description (all of it in the tooltip) and the source.
@@ -521,6 +521,47 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - `figpal:global` closes itself when a newer FigPal upgrades the database (Phase 4 adds agents).
   - figma-kit's submenu trigger makes a Base UI warning in development builds ("render prop received a function named Nr"). Its minified build renames a render function. It is harmless.
 
+2026-10-31:
+
+- Phase 4:
+  - `subagent({ tasks: [{ task, model? }] })` makes all children in one commit, owned by the tool task, and runs them at the same time. A child is a copy of the thread's agent without the `subagent` extension, so it has the same tools and cannot start subagents. It starts without history: the main agent must write each task so that it stands alone (the section says so, and to give each subagent its own frame).
+  - A rerun after a restart finds its children (`scanConversations` by owner task) and its submissions (request ID), and it does not check the model again: the allowed models can be different now.
+  - No agent profiles (user decision, after a first build with Markdown agent definitions). A subagent is a copy of the main agent, and the main agent writes the role and the rules into each task. Profiles would also need a picker for the main agent, and a stale profile (a removed model) can make a subagent fail. They are a later task. The test build made `figpal:global` version 3 with an `agents` store, so the version and the empty store stay: a database cannot go back to a lower version.
+  - Enabled models (user request, like pi's scoped models `enabledModels`): one list in `figpal.settings` for the chat's model menu and for subagents. No selection means all models of the connected providers. If no enabled model is of a connected provider, all apply, so the menu is never empty. The main agent can give a task only an enabled model; without one, a subagent uses the thread's model. The extension reads the list from the settings in memory, not from `code.js`: the sections render before each model request, and a busy `code.js` (a long `figma_execute` in another subagent) must not delay them.
+  - The Models tab edits the list with figma-kit's `Combobox` (Base UI): multiple selection, a search field, a group for each provider. A checkmark adds a model; no checkmark means all models, so a short list takes a few clicks. Below the combobox, the selected models show as a list, each with a remove button (user request). The choices for a provider that is not connected stay. A first build had a checkbox for each model ("Models for subagents"): too long, and only for subagents.
+  - The models come from the pi-ai catalog of the pinned version (1.4.0, 2026-10-21). pi's source has newer models (for example GPT-6.1 Terra) before a release has them: a pi-ai upgrade adds them.
+  - The chat shows each subagent under the call: its task (one line while closed), and when opened, its transcript: a read-only assistant-ui runtime for each child, with the chat's components, without "Fork from here". The tool details name the children; while the call runs, they come from `pi.live`.
+  - Simplify review:
+    - A subagent transcript loads only while its panel is open, and it depends only on the stable `openConversation`. Before, each App render (each Figma selection event) loaded every child view again on the Session line.
+    - Each answer gets an equal part of 40 KB, so that pi-durable's output limit cannot drop the last subagents. A failed subagent gives its error detail (for example a rate limit). `</subagent` in an answer is escaped.
+    - The subagent tool checks that an allowed model is in the catalog. The agent sees only the allowed models of connected providers.
+    - Open (low likelihood): a run that continues at start-up before the settings load sees no allowed models. A fix changes the start order.
+  - Settings (user request): the header of the full-window dialog is "‹ Settings" with the tabs on the right, as the chat list has "‹ Chats". Before, an X on the right sat right under the X of the plugin window, which closes FigPal. Both back arrows have the tooltip "Back". The dialog stays, so the chat (and a message that is not sent) stays open behind it.
+  - The header (found in the Phase 4 test): figma-kit's `Button` has `flex-shrink: 0`, so a long thread title pushed the buttons out of the window and gave it a horizontal scroll bar. The title button now shrinks (bug since Phase 2).
+  - Cmd+A (found in the Phase 4 test): on macOS, the app's Edit menu selects text, and in Figma Desktop that menu item is Figma's own command. The plugin window gets the key event but no selection. `main.tsx` selects the text of the focused input or text area, and stops the key there.
+
 ## Open questions
 
 None at the moment.
+
+## Later tasks
+
+Separate tasks, not in a phase. Decide before you start one.
+
+### Agent profiles
+
+Profiles with their own instructions, model, thinking level and skills, for the main agent and for subagents (decided 2026-10-31: not in Phase 4).
+
+- Use: rules that you write once, for example brand rules or "use only our library components".
+- A form in the settings (name, description, model, thinking level, skills, instructions), not Markdown.
+- An agent picker in the chat, next to the model picker: a thread can use a profile. The `subagent` tool gets an `agent` field.
+- A stale profile must not fail: a removed skill is left out, and a model that was removed (or whose provider is not connected) falls back to the thread's model, with a warning on the profile.
+- Storage: `figpal:global` already has an empty `agents` store (version 3).
+- Alternative with less code: one "Instructions" field in the settings for the main agent and all subagents.
+
+### Thread names
+
+The UX of thread names. Now a thread takes the first line of its first message (at most 60 characters), and you can rename it.
+
+- Idea: an AI name, like T3 Code: after the first message, a small, fast model writes a short title. A name that the user gave stays.
+- Decide: which model (the provider of the thread, or a fixed small model), the cost, when it runs (the first message only, or again later), and what shows while it runs.
