@@ -12,6 +12,7 @@ import {
 	ThreadPrimitive,
 	type ThreadMessageLike,
 	type ToolCallMessagePartComponent,
+	type ToolCallMessagePartProps,
 	useAuiState,
 	useExternalStoreRuntime,
 } from "@assistant-ui/react";
@@ -20,14 +21,17 @@ import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { ImageContent, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
-import type { AgentState, Conversation, ConversationView, EntryId } from "@earendil-works/pi-durable";
+import type { AgentState, Conversation, ConversationId, ConversationView, EntryId } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
 import { Button, CheckmarkIcon, ChevronDownIcon, Collapsible, createIcon, DropdownMenu, IconButton, Text } from "figma-kit";
 import { type ComponentProps, createContext, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
-import { PROVIDERS, type Settings } from "./settings";
-import { toThread } from "./transcript";
+import type { SubagentDetails } from "./extensions/subagent";
+import { enabledModelGroups, type Settings } from "./settings";
+import { type Thread, toThread } from "./transcript";
+
+type ModelChoice = Pick<Settings, "model" | "thinkingLevel">;
 
 const SendIcon = createIcon({
 	displayName: "SendIcon",
@@ -41,12 +45,38 @@ const StopIcon = createIcon({
 type Actions = {
 	/** Opens a link in the browser: the plugin window cannot open one. */
 	openExternal(url: string): void;
-	/** Opens a new thread with the history up to the entry. */
-	fork(at: EntryId): void;
+	/** Opens a new thread with the history up to the entry. Absent in a subagent transcript. */
+	fork?(at: EntryId): void;
+	/** A conversation of this file, for the transcript of a subagent. */
+	openConversation(id: ConversationId): Promise<Conversation | undefined>;
 };
-const ChatActions = createContext<Actions>({ openExternal() {}, fork() {} });
+const ChatActions = createContext<Actions>({ openExternal() {}, openConversation: async () => undefined });
 
-const TOOL_LABELS: Record<string, string> = { figma_execute: "Run code", figma_screenshot: "Screenshot" };
+const TOOL_LABELS: Record<string, string> = { figma_execute: "Run code", figma_screenshot: "Screenshot", subagent: "Subagents" };
+
+/** The messages of the conversation, with its changes. Undefined until they are loaded. */
+function useThread(conversation: Conversation | undefined, onError: (message: string) => void): Thread | undefined {
+	const [view, setView] = useState<ConversationView>();
+	useEffect(() => {
+		if (!conversation) return;
+		let state: AttachedReplicatedState<ConversationView> | undefined;
+		let closed = false;
+		conversation.viewState(context).then(
+			(attached) => {
+				if (closed) return attached.dispose();
+				state = attached;
+				// It also gives the current value at once.
+				attached.subscribe(setView);
+			},
+			(error) => onError(String(error)),
+		);
+		return () => {
+			closed = true;
+			state?.dispose();
+		};
+	}, [conversation, onError]);
+	return useMemo(() => (view ? toThread(view) : undefined), [view]);
+}
 
 /** The messages are already in the assistant-ui format. A stable function keeps assistant-ui's message cache. */
 const asIs = (message: ThreadMessageLike) => message;
@@ -57,35 +87,18 @@ type ChatProps = Actions & {
 	models: Models;
 	/** Provider IDs with a saved credential: the model picker shows their models. */
 	connected: ReadonlySet<string>;
+	/** The enabled models in the settings: the model picker shows only these. */
+	enabledModels: string[];
 	/** A message was sent. */
 	onSend(text: string): void;
 	/** The user picked a model or thinking level. New threads use it too. */
-	onModelChange(settings: Settings): void;
+	onModelChange(choice: ModelChoice): void;
 };
 
 export function Chat(props: ChatProps) {
 	const { thread: conversation, file } = props;
-	const [view, setView] = useState<ConversationView>();
 	const [failure, setFailure] = useState<string>();
-	useEffect(() => {
-		let state: AttachedReplicatedState<ConversationView> | undefined;
-		let closed = false;
-		conversation.viewState(context).then(
-			(attached) => {
-				if (closed) return attached.dispose();
-				state = attached;
-				// It also gives the current value at once.
-				attached.subscribe(setView);
-			},
-			(error) => setFailure(String(error)),
-		);
-		return () => {
-			closed = true;
-			state?.dispose();
-		};
-	}, [conversation]);
-
-	const thread = useMemo(() => (view ? toThread(view) : undefined), [view]);
+	const thread = useThread(conversation, setFailure);
 	const runtime = useExternalStoreRuntime<ThreadMessageLike>({
 		messages: thread?.messages ?? [],
 		convertMessage: asIs,
@@ -104,7 +117,10 @@ export function Chat(props: ChatProps) {
 		},
 		onCancel: () => conversation.abort(context),
 	});
-	const actions = useMemo(() => ({ openExternal: props.openExternal, fork: props.fork }), [props.openExternal, props.fork]);
+	const actions = useMemo(
+		() => ({ openExternal: props.openExternal, fork: props.fork, openConversation: props.openConversation }),
+		[props.openExternal, props.fork, props.openConversation],
+	);
 
 	if (failure) return <p className="p-6 text-danger">Cannot open the chat: {failure}</p>;
 	const retry = thread?.retry;
@@ -154,6 +170,7 @@ export function Chat(props: ChatProps) {
 									agent={thread?.agent}
 									models={props.models}
 									connected={props.connected}
+									enabledModels={props.enabledModels}
 									onChange={props.onModelChange}
 								/>
 							</div>
@@ -181,7 +198,8 @@ function ModelPicker(props: {
 	agent: AgentState | undefined;
 	models: Models;
 	connected: ReadonlySet<string>;
-	onChange(settings: Settings): void;
+	enabledModels: string[];
+	onChange(choice: ModelChoice): void;
 }) {
 	const ref = props.agent?.model;
 	const thinkingLevel = props.agent?.thinkingLevel ?? "off";
@@ -191,7 +209,7 @@ function ModelPicker(props: {
 	const canThink = ref !== undefined && levels.length > 1;
 
 	// Saved for new threads only when the thread took it.
-	const choose = (next: Settings) =>
+	const choose = (next: ModelChoice) =>
 		props.conversation.configure(next, context).then(
 			() => props.onChange(next),
 			(error) => console.error("FigPal could not change the model:", error),
@@ -212,7 +230,7 @@ function ModelPicker(props: {
 			<DropdownMenu.Portal>
 				<DropdownMenu.Positioner side="top" align="end" sideOffset={4}>
 					<DropdownMenu.Popup style={{ minWidth: 220 }}>
-						{PROVIDERS.filter((provider) => props.connected.has(provider.id)).map((provider, index) => (
+						{enabledModelGroups(props.models, props.connected, props.enabledModels).map(({ provider, models }, index) => (
 							<DropdownMenu.RadioGroup
 								key={provider.id}
 								value={ref?.provider === provider.id ? ref.modelId : ""}
@@ -220,18 +238,14 @@ function ModelPicker(props: {
 							>
 								{index > 0 && <DropdownMenu.Separator />}
 								<DropdownMenu.GroupLabel>{provider.label}</DropdownMenu.GroupLabel>
-								{props.models
-									.getModels(provider.id)
-									// Dated IDs repeat a model that is also in the list without a date.
-									.filter((item) => !/-\d{8}$/.test(item.id))
-									.map((item) => (
-										<DropdownMenu.RadioItem key={item.id} value={item.id}>
-											<DropdownMenu.RadioItemIndicator>
-												<CheckmarkIcon size="4" />
-											</DropdownMenu.RadioItemIndicator>
-											{item.name}
-										</DropdownMenu.RadioItem>
-									))}
+								{models.map((item) => (
+									<DropdownMenu.RadioItem key={item.id} value={item.id}>
+										<DropdownMenu.RadioItemIndicator>
+											<CheckmarkIcon size="4" />
+										</DropdownMenu.RadioItemIndicator>
+										{item.name}
+									</DropdownMenu.RadioItem>
+								))}
 							</DropdownMenu.RadioGroup>
 						))}
 						{canThink && <DropdownMenu.Separator />}
@@ -296,7 +310,7 @@ function ForkButton() {
 	const { fork } = useContext(ChatActions);
 	const at = useAuiState((state) => state.message.metadata.custom.lastEntryId) as EntryId | undefined;
 	const running = useAuiState((state) => state.thread.isRunning);
-	if (at === undefined || running) return null;
+	if (!fork || at === undefined || running) return null;
 	return (
 		<div className="-mt-1 flex opacity-0 group-hover/message:opacity-100 focus-within:opacity-100">
 			<Button variant="text" className="text-secondary" onClick={() => fork(at)}>
@@ -352,10 +366,15 @@ const Reasoning: ReasoningMessagePartComponent = ({ text }) => (
 	</Collapsible.Root>
 );
 
+/** The state of a tool call after its label. Empty when it ended without an error. */
+const callState = ({ status, result, isError }: ToolCallMessagePartProps) =>
+	status.type === "running" ? "running" : result === undefined ? "stopped" : isError ? "failed" : "";
+
 /** A tool call: its label and state, and when opened, the arguments and the result (text and images). */
-const ToolCall: ToolCallMessagePartComponent = ({ toolName, args, result, isError, status }) => {
+const ToolCall: ToolCallMessagePartComponent = (props) => {
+	const { toolName, args, result, isError } = props;
 	const content = (result ?? []) as (TextContent | ImageContent)[];
-	const state = status.type === "running" ? "running" : result === undefined ? "stopped" : isError ? "failed" : "";
+	const state = callState(props);
 	const code = typeof args.code === "string" ? args.code : JSON.stringify(args, null, 2);
 	return (
 		<Collapsible.Root>
@@ -390,4 +409,73 @@ const ToolCall: ToolCallMessagePartComponent = ({ toolName, args, result, isErro
 	);
 };
 
-const PARTS = { Text: MarkdownText, Reasoning, tools: { Fallback: ToolCall }, Empty: Working };
+/** The subagent call: the transcript of each subagent. Before the subagents exist, the call as other calls. */
+const SubagentCall: ToolCallMessagePartComponent = (props) => {
+	const children = (props.artifact as SubagentDetails | undefined)?.children;
+	if (!children) return <ToolCall {...props} />;
+	const tasks = (props.args.tasks ?? []) as { task?: string }[];
+	// After the subagents exist, the call fails only when it is stopped: the label says so.
+	const state = callState(props);
+	return (
+		<div className="flex flex-col gap-1">
+			<Text className={props.isError ? "text-danger" : "text-secondary"}>
+				{children.length === 1 ? "1 subagent" : `${children.length} subagents`}
+				{state && ` · ${state}`}
+			</Text>
+			<div className="flex flex-col gap-1 border-l border-default pl-3">
+				{children.map((id, index) => (
+					<Collapsible.Root key={id}>
+						<Collapsible.Trigger>
+							{/* One line while closed, all of the task while open. */}
+							<span className="line-clamp-1 text-left in-data-[panel-open]:line-clamp-none">
+								{tasks[index]?.task ?? `Task ${index + 1}`}
+							</span>
+						</Collapsible.Trigger>
+						{/* The panel mounts its content only while it is open: a closed transcript loads nothing. */}
+						<Collapsible.Panel>
+							<SubagentTranscript id={id} />
+						</Collapsible.Panel>
+					</Collapsible.Root>
+				))}
+			</div>
+		</div>
+	);
+};
+
+/** The transcript of one subagent, read-only, with the components of the chat. */
+function SubagentTranscript({ id }: { id: ConversationId }) {
+	const actions = useContext(ChatActions);
+	const { openConversation } = actions;
+	const [conversation, setConversation] = useState<Conversation>();
+	const [failure, setFailure] = useState<string>();
+	useEffect(() => {
+		openConversation(id).then(
+			(found) => (found ? setConversation(found) : setFailure("The conversation does not exist.")),
+			(error) => setFailure(String(error)),
+		);
+	}, [openConversation, id]);
+	const thread = useThread(conversation, setFailure);
+	const runtime = useExternalStoreRuntime<ThreadMessageLike>({
+		messages: thread?.messages ?? [],
+		convertMessage: asIs,
+		isRunning: thread?.isRunning,
+		isLoading: thread === undefined,
+		onNew: () => Promise.reject(new Error("A subagent transcript is read-only")),
+	});
+	// No fork: a fork of a subagent is not a thread of the file.
+	const childActions = useMemo(() => ({ ...actions, fork: undefined }), [actions]);
+	return (
+		<div className="flex flex-col gap-2">
+			{failure && <p className="text-danger">Cannot show the subagent: {failure}</p>}
+			<ChatActions.Provider value={childActions}>
+				<AssistantRuntimeProvider runtime={runtime}>
+					<ThreadPrimitive.Root className="flex flex-col gap-2">
+						<ThreadPrimitive.Messages>{renderMessage}</ThreadPrimitive.Messages>
+					</ThreadPrimitive.Root>
+				</AssistantRuntimeProvider>
+			</ChatActions.Provider>
+		</div>
+	);
+}
+
+const PARTS = { Text: MarkdownText, Reasoning, tools: { by_name: { subagent: SubagentCall }, Fallback: ToolCall }, Empty: Working };

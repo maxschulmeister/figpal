@@ -23,9 +23,10 @@ import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { clientStorageCredentials } from "./credentials";
-import { loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
+import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
 import { SkillsPanel } from "./skills-panel";
 import { installDefaultSkills } from "./skills/defaults";
+import { EnabledModels } from "./enabled-models";
 import { ThreadList, threadTitle } from "./thread-list";
 import {
 	currentThread,
@@ -50,10 +51,10 @@ const INIT_TIMEOUT_MS = 5000;
 const uiSource = (Object.keys(UI_ORIGINS) as UiSource[]).find((source) => UI_ORIGINS[source] === location.origin);
 
 /** The agent of a new thread: the saved model, or the default model of the first connected provider. */
-function newThreadAgent(settings: Settings, connected: ReadonlySet<string>): AgentChange | undefined {
-	if (connected.has(settings.model.provider)) return settings;
+function newThreadAgent({ model, thinkingLevel }: Settings, connected: ReadonlySet<string>): AgentChange | undefined {
+	if (connected.has(model.provider)) return { model, thinkingLevel };
 	const provider = PROVIDERS.find((item) => connected.has(item.id));
-	return provider && { ...settings, model: { provider: provider.id, modelId: provider.defaultModel } };
+	return provider && { model: { provider: provider.id, modelId: provider.defaultModel }, thinkingLevel };
 }
 
 /** Errors of actions after the start: the chat stays open. */
@@ -72,6 +73,15 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const busy = useRef(false);
 	const credentials = useMemo(() => clientStorageCredentials(bridge), [bridge]);
 	const models = useMemo(() => createAgentModels(credentials, location.origin), [credentials]);
+	// The models for subagents: the enabled models of the connected providers. The agent reads them when it needs them,
+	// from the newest settings, without a code.js call.
+	const allowedModels = useRef<string[]>([]);
+	useEffect(() => {
+		if (!settings || !connected) return;
+		allowedModels.current = enabledModelGroups(models, connected, settings.enabledModels).flatMap(({ provider, models: list }) =>
+			list.map((model) => `${provider.id}/${model.id}`),
+		);
+	}, [models, settings, connected]);
 
 	const fail = useCallback((error: unknown) => setPhase({ kind: "failed", message: errorText(error) }), []);
 	const openExternal = useCallback(
@@ -113,7 +123,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 		installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
-		openAgent(fileId, { models, bridge }).then(
+		openAgent(fileId, { models, bridge, subagentModels: () => allowedModels.current }).then(
 			// The first failure stays: a later result must not hide it.
 			(harness) =>
 				setPhase((current) =>
@@ -124,6 +134,11 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [fileId, models, bridge, refreshConnected, fail]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
+
+	const openConversation = useCallback(
+		async (id: ConversationId) => (harness ? harness.conversation(id, context) : undefined),
+		[harness],
+	);
 	const ready = harness !== undefined && settings !== undefined && connected !== undefined;
 	// Undefined until a provider is connected, so that the first thread gets a model that works.
 	const agent = useMemo(() => settings && connected && newThreadAgent(settings, connected), [settings, connected]);
@@ -155,6 +170,12 @@ export function App({ bridge }: { bridge: Bridge }) {
 	if (phase.kind === "locked")
 		return <Notice>FigPal is open for this file in another window. Close it, then run FigPal again.</Notice>;
 	if (!ready || !file) return null;
+
+	const updateSettings = (change: Partial<Settings>) => {
+		const next = { ...settings, ...change };
+		setSettings(next);
+		saveSettings(bridge, next).catch(report);
+	};
 
 	const accounts = (
 		<Accounts connected={connected} models={models} credentials={credentials} openExternal={openExternal} onChange={refreshConnected} />
@@ -190,18 +211,21 @@ export function App({ bridge }: { bridge: Bridge }) {
 			<header className="flex h-10 shrink-0 items-center gap-1 border-b border-default px-2">
 				{showThreads ? (
 					<>
-						<IconButton aria-label="Back to the chat" onClick={() => setShowThreads(false)}>
-							<ChevronLeftIcon />
-						</IconButton>
+						<Tooltip content="Back">
+							<IconButton aria-label="Back to the chat" onClick={() => setShowThreads(false)}>
+								<ChevronLeftIcon />
+							</IconButton>
+						</Tooltip>
 						<Text weight="strong">Chats</Text>
 					</>
 				) : (
-					<Button variant="text" className="min-w-0 gap-1" onClick={() => setShowThreads(true)}>
+					// figma-kit's Button does not shrink: a long title would push the icons out of the window.
+					<Button variant="text" className="min-w-0 shrink gap-1" onClick={() => setShowThreads(true)}>
 						<span className="truncate">{threadTitle(current)}</span>
 						<ChevronDownIcon size="4" />
 					</Button>
 				)}
-				<div className="ml-auto flex gap-1">
+				<div className="ml-auto flex shrink-0 gap-1">
 					<Tooltip content="New chat">
 						<IconButton aria-label="New chat" onClick={() => run(() => newThread(harness, agent))}>
 							<PlusIcon />
@@ -238,33 +262,44 @@ export function App({ bridge }: { bridge: Bridge }) {
 							file={file}
 							models={models}
 							connected={connected}
+							enabledModels={settings.enabledModels}
 							openExternal={openExternal}
 							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
+							openConversation={openConversation}
 							onSend={(text) => noteMessage(harness, thread.id, text).catch(report)}
-							onModelChange={(next) => {
-								setSettings(next);
-								saveSettings(bridge, next).catch(report);
-							}}
+							onModelChange={updateSettings}
 						/>
 					)
 				)}
 			</main>
 			<Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
 				<Dialog.Portal>
-					<Dialog.Popup size="fullscreen" aria-label="Settings" className="flex flex-col">
+					<Dialog.Popup size="fullscreen" className="flex flex-col">
 						{/* Both panels stay mounted: a tab switch must not stop a login or an install. */}
 						<Tabs.Root value={settingsTab} onValueChange={setSettingsTab} className="flex min-h-0 flex-1 flex-col">
-							<Dialog.Header>
-								<Tabs.List>
+							{/* "‹ Settings", as "‹ Chats" in the chat list: an X here would sit under the X of the plugin window. */}
+							<Dialog.Header className="gap-1 px-2">
+								<Tooltip content="Back">
+									<Dialog.Close aria-label="Back to the chat">
+										<ChevronLeftIcon />
+									</Dialog.Close>
+								</Tooltip>
+								<Dialog.Title>Settings</Dialog.Title>
+								<Tabs.List className="ml-auto">
 									<Tabs.Tab value="models">Models</Tabs.Tab>
 									<Tabs.Tab value="skills">Skills</Tabs.Tab>
 								</Tabs.List>
-								<Dialog.Controls>
-									<Dialog.Close />
-								</Dialog.Controls>
 							</Dialog.Header>
 							<Tabs.Panel value="models" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
 								<Dialog.Section>{accounts}</Dialog.Section>
+								<Dialog.Section>
+									<EnabledModels
+										models={models}
+										connected={connected}
+										value={settings.enabledModels}
+										onChange={(enabledModels) => updateSettings({ enabledModels })}
+									/>
+								</Dialog.Section>
 								<Dialog.Section>
 									<div className="flex items-center justify-between gap-2">
 										<Text className="text-secondary">This window uses the {uiSource} UI.</Text>

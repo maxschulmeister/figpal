@@ -10,6 +10,7 @@ import type { FileInfo, NodeSummary } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
 import { skillsExtension } from "./extensions/skills";
+import { subagentExtension } from "./extensions/subagent";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { wrapAnthropicProvider } from "./providers/pi-black";
@@ -35,11 +36,19 @@ export function createAgentModels(credentials: CredentialStore, origin: string):
 	return models;
 }
 
+type AgentOptions = {
+	models: Models;
+	bridge: Pick<Bridge, "request">;
+	/** The models that the main agent can give to subagents: from the settings. */
+	subagentModels(): string[];
+};
+
 /** Opens the Harness on `storage` and continues the runs that a restart stopped. `threads.ts` opens the threads. */
-export async function startAgent(storage: Storage, options: { models: Models; bridge: Pick<Bridge, "request"> }): Promise<Harness> {
+export async function startAgent(storage: Storage, options: AgentOptions): Promise<Harness> {
 	const registry = createRegistry();
 	registry.install(figmaExtension(options.bridge));
 	registry.install(skillsExtension());
+	registry.install(subagentExtension({ subagentModels: options.subagentModels }));
 	// pi-durable reports failures of the storage, tasks and extensions here, and nowhere else.
 	const onReport = (error: unknown, info: unknown) => console.error("FigPal agent:", info, error);
 	const harness = await Harness.open(storage, { models: options.models, registry, onReport }, context);
@@ -51,7 +60,7 @@ export async function startAgent(storage: Storage, options: { models: Models; br
  * Opens the agent of a file in the browser. The storage of a file can have one owner at a time, so a Web Lock guards
  * it while the page lives. Returns "locked" if another FigPal window has the file open.
  */
-export function openAgent(fileId: string, options: { models: Models; bridge: Pick<Bridge, "request"> }): Promise<Harness | "locked"> {
+export function openAgent(fileId: string, options: AgentOptions): Promise<Harness | "locked"> {
 	const name = `figpal:file:${fileId}`;
 	// Without this, the browser can clear IndexedDB (and the threads) when the disk is full.
 	navigator.storage.persist().catch((error) => console.error("FigPal storage:", error));

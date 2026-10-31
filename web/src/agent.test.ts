@@ -102,7 +102,7 @@ function fakeBridge(reply: (params: unknown) => { result: unknown; attachments?:
 }
 
 async function run(models: ReturnType<typeof createModels>, bridge: Pick<Bridge, "request">, text = "Check the card") {
-	const harness = await startAgent(new MemoryStorage(), { models, bridge });
+	const harness = await startAgent(new MemoryStorage(), { models, bridge, subagentModels: () => [] });
 	const root = await currentThread(harness, SCRIPT);
 	const submission = await root.submit(userInput(text, FILE), context);
 	const settled = await submission.wait(context);
@@ -166,7 +166,7 @@ describe("figma tools", () => {
 		const { models } = scriptedModels("figma_execute", { code: "await new Promise(() => {})" });
 		// code.js cannot stop the code, so the request never ends.
 		const bridge = { request: () => new Promise(() => {}) } as unknown as Pick<Bridge, "request">;
-		const harness = await startAgent(new MemoryStorage(), { models, bridge });
+		const harness = await startAgent(new MemoryStorage(), { models, bridge, subagentModels: () => [] });
 		const root = await currentThread(harness, SCRIPT);
 		const submission = await root.submit(userInput("Hang", FILE), context);
 		await vi.waitFor(async () => {

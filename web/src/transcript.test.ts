@@ -126,4 +126,20 @@ describe("toThread", () => {
 		const agent = { model: { provider: "anthropic", modelId: "claude-opus-5-5" }, thinkingLevel: "high" };
 		expect(toThread(view([], {}, agent)).agent).toEqual(agent);
 	});
+
+	it("gives a tool call the details of its call: from the live state while it runs, then from its result", () => {
+		const call = assistant(3, [{ type: "toolCall", id: "call-1", name: "subagent", arguments: { tasks: [] } }], "toolUse");
+		const toolPart = (thread: ReturnType<typeof toThread>) => (thread.messages[1]!.content as unknown as { type: string }[])[0];
+		const running = toThread(
+			view([userEntry(1, "Go"), call], {
+				run: {},
+				tools: [{ callId: "call-1", name: "subagent", status: "running", details: { children: [{ conversationId: 7 }] } }],
+			}),
+		);
+		expect(toolPart(running)).toMatchObject({ toolCallId: "call-1", artifact: { children: [{ conversationId: 7 }] } });
+		const result = toolResult(4, "call-1", [{ type: "text", text: "Done" }]);
+		const details = { children: [{ conversationId: 7, title: "Task 1" }] };
+		const done = toThread(view([userEntry(1, "Go"), call, { ...result, model: [{ ...result.model[0], details }] }]));
+		expect(toolPart(done)).toMatchObject({ toolCallId: "call-1", artifact: details, result: [{ type: "text", text: "Done" }] });
+	});
 });

@@ -28,13 +28,16 @@ function open(): Promise<IDBDatabase> {
 	const opened =
 		database ??
 		new Promise<IDBDatabase>((resolve, reject) => {
-			const request = indexedDB.open("figpal:global", 2);
+			const request = indexedDB.open("figpal:global", 3);
 			request.onupgradeneeded = (event) => {
 				if (event.oldVersion < 1) {
 					request.result.createObjectStore(SKILLS, { keyPath: "name" });
 					request.result.createObjectStore(FILES);
 				}
 				if (event.oldVersion < 2) request.result.createObjectStore(META);
+				// Agent profiles (a later idea, see PLAN.md) added this store. It stays, so that all databases are the same:
+				// a database cannot go back to a lower version.
+				if (event.oldVersion < 3) request.result.createObjectStore("agents", { keyPath: "name" });
 			};
 			request.onsuccess = () => {
 				// A newer FigPal in another window upgrades the database: let it, and open it again on the next use.

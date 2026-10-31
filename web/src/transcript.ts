@@ -33,13 +33,16 @@ export function toThread(view: ConversationView): Thread {
 	const results = new Map<string, ToolResultMessage>();
 	for (const entry of view.entries)
 		for (const message of entry.model ?? []) if (message.role === "toolResult") results.set(message.toolCallId, message);
+	const live = view.docs[LiveDoc.definition.kind] as LiveState | undefined;
+	// The details of a running call. The subagent call names its children here.
+	const running = new Map((live?.tools ?? []).map((slot) => [slot.callId, slot.details]));
 
 	const messages: ThreadMessageLike[] = [];
 	let userId = "start";
 	/** `entryId` is absent for the streamed part of the running answer. */
 	const answer = (response: AssistantMessage, entryId?: number) => {
 		const last = messages.at(-1);
-		const parts = assistantParts(response, results);
+		const parts = assistantParts(response, results, running);
 		const status = responseStatus(response);
 		// A fork from this message keeps the history up to its last entry.
 		const metadata = entryId === undefined ? last?.metadata : { custom: { lastEntryId: entryId } };
@@ -57,7 +60,6 @@ export function toThread(view: ConversationView): Thread {
 		for (const message of entry.model ?? []) if (message.role === "assistant") answer(message, entry.id);
 	}
 
-	const live = view.docs[LiveDoc.definition.kind] as LiveState | undefined;
 	if (live?.generation?.message) answer(live.generation.message as AssistantMessage);
 	const isRunning = live?.run !== undefined;
 	const last = messages.at(-1);
@@ -66,12 +68,17 @@ export function toThread(view: ConversationView): Thread {
 	return { messages, isRunning, retry: live?.generation?.retry, agent };
 }
 
-function assistantParts(response: AssistantMessage, results: Map<string, ToolResultMessage>): Part[] {
+function assistantParts(
+	response: AssistantMessage,
+	results: Map<string, ToolResultMessage>,
+	running: Map<string, unknown>,
+): Part[] {
 	return response.content.flatMap((block): Part[] => {
 		if (block.type === "text") return [{ type: "text", text: block.text }];
 		if (block.type === "thinking") return [{ type: "reasoning", text: block.thinking }];
 		if (block.type === "toolCall") {
 			const result = results.get(block.id);
+			const details = result ? result.details : running.get(block.id);
 			return [
 				{
 					type: "tool-call",
@@ -79,6 +86,7 @@ function assistantParts(response: AssistantMessage, results: Map<string, ToolRes
 					toolName: block.name,
 					args: block.arguments,
 					...(result && { result: result.content, isError: result.isError }),
+					...(details !== undefined && { artifact: details }),
 				},
 			];
 		}
