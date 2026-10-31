@@ -10,6 +10,7 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 4. At the first start, connect a model: paste a Claude token (in Terminal, `claude setup-token` makes one), or sign in with ChatGPT. **Settings** (top right) has both.
 5. Skills: at the first start, FigPal installs Figma's skills. To add more, open **Settings → Skills**: search skills.sh, paste `npx skills add owner/repo@skill`, or upload a zip.
 6. Models: in **Settings → Models**, select the models for the model menu in the chat. FigPal can also give them to subagents, which run tasks at the same time. With no selection, it uses all models.
+7. Web: FigPal searches the web with the model's own search tool and names its sources. It can find images on the web and put them on the canvas.
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 

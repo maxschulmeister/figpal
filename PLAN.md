@@ -38,7 +38,8 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 | Server | Static files, served by the host Caddy. Tailscale only. No app process, no container. | The VPS already serves Tailscale-only sites this way (`system.` and `manifest.maxschulmeister.dev`). It puts the least on the server. Visitors from the internet get a 404. |
 | Proxy | Caddy `reverse_proxy` routes to fixed hosts, only when a spike shows the need | No code. No secret is needed, because only the tailnet can reach the site. |
 | Large data | IndexedDB on the hosted origin | No 5 MB limit. pi-durable has an IndexedDB backend. |
-| Small data and secrets | `figma.clientStorage` (5 MB, per plugin ID) | Official, private to the plugin, works from the main thread. |
+| Small data | `figma.clientStorage` (5 MB, per plugin ID) | Official, private to the plugin, works from the main thread. |
+| Secrets (model credentials) | `localStorage` of the UI origin | Code from `figma_execute` can read clientStorage, but not the storage of the UI (decision 2026-10-31). |
 | Threads | Per Figma file | User request. |
 | Skills | Global (one list for all files) | User request. |
 | Web search | The model provider's own search tool. Tavily is the fallback. | No separate process, no key, and no VPS IP blocks. |
@@ -97,7 +98,7 @@ Figma Desktop
    ├─ code.js (main thread)
    │   ├─ execute queue: figma_execute, screenshots, createImage
    │   ├─ events: selection and page changes → UI
-   │   └─ clientStorage: secrets, settings
+   │   └─ clientStorage: settings
    └─ iframe → https://figpal.maxschulmeister.dev/   (hosted UI)
        ├─ React + assistant-ui
        ├─ pi-durable Harness
@@ -172,7 +173,7 @@ figpal/
 
 ### Models and authentication
 
-- A credential store in clientStorage, by provider.
+- A credential store in the `localStorage` of the UI origin, by provider. Code from `figma_execute` cannot read it.
 - **Claude:** you paste the token from `claude setup-token`. No refresh is needed. A browser port of Pi Black wraps the Anthropic provider for OAuth request compatibility (Claude Code `2.1.280`). API-key requests stay unchanged. See [Pi Black integration](docs/pi-black.md) for the pinned source, checks, and limits.
 - **ChatGPT:** device code login in the UI (`auth.openai.com` allows CORS). Token refresh also uses `auth.openai.com`. pi-ai's Codex OAuth module needs Node, so `web/src/providers/chatgpt.ts` is a browser port of its device code login and refresh (MIT). Inference goes through the route `/api/chatgpt/backend-api` (Caddy, and the dev server), because `chatgpt.com` allows CORS only from `localhost` (spike 0.4). pi-ai's "Sign in with ChatGPT" (`api.openai.com`) fails from the remote origin.
 - **API keys:** for every provider that allows browser calls.
@@ -219,13 +220,9 @@ figpal/
 
 #### `web`
 
-- First choice: provider-native search and fetch through the provider wrapper.
-- Fallback tools, active only when the provider has no native search:
-  - `web_search(q)` with Tavily (key in the settings).
-  - `web_fetch(url)`.
-- Images:
-  - `image_search(q)` with Openverse and Wikimedia Commons (no key), or Unsplash and Pexels (key).
-  - To put an image on the canvas, `figma_execute` calls `figma.createImageAsync(url)`. If that fails and the image host allows CORS, the UI gets the bytes and sends a `Uint8Array` to `figma.createImage`. If neither works (spike 0.9), decide about a small image proxy. Caddy cannot proxy arbitrary hosts without code.
+- Provider-native web search through the provider wrapper (`throughRoute` in `agent.ts`). A prompt section asks for the sources as Markdown links.
+- Images: the agent finds an image URL with web search, and `figma_execute` calls `figma.createImageAsync(url)` (`allowedDomains: ["*"]`). No image search tool and no API keys (decision 2026-10-31).
+- Not built (decision 2026-10-31): the Tavily fallback, `web_fetch`, and image bytes from the UI to `figma.createImage`.
 
 ### Hosting (`deploy/`)
 
@@ -293,7 +290,8 @@ Rules:
 
 | Store | Scope | Contents |
 |---|---|---|
-| `clientStorage` | Plugin ID, device | Model credentials (`figpal.credentials`), settings (`figpal.settings`: model and thinking level of new threads, enabled models), the UI source (`figpal.ui`), later Tavily and Figma tokens |
+| `clientStorage` | Plugin ID, device | Settings (`figpal.settings`: model and thinking level of new threads, enabled models), the UI source (`figpal.ui`). No secrets: code from `figma_execute` can read it. |
+| `localStorage` | Hosted origin | Model credentials (`figpal.credentials`). Each UI origin (remote, local) has its own. |
 | IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: the thread list (`figpal.threads`), conversations, tasks, transcripts, attachments |
 | IndexedDB `figpal:global` | Hosted origin | Skills. Version 3 has an empty `agents` store (see [Later tasks](#later-tasks)). |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
@@ -306,7 +304,7 @@ Rules:
 ### Domain migration
 
 1. The new UI opens a hidden iframe on `<old-origin>/migrate`.
-2. That page reads all of its IndexedDB object stores and sends them to the new origin with `postMessage` (strict origin checks on both sides).
+2. That page reads all of its IndexedDB object stores and its `localStorage` (the credentials) and sends them to the new origin with `postMessage` (strict origin checks on both sides).
 3. The new UI writes them, checks the counts, and marks the migration as done.
 4. Manual fallback: "Export all" and "Import" in the settings (one file).
 
@@ -412,8 +410,10 @@ Checks:
 
 ### Phase 5: web
 
+Status: done (2026-10-31). Unit tests and an end-to-end run in Chrome (scripted Claude, the CSP on the remote UI, the credential move) pass. The user tested web search with sources and image placement in Figma Desktop.
+
 - Provider wrapper for native search and fetch.
-- Tavily fallback, `image_search`, image placement (`createImageAsync`, then direct bytes).
+- Tavily fallback, `image_search`, image placement (`createImageAsync`, then direct bytes). Built: image placement with `createImageAsync`; images come from web search (see the decision log).
 - Caddy: `Content-Security-Policy: img-src 'self' data:` (and the image hosts that the UI must show), so that no image URL from model output can load without a click. The chat already shows markdown images as links (Phase 1). Follow the VPS procedure.
 
 Checks:
@@ -467,7 +467,7 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
 | Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. After a timeout, canvas calls fail until the old call ends. |
-| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage`, also the credentials. A prompt injection (in the file, in a skill, later in web results) can send them out, for example with `figma.openExternal(url)`. | Accepted (decision 2026-10-29). Skills are instructions for the model: install only skills that you trust. Keep it in mind for the web tools (Phase 5). |
+| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage` and the open file. Since Phase 5, `allowedDomains: ["*"]` lets it send data to any host with `fetch` or an image URL, and `figma.openExternal(url)` opens the browser. A prompt injection (in the file, in a skill, in web results) can use this. | The credentials are in the storage of the UI since 2026-10-31, out of reach of this code and of the model. Accepted: injected code could send content of the open file out (the code shows in the chat as "Run code"). A check for network calls in the code would be easy to get around. Skills are instructions for the model: install only skills that you trust. |
 
 ## Decision log
 
@@ -539,6 +539,19 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - Settings (user request): the header of the full-window dialog is "‹ Settings" with the tabs on the right, as the chat list has "‹ Chats". Before, an X on the right sat right under the X of the plugin window, which closes FigPal. Both back arrows have the tooltip "Back". The dialog stays, so the chat (and a message that is not sent) stays open behind it.
   - The header (found in the Phase 4 test): figma-kit's `Button` has `flex-shrink: 0`, so a long thread title pushed the buttons out of the window and gave it a horizontal scroll bar. The title button now shrinks (bug since Phase 2).
   - Cmd+A (found in the Phase 4 test): on macOS, the app's Edit menu selects text, and in Figma Desktop that menu item is Figma's own command. The plugin window gets the key event but no selection. `main.tsx` selects the text of the focused input or text area, and stops the key there.
+
+2026-10-31 (Phase 5):
+
+- Native web search: `throughRoute` adds the provider's own tool to each request with pi-ai's `onPayload` (Claude `web_search_20250305` with `max_uses: 5`, ChatGPT `{ type: "web_search" }`), after an `onPayload` of the caller. Pi Black keeps it. Subagents get it too.
+- pi-ai 1.4.0 keeps only the answer text: it drops Anthropic's `server_tool_use` and `web_search_tool_result` blocks and the citations, and OpenAI's `url_citation` annotations. So the `web` section tells the model to end a search answer with its sources as Markdown links; the chat opens them in the browser.
+- No image search tool and no API keys (user decision, after the Figma test): the agent finds images with web search and places them with `figma.createImageAsync`. The web section says how: a direct PNG, JPEG or GIF URL (a WebP or AVIF URL fails; many hosts give a JPEG with a format parameter such as `?fm=jpg`), an image whose license lets the user use it, and the creator and license in the answer when it is not CC0 or public domain. A first build had `image_search` with Openverse and Wikimedia Commons (no key, CORS `*`). It was removed: Openverse's search often did not answer (also from curl, while its other endpoints did), Wikimedia has few stock photos, and sources with better photos (Unsplash, Pexels) need keys.
+- Placement: `figma_execute` calls `figma.createImageAsync(url)` (rule in the figma section). The manifest has `allowedDomains: ["*"]` with a reason (spike 0.9).
+- Caddy: `Content-Security-Policy: frame-ancestors https://www.figma.com; img-src 'self' data:` (VPS procedure: health snapshots the same before and after, only the figpal route changed). A `data:` image loads; an image from another host is blocked.
+- Credentials (user decision, after the simplify review): `allowedDomains: ["*"]` lets code from `figma_execute` send data to any host without a click. With the credentials in clientStorage, that code could read and send the Claude token and the ChatGPT login. An allowlist of image hosts would block Unsplash, Pexels and URLs that the user gives. So the credentials moved to the `localStorage` of the UI origin, which that code cannot read; this replaces the decision of 2026-10-29. The first use moves the credentials of an older FigPal there and deletes them from clientStorage. The local and the remote UI have different origins, so each has its own login. `["*"]` stays.
+- Left out, with the reason:
+  - The Tavily fallback: both FigPal providers have native search.
+  - Image bytes from the UI to `figma.createImage`: with `"*"`, `createImageAsync` loads from every host, and both take the same formats.
+  - `web_fetch`: Claude's tool needs a beta header that only a live token can check. ChatGPT's search opens pages itself. Add it if a test shows the need.
 
 ## Open questions
 
