@@ -10,6 +10,7 @@ The pi packages (`@earendil-works/pi-ai`, `pi-durable`, `chord`) are pinned to 1
 
 - The model picker closes when you select a model.
 - The plugin panel can be resized, and if possible it opens at the full available height. `figma.ui.resize(width, height)` in `code.js` sets the size: the UI needs a resize handle that sends the new size to `code.js`, and `code.js` can save it in `clientStorage`. Find out what height is available: `code.js` cannot read the size of the Figma window.
+- Show the context window usage on the right of the row with the model picker, for example "45k / 200k". The conversation's last model request gives the input tokens (usage), and the model data gives the context window.
 
 ## Local files and outside agents (user, 2026-11-01)
 
@@ -33,3 +34,7 @@ Rewrite all JavaScript in TypeScript. Now two files are JavaScript:
 ## Size of the version diff answers (2026-11-01)
 
 `figma_diff_versions` reads `GET /v1/files/KEY?depth=1` for each version, as upstream does. A review expected the `components`, `componentSets` and `styles` maps of the whole file in that answer, which could be MB for a large library. Measured on 5 of the user's files (1 to 10 pages): 1 to 4 KB, with empty maps at depth 1. The 7th call in 30 seconds got a 429, so the Tier 1 limit is the real cost, not the size. If a large library is slow, measure it, and consider reading the current pages through `code.js` (`figma.root.children`): no REST call for "current".
+
+## Browser checks in the repo (2026-11-01)
+
+The Chrome checks (Playwright with a fake Figma page and a mocked model) are only in `/tmp/pw`: `chips`, `picker`, `export`, `diff`, `audit`, `lint`, `animation` (with test WebMs made by ffmpeg). They are the only test of the real video decoding (`web/src/video-frames.ts`; jsdom cannot decode). Move them into the repo, for example `e2e/`, with a script that starts Vite on a free port.
