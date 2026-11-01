@@ -20,7 +20,7 @@ import { LexicalComposerInput } from "@assistant-ui/react-lexical";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { ImageContent, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, ModelThinkingLevel, Static, TextContent } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
 import type { AgentState, Conversation, ConversationId, ConversationView, EntryId } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
@@ -40,6 +40,7 @@ import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
 import type { Bridge } from "./bridge";
 import { errorText } from "./accounts";
+import { exportNodes, type NODE_EXPORT } from "./extensions/figma";
 import type { SubagentDetails } from "./extensions/subagent";
 import { downloadFile, type FileDetails, type FileRef, fileById, fileSize, keepFiles } from "./files";
 import { ChipText, NodeChip, SelectionChips } from "./selection-chips";
@@ -65,13 +66,13 @@ type Actions = {
 	fork?(at: EntryId): void;
 	/** A conversation of this file, for the transcript of a subagent. */
 	openConversation(id: ConversationId): Promise<Conversation | undefined>;
-	/** Runs a token export again, without the agent: its files are gone after a restart. */
-	exportTokens(args: TokenExport): Promise<FileRef[]>;
+	/** Makes the files of an export again, without the agent: they are gone after a restart. Undefined for other tools. */
+	exportAgain(toolName: string, args: unknown): (() => Promise<FileRef[]>) | undefined;
 };
 const ChatActions = createContext<Actions>({
 	openExternal() {},
 	openConversation: async () => undefined,
-	exportTokens: () => Promise.reject(new Error("No chat")),
+	exportAgain: () => undefined,
 });
 
 const TOOL_LABELS: Record<string, string> = {
@@ -79,6 +80,7 @@ const TOOL_LABELS: Record<string, string> = {
 	figma_screenshot: "Screenshot",
 	figma_rest: "Figma API",
 	figma_export_tokens: "Export tokens",
+	figma_export_nodes: "Export layers",
 	subagent: "Subagents",
 };
 
@@ -109,7 +111,7 @@ function useThread(conversation: Conversation | undefined, onError: (message: st
 /** The messages are already in the assistant-ui format. A stable function keeps assistant-ui's message cache. */
 const asIs = (message: ThreadMessageLike) => message;
 
-type ChatProps = Omit<Actions, "exportTokens"> & {
+type ChatProps = Omit<Actions, "exportAgain"> & {
 	thread: Conversation;
 	file: FileInfo;
 	/** The selection events of code.js, for the chips in the composer, and its variables for a token export. */
@@ -155,7 +157,12 @@ export function Chat(props: ChatProps) {
 			openExternal: props.openExternal,
 			fork: props.fork,
 			openConversation: props.openConversation,
-			exportTokens: async (args: TokenExport) => keepFiles((await exportTokens(bridge, args)).files),
+			// The tools ran with these arguments, after the Harness checked them.
+			exportAgain: (toolName: string, args: unknown) => {
+				if (toolName === "figma_export_tokens") return async () => keepFiles((await exportTokens(bridge, args as TokenExport)).files);
+				if (toolName === "figma_export_nodes") return async () => keepFiles(await exportNodes(bridge, args as Static<typeof NODE_EXPORT>));
+				return undefined;
+			},
 		}),
 		[props.openExternal, props.fork, props.openConversation, bridge],
 	);
@@ -417,63 +424,64 @@ const Reasoning: ReasoningMessagePartComponent = ({ text }) => (
 const callState = ({ status, result, isError }: ToolCallMessagePartProps) =>
 	status.type === "running" ? "running" : result === undefined ? "stopped" : isError ? "failed" : "";
 
-/** The files of "Export again", by tool call: the step can mount again, for example after a thread switch. */
+/** The files that a Download made again, by tool call: the step can mount again, for example after a thread switch. */
 const exportedAgain = new Map<string, FileRef[]>();
 
 /**
- * The files of a tool result, to download. FigPal keeps them only until it closes: then a token export can run again,
- * and other files need the agent.
+ * The files of a tool result, to download. FigPal keeps them only until it closes. Then a Download of an export makes
+ * all its files again, without the agent. Files that the agent's code made need the agent.
  */
 function ToolFiles({ callId, files, again }: { callId: string; files: FileRef[]; again?: () => Promise<FileRef[]> }) {
 	const [current, setCurrent] = useState(() => exportedAgain.get(callId) ?? files);
 	const [running, setRunning] = useState(false);
 	const [failure, setFailure] = useState<string>();
-	if (!current.every((file) => fileById(file.id)))
+	if (!again && !current.every((file) => fileById(file.id)))
 		return (
-			<div className="flex flex-wrap items-center gap-2 pl-4">
-				<Text className="text-secondary">
-					{current.length === 1 ? `${current[0]!.name} is` : "The files are"} no longer available. FigPal keeps files only until it
-					closes.
-				</Text>
-				{again && (
-					<Button
-						disabled={running}
-						onClick={() => {
-							setRunning(true);
-							setFailure(undefined);
-							again()
-								.then((next) => {
-									exportedAgain.set(callId, next);
-									setCurrent(next);
-								}, (error) => setFailure(errorText(error)))
-								.finally(() => setRunning(false));
-						}}
-					>
-						Export again
-					</Button>
-				)}
-				{failure && <Text className="text-danger">{failure}</Text>}
-			</div>
+			<Text className="pl-4 text-secondary">
+				{current.length === 1 ? `${current[0]!.name} is` : "The files are"} no longer available. FigPal keeps files only until it
+				closes: ask FigPal to make {current.length === 1 ? "it" : "them"} again.
+			</Text>
 		);
+	const download = async (file: FileRef) => {
+		const kept = fileById(file.id);
+		if (kept) return downloadFile(kept);
+		setRunning(true);
+		setFailure(undefined);
+		try {
+			const next = await again!();
+			exportedAgain.set(callId, next);
+			setCurrent(next);
+			const same = next.find((made) => made.name === file.name);
+			if (same) downloadFile(fileById(same.id)!);
+			else setFailure(`The export has no ${file.name} now.`);
+		} catch (error) {
+			setFailure(errorText(error));
+		} finally {
+			setRunning(false);
+		}
+	};
 	return (
-		<ul className="flex flex-col gap-1 pl-4">
-			{current.map((file) => (
-				<li key={file.id} className="flex items-center gap-2">
-					<span className="min-w-0 truncate">{file.name}</span>
-					<span className="shrink-0 text-secondary">{fileSize(file.size)}</span>
-					<Button className="shrink-0" onClick={() => downloadFile(fileById(file.id)!)}>
-						Download
-					</Button>
-				</li>
-			))}
-		</ul>
+		<div className="flex flex-col gap-1 pl-4">
+			<ul className="flex flex-col gap-1">
+				{current.map((file) => (
+					<li key={file.id} className="flex items-center gap-2">
+						<span className="min-w-0 truncate">{file.name}</span>
+						<span className="shrink-0 text-secondary">{fileSize(file.size)}</span>
+						<Button className="shrink-0" disabled={running} onClick={() => void download(file)}>
+							Download
+						</Button>
+					</li>
+				))}
+			</ul>
+			{failure && <Text className="text-danger">{failure}</Text>}
+		</div>
 	);
 }
 
 /** A tool call: its label and state, the files to download, and when opened, the arguments and the result. */
 const ToolCall: ToolCallMessagePartComponent = (props) => {
 	const { toolName, args, result, isError } = props;
-	const { exportTokens } = useContext(ChatActions);
+	const { exportAgain } = useContext(ChatActions);
 	const files = (props.artifact as Partial<FileDetails> | undefined)?.files;
 	const content = (result ?? []) as (TextContent | ImageContent)[];
 	const state = callState(props);
@@ -490,8 +498,7 @@ const ToolCall: ToolCallMessagePartComponent = (props) => {
 				<ToolFiles
 					callId={props.toolCallId}
 					files={files}
-					// The tool ran with these arguments, after the Harness checked them.
-					again={toolName === "figma_export_tokens" ? () => exportTokens(args as TokenExport) : undefined}
+					again={exportAgain(toolName, args)}
 				/>
 			)}
 			<Collapsible.Panel>

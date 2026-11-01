@@ -215,3 +215,47 @@ describe("variables", () => {
 		expect(posted[0]).toEqual({ kind: "response", id: "1", ok: true, result: { collections: [collection], variables: [variable] }, attachments: [] });
 	});
 });
+
+describe("export", () => {
+	const UI = "https://figpal.maxschulmeister.dev";
+	const bytes = new Uint8Array([1, 2, 3]);
+	const node = (id: string, name: string) => ({ id, name, type: "FRAME", exportAsync: vi.fn(async () => bytes) });
+
+	async function exportNodes(params: object, nodes = [node("1:2", "Icons/Arrow"), node("1:3", "Logo")]) {
+		const { posted, send } = await startPlugin(async () => "remote", {
+			currentPage: { selection: [] },
+			getNodeByIdAsync: async (id: string) => nodes.find((n) => n.id === id) ?? null,
+		});
+		send({ kind: "request", id: "1", type: "export", params }, UI);
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		return { response: posted[0], nodes };
+	}
+
+	it("exports each node as a file with its name, without changing the file", async () => {
+		const { response, nodes } = await exportNodes({ nodeIds: ["1:2", "1:3"], format: "SVG" });
+		expect(nodes[0]!.exportAsync).toHaveBeenCalledWith({ format: "SVG" });
+		expect(response).toEqual({
+			kind: "response",
+			id: "1",
+			ok: true,
+			result: { count: 2 },
+			attachments: [
+				{ name: "Icons-Arrow.svg", mime: "image/svg+xml", bytes },
+				{ name: "Logo.svg", mime: "image/svg+xml", bytes },
+			],
+		});
+	});
+
+	it("exports PNG and JPG at a scale, default 1", async () => {
+		const { nodes } = await exportNodes({ nodeIds: ["1:2"], format: "PNG", scale: 2 });
+		expect(nodes[0]!.exportAsync).toHaveBeenCalledWith({ format: "PNG", constraint: { type: "SCALE", value: 2 } });
+		const jpg = await exportNodes({ nodeIds: ["1:3"], format: "JPG" });
+		expect(jpg.nodes[1]!.exportAsync).toHaveBeenCalledWith({ format: "JPG", constraint: { type: "SCALE", value: 1 } });
+		expect(jpg.response).toMatchObject({ attachments: [{ name: "Logo.jpg", mime: "image/jpeg" }] });
+	});
+
+	it("fails for a node that does not exist", async () => {
+		const { response } = await exportNodes({ nodeIds: ["9:9"], format: "PDF" });
+		expect(response).toMatchObject({ ok: false, error: "No node with ID 9:9" });
+	});
+});

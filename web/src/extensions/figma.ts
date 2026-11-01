@@ -1,9 +1,9 @@
 // The `figma` extension: tools that read and change the open file through code.js, and the rules for the model.
 
 import { awaitWithContext } from "@earendil-works/chord/context";
-import { type CredentialStore, type ImageContent, type TextContent, Type } from "@earendil-works/pi-ai";
+import { type CredentialStore, type ImageContent, type Static, type TextContent, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
-import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, SCREENSHOT_MAX_PX } from "@figpal/shared";
+import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, SCREENSHOT_MAX_PX } from "@figpal/shared";
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
 import { exportTokens, TOKEN_EXPORT } from "../tokens";
@@ -16,7 +16,7 @@ Tools:
 - figma_execute runs Plugin API JavaScript. Keep each call small. Return the IDs of the nodes that you make or change.
 - figma_screenshot shows a node. After a visual change, use it to check the result.
 - figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
-- figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...). The user downloads the files from the step.
+- figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
 
 Plugin API rules:
 - Pages load on demand. Use the async API: getNodeByIdAsync, setCurrentPageAsync, getMainComponentAsync. Call \`await page.loadAsync()\` before you read another page.
@@ -46,6 +46,19 @@ function images(attachments: Attachment[]): ImageContent[] {
 }
 
 const text = (value: string): TextContent => ({ type: "text", text: value });
+
+/** The parameters of figma_export_nodes. */
+export const NODE_EXPORT = Type.Object({
+	node_ids: Type.Array(Type.String(), { minItems: 1 }),
+	format: Type.Unsafe<(typeof EXPORT_FORMATS)[number]>(Type.Union(EXPORT_FORMATS.map((name) => Type.Literal(name)))),
+	scale: Type.Optional(Type.Number({ description: "PNG and JPG only. Default 1." })),
+});
+
+/** Exports the nodes as files. Read-only, so the chat can run it again without the agent. */
+export async function exportNodes(bridge: Pick<Bridge, "request">, args: Static<typeof NODE_EXPORT>): Promise<Attachment[]> {
+	const { attachments } = await bridge.request("export", { nodeIds: args.node_ids, format: args.format, scale: args.scale });
+	return attachments;
+}
 
 const REST_API = "https://api.figma.com";
 /** The answer of figma_rest is cut after this. The JSON of a whole file is often megabytes. */
@@ -158,6 +171,19 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 							message: `FigPal stopped reading after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes, and the answer is longer. Ask for less, for example with depth=1, ids=…, or /v1/files/KEY/nodes?ids=….`,
 						});
 					return {};
+				},
+			}),
+			defineTool({
+				name: "figma_export_nodes",
+				description:
+					"Exports layers as files for the user, who downloads them from this step. The file name is the layer name. It does not change the file.",
+				parameters: NODE_EXPORT,
+				// Read-only.
+				replay: "safe",
+				execute: async (args, _api, context) => {
+					const files = keepFiles(await awaitWithContext(exportNodes(bridge, args), context));
+					const count = `Exported ${files.length} file${files.length === 1 ? "" : "s"}.`;
+					return { output: [text(`${count} ${filesNote(files)}`)], details: { files } satisfies FileDetails };
 				},
 			}),
 			defineTool({

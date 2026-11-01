@@ -2,6 +2,7 @@
 
 import {
 	type Attachment,
+	type ExportFormat,
 	type FileInfo,
 	isUiToPlugin,
 	SCREENSHOT_MAX_PX,
@@ -82,6 +83,8 @@ async function switchUi(next: UiSource): Promise<void> {
 function post(message: PluginToUi): void {
 	figma.ui.postMessage(message, { origin: uiOrigin() });
 }
+
+const EXPORT_MIME: Record<ExportFormat, string> = { SVG: "image/svg+xml", PDF: "application/pdf", PNG: "image/png", JPG: "image/jpeg" };
 
 function summarize(node: BaseNode): NodeSummary {
 	return { id: node.id, name: node.name, type: node.type };
@@ -238,6 +241,22 @@ const handlers: Handlers = {
 		};
 	},
 
+	async export({ nodeIds, format, scale }) {
+		const attachments: Attachment[] = [];
+		for (const id of nodeIds) {
+			const node = await figma.getNodeByIdAsync(id);
+			if (!node) throw new Error(`No node with ID ${id}`);
+			if (!("exportAsync" in node)) throw new Error(`Cannot export a ${node.type} node`);
+			// SVG and PDF are vector files: no scale.
+			const settings: ExportSettings =
+				format === "SVG" || format === "PDF" ? { format } : { format, constraint: { type: "SCALE", value: scale ?? 1 } };
+			const bytes = await node.exportAsync(settings);
+			// A download has no folders: "Icons/Arrow" becomes "Icons-Arrow".
+			attachments.push({ name: `${node.name.replaceAll("/", "-")}.${format.toLowerCase()}`, mime: EXPORT_MIME[format], bytes });
+		}
+		return { result: { count: attachments.length }, attachments };
+	},
+
 	async "open-external"({ url }) {
 		if (!/^https:\/\//.test(url)) throw new Error("Only https URLs can open");
 		figma.openExternal(url);
@@ -246,7 +265,7 @@ const handlers: Handlers = {
 };
 
 /** Calls that change or read the canvas run one at a time. */
-const QUEUED = new Set<RequestType>(["execute", "screenshot"]);
+const QUEUED = new Set<RequestType>(["execute", "screenshot", "export"]);
 let queue: Promise<unknown> = Promise.resolve();
 
 async function handle(message: RequestMessage): Promise<void> {

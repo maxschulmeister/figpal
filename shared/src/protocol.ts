@@ -69,7 +69,12 @@ export type Requests = {
 	"open-external": { params: { url: string }; result: null };
 	/** Read-only, so the UI can export tokens again without the agent. */
 	variables: { params: Record<string, never>; result: Variables };
+	/** Read-only, so the UI can export the nodes again without the agent. The files are the attachments. */
+	export: { params: { nodeIds: string[]; format: ExportFormat; scale?: number }; result: { count: number } };
 };
+
+export const EXPORT_FORMATS = ["SVG", "PDF", "PNG", "JPG"] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 export type RequestType = keyof Requests;
 export type Params<T extends RequestType> = Requests[T]["params"];
 export type Result<T extends RequestType> = Requests[T]["result"];
@@ -106,6 +111,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	"storage-delete": true,
 	"open-external": true,
 	variables: true,
+	export: true,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

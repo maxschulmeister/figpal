@@ -224,6 +224,21 @@ describe("figma tools", () => {
 		expect(fileById(files[0]!.id)?.bytes).toEqual(svg);
 	});
 
+	it("figma_export_nodes exports the nodes in code.js and keeps the files for the user", async () => {
+		const { models, requests } = scriptedModels("figma_export_nodes", { node_ids: ["1:2"], format: "SVG" });
+		const svg = new TextEncoder().encode("<svg/>");
+		const { bridge, calls } = fakeBridge(() => ({ result: { count: 1 }, attachments: [{ name: "Card.svg", mime: "image/svg+xml", bytes: svg }] }));
+		const { view } = await run(models, bridge);
+		expect(calls).toEqual([{ type: "export", params: { nodeIds: ["1:2"], format: "SVG" } }]);
+		expect(requests[1]!.at(-1)).toMatchObject({
+			isError: false,
+			content: [{ type: "text", text: "Exported 1 file. Files for the user to download from this step: Card.svg (6 bytes)." }],
+		});
+		const files = toolArtifact(view)?.files ?? [];
+		expect(files).toMatchObject([{ name: "Card.svg", size: 6 }]);
+		expect(fileById(files[0]!.id)?.bytes).toEqual(svg);
+	});
+
 	it("figma_export_tokens reads the variables in code.js and keeps the files for the user", async () => {
 		const { models, requests } = scriptedModels("figma_export_tokens", { format: "dtcg" });
 		const variables = {
