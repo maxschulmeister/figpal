@@ -6,11 +6,9 @@ import { type Static, Type } from "@earendil-works/pi-ai";
 import type { Attachment } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { filesNote } from "./files";
+import { literals } from "./schema";
 import { type FigmaVariablesPayload, convertFigmaVariablesToDocument } from "./vendor/figma-console-mcp/tokens/figma-converter";
 import { format } from "./vendor/figma-console-mcp/tokens/formatters/index";
-
-/** A schema for one of the names. Type.Unsafe keeps the names in the TypeScript type. */
-const literals = <T extends string>(names: readonly T[]) => Type.Unsafe<T>(Type.Union(names.map((name) => Type.Literal(name))));
 
 /** The parameters of figma_export_tokens. Less is not offered: upstream has only a stub. */
 export const TOKEN_EXPORT = Type.Object({

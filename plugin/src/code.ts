@@ -241,6 +241,53 @@ const handlers: Handlers = {
 		};
 	},
 
+	async components() {
+		await figma.loadAllPagesAsync();
+		// Main components are never inside instances. Figma says that skipping them makes the search much faster. The
+		// search is synchronous, so no other code sees the flag.
+		const skip = figma.skipInvisibleInstanceChildren;
+		figma.skipInvisibleInstanceChildren = true;
+		let found: (ComponentNode | ComponentSetNode)[];
+		try {
+			found = figma.root.findAllWithCriteria({ types: ["COMPONENT", "COMPONENT_SET"] });
+		} finally {
+			figma.skipInvisibleInstanceChildren = skip;
+		}
+		/** The type of each property. Figma throws for a component with errors, as upstream knows: then none. */
+		const types = (component: ComponentNode) => {
+			try {
+				return Object.fromEntries(Object.entries(component.componentPropertyDefinitions).map(([name, { type }]) => [name, { type }]));
+			} catch {
+				return {};
+			}
+		};
+		const styles = await Promise.all([
+			figma.getLocalPaintStylesAsync(),
+			figma.getLocalTextStylesAsync(),
+			figma.getLocalEffectStylesAsync(),
+			figma.getLocalGridStylesAsync(),
+		]);
+		return {
+			result: {
+				fileName: figma.root.name,
+				componentSets: found
+					.filter((node) => node.type === "COMPONENT_SET")
+					// No property definitions: the audit does not read them, and Figma throws for a set with errors.
+					.map((set) => ({ id: set.id, name: set.name, description: set.description })),
+				components: found
+					.filter((node) => node.type === "COMPONENT")
+					.map((component) => {
+						const base = { id: component.id, name: component.name, description: component.description };
+						// Figma throws when code reads the property definitions of a variant.
+						return component.parent?.type === "COMPONENT_SET"
+							? { ...base, componentSetId: component.parent.id }
+							: { ...base, componentSetId: null, componentPropertyDefinitions: types(component) };
+					}),
+				styles: styles.flat().map((style) => ({ name: style.name, type: style.type })),
+			},
+		};
+	},
+
 	async export({ nodeIds, format, scale }) {
 		const attachments: Attachment[] = [];
 		for (const id of nodeIds) {
@@ -266,7 +313,7 @@ const handlers: Handlers = {
 };
 
 /** Calls that change or read the canvas run one at a time. */
-const QUEUED = new Set<RequestType>(["execute", "screenshot", "export"]);
+const QUEUED = new Set<RequestType>(["execute", "screenshot", "export", "components"]);
 let queue: Promise<unknown> = Promise.resolve();
 
 async function handle(message: RequestMessage): Promise<void> {

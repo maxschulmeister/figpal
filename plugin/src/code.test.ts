@@ -216,6 +216,72 @@ describe("variables", () => {
 	});
 });
 
+describe("components", () => {
+	const throws = () => {
+		throw new Error("in get_componentPropertyDefinitions: Component set has existing errors");
+	};
+	/** Runs the request on the nodes. Figma throws when code reads the property definitions of a variant or of a broken set. */
+	async function components(found: object[]) {
+		const flags: boolean[] = [];
+		const api: Record<string, unknown> = {
+			skipInvisibleInstanceChildren: false,
+			loadAllPagesAsync: vi.fn(async () => {}),
+			getLocalPaintStylesAsync: async () => [{ name: "Brand", type: "PAINT" }],
+			getLocalTextStylesAsync: async () => [{ name: "Body", type: "TEXT" }],
+			getLocalEffectStylesAsync: async () => [],
+			getLocalGridStylesAsync: async () => [],
+		};
+		api.root = {
+			name: "Library",
+			findAllWithCriteria: vi.fn(() => {
+				flags.push(figma.skipInvisibleInstanceChildren);
+				return found;
+			}),
+		};
+		const { posted, send } = await startPlugin(async () => "remote", api);
+		send({ kind: "request", id: "1", type: "components", params: {} }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		return { response: posted[0], api, flags };
+	}
+
+	it("gives the local components, component sets and styles of all pages for the design-system audit", async () => {
+		const set = { id: "1:1", name: "Button", type: "COMPONENT_SET", description: "Starts an action.", get componentPropertyDefinitions() { return throws(); } };
+		const variant = { id: "1:2", name: "Size=Small", type: "COMPONENT", description: "", parent: set, get componentPropertyDefinitions() { return throws(); } };
+		const definitions = { "Label#1:0": { type: "TEXT", defaultValue: "OK" } };
+		const icon = { id: "2:1", name: "Icon", type: "COMPONENT", description: "", parent: { type: "FRAME" }, componentPropertyDefinitions: definitions };
+		const { response, api, flags } = await components([set, variant, icon]);
+		expect(api.loadAllPagesAsync).toHaveBeenCalled();
+		expect((api.root as { findAllWithCriteria: unknown }).findAllWithCriteria).toHaveBeenCalledWith({ types: ["COMPONENT", "COMPONENT_SET"] });
+		// Main components are never inside instances: the search skips them, which Figma says is much faster.
+		expect(flags).toEqual([true]);
+		expect(figma.skipInvisibleInstanceChildren).toBe(false);
+		expect(response).toEqual({
+			kind: "response",
+			id: "1",
+			ok: true,
+			result: {
+				fileName: "Library",
+				componentSets: [{ id: "1:1", name: "Button", description: "Starts an action." }],
+				components: [
+					{ id: "1:2", name: "Size=Small", description: "", componentSetId: "1:1" },
+					{ id: "2:1", name: "Icon", description: "", componentSetId: null, componentPropertyDefinitions: { "Label#1:0": { type: "TEXT" } } },
+				],
+				styles: [
+					{ name: "Brand", type: "PAINT" },
+					{ name: "Body", type: "TEXT" },
+				],
+			},
+			attachments: [],
+		});
+	});
+
+	it("gives a component with broken properties without them", async () => {
+		const broken = { id: "2:1", name: "Icon", type: "COMPONENT", description: "", parent: { type: "FRAME" }, get componentPropertyDefinitions() { return throws(); } };
+		const { response } = await components([broken]);
+		expect(response).toMatchObject({ ok: true, result: { components: [{ id: "2:1", componentSetId: null, componentPropertyDefinitions: {} }] } });
+	});
+});
+
 describe("export", () => {
 	const UI = "https://figpal.maxschulmeister.dev";
 	const bytes = new Uint8Array([1, 2, 3]);

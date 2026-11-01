@@ -4,8 +4,10 @@ import { awaitWithContext } from "@earendil-works/chord/context";
 import { type CredentialStore, type ImageContent, type Static, type TextContent, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, SCREENSHOT_MAX_PX } from "@figpal/shared";
+import { AUDIT, auditDesignSystem } from "../audit";
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
+import { literals } from "../schema";
 import { exportTokens, TOKEN_EXPORT } from "../tokens";
 import { formatChangelogMarkdown } from "../vendor/figma-console-mcp/diff/changelog-formatter";
 import { type DiffMode, diffNode, diffPageStructure } from "../vendor/figma-console-mcp/diff/diff-engine";
@@ -19,6 +21,7 @@ Tools:
 - figma_screenshot shows a node. After a visual change, use it to check the result.
 - figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
 - figma_diff_versions compares two versions of the open file: get the version IDs with figma_rest GET /v1/files/KEY/versions.
+- figma_audit_design_system scores the design system of the open file (naming, tokens, components, accessibility, consistency, coverage) and says how to fix the findings.
 - figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
 
 Plugin API rules:
@@ -53,7 +56,7 @@ const text = (value: string): TextContent => ({ type: "text", text: value });
 /** The parameters of figma_export_nodes. */
 export const NODE_EXPORT = Type.Object({
 	node_ids: Type.Array(Type.String(), { minItems: 1 }),
-	format: Type.Unsafe<(typeof EXPORT_FORMATS)[number]>(Type.Union(EXPORT_FORMATS.map((name) => Type.Literal(name)))),
+	format: literals(EXPORT_FORMATS),
 	scale: Type.Optional(Type.Number({ description: "PNG and JPG only. Default 1." })),
 });
 
@@ -64,7 +67,7 @@ export async function exportNodes(bridge: Pick<Bridge, "request">, args: Static<
 }
 
 const REST_API = "https://api.figma.com";
-/** The answers of the REST tools are cut after this. The JSON of a whole file is often megabytes. */
+/** The answers of the REST tools and the audit are cut after this. The JSON of a whole file is often megabytes. */
 const REST_OUTPUT_BYTES = 40_000;
 
 /** The error for a REST answer that is not OK. A 429 says when to try again: the limits for files are strict. */
@@ -203,11 +206,9 @@ export function figmaExtension(
 					to_version: Type.Optional(Type.String({ description: 'Default "current": the file now.' })),
 					node_ids: Type.Optional(Type.Array(Type.String(), { description: "For example component sets." })),
 					mode: Type.Optional(
-						Type.Unsafe<DiffMode>(
-							Type.Union(["summary", "standard", "detailed"].map((name) => Type.Literal(name)), {
-								description: "summary: counts. standard (default): names and counts. detailed: each property and binding.",
-							}),
-						),
+						literals<DiffMode>(["summary", "standard", "detailed"], {
+							description: "summary: counts. standard (default): names and counts. detailed: each property and binding.",
+						}),
 					),
 				}),
 				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
@@ -268,6 +269,20 @@ export function figmaExtension(
 					const files = keepFiles(await awaitWithContext(exportNodes(bridge, args), context));
 					const count = `Exported ${files.length} file${files.length === 1 ? "" : "s"}.`;
 					return { output: [text(`${count} ${filesNote(files)}`)], details: { files } satisfies FileDetails };
+				},
+			}),
+			defineTool({
+				name: "figma_audit_design_system",
+				description:
+					"Scores the design system of the open file from 0 to 100: naming, token architecture, component metadata, accessibility, consistency and coverage. It reads the local variables, components and styles of all pages, as they are now. Start without category, then get the findings of one category. It does not change the file.",
+				parameters: AUDIT,
+				// Names in the file have no length limit.
+				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
+				// Read-only.
+				replay: "safe",
+				execute: async (args, _api, context) => {
+					const { report, details } = await awaitWithContext(auditDesignSystem(bridge, args), context);
+					return { output: [text(report)], details };
 				},
 			}),
 			defineTool({

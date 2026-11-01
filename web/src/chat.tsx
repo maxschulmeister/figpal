@@ -35,9 +35,10 @@ import {
 	Text,
 	Tooltip,
 } from "figma-kit";
-import { type ComponentProps, createContext, useContext, useEffect, useMemo, useState } from "react";
+import { type ComponentProps, createContext, Fragment, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
+import { type AuditDetails, STATUS_LABELS } from "./audit";
 import type { Bridge } from "./bridge";
 import { errorText } from "./accounts";
 import { exportNodes, type NODE_EXPORT } from "./extensions/figma";
@@ -82,6 +83,7 @@ const TOOL_LABELS: Record<string, string> = {
 	figma_export_tokens: "Export tokens",
 	figma_export_nodes: "Export layers",
 	figma_diff_versions: "Compare versions",
+	figma_audit_design_system: "Audit design system",
 	subagent: "Subagents",
 };
 
@@ -486,11 +488,29 @@ function ToolFiles({
 	);
 }
 
+/** The scores of a design-system audit, out of 100. The agent explains the findings. */
+function AuditScores({ audit }: AuditDetails) {
+	return (
+		<dl className="grid w-fit grid-cols-[1fr_auto] gap-x-6 gap-y-1 pl-4 tabular-nums">
+			<dt className="font-medium">Overall</dt>
+			<dd className="text-right font-medium">
+				{audit.overall}/100 · {STATUS_LABELS[audit.status]}
+			</dd>
+			{audit.categories.map(({ label, score }) => (
+				<Fragment key={label}>
+					<dt className="text-secondary">{label}</dt>
+					<dd className={score === null ? "text-right text-secondary" : "text-right"}>{score ?? "No data"}</dd>
+				</Fragment>
+			))}
+		</dl>
+	);
+}
+
 /** A tool call: its label and state, the files to download, and when opened, the arguments and the result. */
 const ToolCall: ToolCallMessagePartComponent = (props) => {
 	const { toolName, args, result, isError } = props;
 	const { exportAgain } = useContext(ChatActions);
-	const files = (props.artifact as Partial<FileDetails> | undefined)?.files;
+	const { files, audit } = (props.artifact ?? {}) as Partial<FileDetails & AuditDetails>;
 	const content = (result ?? []) as (TextContent | ImageContent)[];
 	const state = callState(props);
 	const code = typeof args.code === "string" ? args.code : JSON.stringify(args, null, 2);
@@ -510,6 +530,7 @@ const ToolCall: ToolCallMessagePartComponent = (props) => {
 					layers={toolName === "figma_export_nodes"}
 				/>
 			)}
+			{audit && <AuditScores audit={audit} />}
 			<Collapsible.Panel>
 				<div className="flex flex-col gap-2">
 					{code !== "{}" && <pre className="overflow-x-auto rounded-md bg-secondary p-2 font-mono">{code}</pre>}

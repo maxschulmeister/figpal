@@ -59,6 +59,21 @@ export type Variables = {
 	}[];
 };
 
+/** The local components and styles of all pages, in the shape that the design-system audit of figma-console-mcp reads. */
+export type Components = {
+	fileName: string;
+	componentSets: { id: string; name: string; description: string }[];
+	/** A variant has the ID of its set. Figma has no property definitions for a variant. The audit counts the properties. */
+	components: {
+		id: string;
+		name: string;
+		description: string;
+		componentSetId: string | null;
+		componentPropertyDefinitions?: Record<string, { type: string }>;
+	}[];
+	styles: { name: string; type: string }[];
+};
+
 /** Requests from the UI and the result that each one returns. */
 export type Requests = {
 	execute: { params: { code: string; timeoutMs?: number }; result: { value: string } };
@@ -69,6 +84,8 @@ export type Requests = {
 	"open-external": { params: { url: string }; result: null };
 	/** Read-only, so the UI can export tokens again without the agent. */
 	variables: { params: Record<string, never>; result: Variables };
+	/** Read-only. For the design-system audit. */
+	components: { params: Record<string, never>; result: Components };
 	/** Read-only, so the UI can export the nodes again without the agent. The files are the attachments. */
 	export: { params: { nodeIds: string[]; format: ExportFormat; scale?: number }; result: { count: number } };
 };
@@ -111,6 +128,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	"storage-delete": true,
 	"open-external": true,
 	variables: true,
+	components: true,
 	export: true,
 };
 

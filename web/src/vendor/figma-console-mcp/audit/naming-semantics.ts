@@ -1,0 +1,416 @@
+// @ts-nocheck: copied code; FigPal's TypeScript settings are stricter. See README.md.
+/**
+ * Naming & Semantics Scorer (weight: 0.20)
+ *
+ * Checks whether design system names describe intent rather than appearance.
+ * Evaluates variable naming, component naming, variant naming, and boolean
+ * naming conventions against semantic best practices.
+ */
+
+import { classifyComponents } from "./component-metadata.js";
+import type { CategoryScore, DesignSystemRawData, Finding } from "./types.js";
+import { buildCollectionNameMap, clamp, getSeverity } from "./types.js";
+
+/** Maximum examples to include in a finding. */
+const MAX_EXAMPLES = 5;
+
+/** Color words that indicate visual (non-semantic) naming. */
+const VISUAL_COLOR_WORDS = [
+	"red",
+	"blue",
+	"green",
+	"yellow",
+	"orange",
+	"purple",
+	"pink",
+	"black",
+	"white",
+	"gray",
+	"grey",
+	"cyan",
+	"magenta",
+	"teal",
+	"indigo",
+	"violet",
+	"brown",
+	"lime",
+	"amber",
+	"emerald",
+	"rose",
+	"sky",
+	"slate",
+	"zinc",
+	"stone",
+	"neutral",
+];
+
+/** Visual variant values that should be replaced with semantic ones. */
+const VISUAL_VARIANT_VALUES = [
+	"red",
+	"blue",
+	"green",
+	"yellow",
+	"orange",
+	"purple",
+	"pink",
+	"black",
+	"white",
+	"gray",
+	"grey",
+	"cyan",
+];
+
+/** Semantic variant values that indicate good naming. */
+const SEMANTIC_VARIANT_VALUES = [
+	"primary",
+	"secondary",
+	"tertiary",
+	"danger",
+	"warning",
+	"success",
+	"info",
+	"error",
+	"disabled",
+	"default",
+	"accent",
+	"muted",
+	"destructive",
+	"outline",
+	"ghost",
+	"link",
+];
+
+// Accepts PascalCase ("IconButton") and Title Case with spaces ("Form Field",
+// "Section Header") — both are consistent, discoverable component-naming
+// conventions in Figma; rejecting spaces failed the dominant real-world style.
+const PASCAL_CASE_RE = /^[A-Z][a-zA-Z0-9]*(?: [A-Z0-9&(][a-zA-Z0-9()]*)*$/;
+const BOOLEAN_PREFIX_RE =
+	/^(is|has|can|should|will|did|was|with|show|hide|enable|disable)/i;
+
+/**
+ * Extract the leaf segment from a variable name.
+ * e.g. "color/action/primary" -> "primary", "color.blue.500" -> "500"
+ */
+function getLeafName(name: string): string {
+	const parts = name.split(/[/.]/);
+	return parts[parts.length - 1];
+}
+
+/**
+ * Check if a name contains visual color words in its leaf segments.
+ */
+function containsVisualColorWord(name: string): boolean {
+	const leaf = getLeafName(name).toLowerCase();
+	return VISUAL_COLOR_WORDS.some(
+		(word) => leaf === word || leaf.startsWith(`${word}-`),
+	);
+}
+
+/**
+ * Score variable naming for semantic quality.
+ * Variables should use semantic names (color.action.primary) rather than
+ * visual names (color.blue.500).
+ */
+function scoreVariableNaming(data: DesignSystemRawData): Finding {
+	// Only judge tokens OUTSIDE the primitive tier: primitives are SUPPOSED to
+	// describe appearance (color/blue/500, color/neutral/black — they're the
+	// palette), and the tooltip's own contract ("semantic names survive theme
+	// changes") only applies to the tokens a theme swap re-points. The
+	// primitive tier is detected the same way the alias-usage check detects
+	// it: the collection contributing the most raw (non-alias) values.
+	const rawByCollection = new Map<string, number>();
+	for (const v of data.variables) {
+		for (const value of Object.values(v.valuesByMode ?? {})) {
+			const val = value as Record<string, any> | null;
+			// A composed color ("grey/900 at 50%") that references a variable is
+			// an alias, not a raw primitive value.
+			const composedAlias =
+				!!val && typeof val === "object" && "color" in val && "opacity" in val &&
+				(val.color?.type === "VARIABLE_ALIAS" || val.opacity?.type === "VARIABLE_ALIAS");
+			if (val?.type !== "VARIABLE_ALIAS" && !composedAlias) {
+				const key = v.variableCollectionId ?? "?";
+				rawByCollection.set(key, (rawByCollection.get(key) ?? 0) + 1);
+			}
+		}
+	}
+	let primitiveCollectionId: string | null = null;
+	let maxRaw = -1;
+	for (const [key, count] of rawByCollection) {
+		if (count > maxRaw) {
+			maxRaw = count;
+			primitiveCollectionId = key;
+		}
+	}
+	const colorVars = data.variables.filter(
+		(v) =>
+			v.resolvedType === "COLOR" &&
+			(v.variableCollectionId ?? "?") !== primitiveCollectionId,
+	);
+
+	if (colorVars.length === 0) {
+		return {
+			id: "naming-variable-semantic",
+			label: "Variable naming",
+			score: 100,
+			severity: "info",
+			tooltip:
+				"Variables should describe intent (e.g. color/action/primary) rather than appearance (e.g. color/blue/500). Semantic names survive theme changes.",
+			details: "No color variables to evaluate.",
+		};
+	}
+
+	const collectionNames = buildCollectionNameMap(data.collections);
+	const visualVars = colorVars.filter((v) => containsVisualColorWord(v.name));
+	const semanticRatio = 1 - visualVars.length / colorVars.length;
+	const score = clamp(semanticRatio * 100);
+
+	return {
+		id: "naming-variable-semantic",
+		label: "Variable naming",
+		score,
+		severity: getSeverity(score),
+		tooltip:
+			"Variables should describe intent (e.g. color/action/primary) rather than appearance (e.g. color/blue/500). Semantic names survive theme changes.",
+		details:
+			visualVars.length > 0
+				? `${visualVars.length} of ${colorVars.length} color variables use visual names instead of semantic names.`
+				: `All ${colorVars.length} color variables use semantic names.`,
+		examples:
+			visualVars.length > 0
+				? visualVars.slice(0, MAX_EXAMPLES).map((v) => v.name)
+				: undefined,
+		locations:
+			visualVars.length > 0
+				? visualVars.slice(0, MAX_EXAMPLES).map((v) => ({
+						name: v.name,
+						collection: collectionNames.get(v.variableCollectionId),
+						type: "variable",
+					}))
+				: undefined,
+	};
+}
+
+/**
+ * Score component naming for consistency.
+ * Components should use PascalCase and avoid mixed abbreviations.
+ */
+function scoreComponentNaming(data: DesignSystemRawData): Finding {
+	// Variant components are named by Figma's own `prop=value` convention
+	// (e.g. "State=Hover") and can never be PascalCase — judging them here
+	// makes the check structurally fail for any variant-rich library. Score
+	// the published surface instead: standalone components + component sets.
+	const { scorableUnits } = classifyComponents(data);
+	const components = scorableUnits;
+
+	if (components.length === 0) {
+		return {
+			id: "naming-component-casing",
+			label: "Component naming",
+			score: 100,
+			severity: "info",
+			tooltip:
+				"Component names should use consistent PascalCase (e.g. Button, IconStar). Consistent casing improves discoverability.",
+			details: "No components to evaluate.",
+		};
+	}
+
+	let pascalCount = 0;
+	const nonPascalComps: string[] = [];
+	for (const comp of components) {
+		// Component names may use path separators; check each segment
+		const segments = comp.name.split("/").map((s: string) => s.trim());
+		const allPascal = segments.every((seg: string) => PASCAL_CASE_RE.test(seg));
+		if (allPascal) {
+			pascalCount++;
+		} else {
+			nonPascalComps.push(comp.name);
+		}
+	}
+
+	const ratio = pascalCount / components.length;
+	const score = clamp(ratio * 100);
+
+	return {
+		id: "naming-component-casing",
+		label: "Component naming",
+		score,
+		severity: getSeverity(score),
+		tooltip:
+			"Component names should use consistent PascalCase (e.g. Button, IconStar). Consistent casing improves discoverability.",
+		details: `${pascalCount} of ${components.length} components use consistent PascalCase naming.`,
+		examples:
+			nonPascalComps.length > 0
+				? nonPascalComps.slice(0, MAX_EXAMPLES)
+				: undefined,
+	};
+}
+
+/**
+ * Score variant naming for semantic quality.
+ * Variant values should be semantic (primary, danger) rather than
+ * visual (blue, red). Also checks for consistent size naming.
+ */
+function scoreVariantNaming(data: DesignSystemRawData): Finding {
+	// Components with variants have a componentSetId (Plugin API),
+	// containing_frame.containingComponentSet (REST API), or component_set_id (file JSON)
+	const variantComponents = data.components.filter(
+		(c) =>
+			c.componentSetId ||
+			c.containing_frame?.containingComponentSet ||
+			c.component_set_id,
+	);
+
+	if (variantComponents.length === 0) {
+		return {
+			id: "naming-variant-semantic",
+			label: "Variant naming",
+			score: 100,
+			severity: "info",
+			tooltip:
+				"Variant values should use semantic terms (primary, danger) rather than visual ones (red, blue). This decouples design from implementation.",
+			details: "No variant components to evaluate.",
+		};
+	}
+
+	// Extract variant info from component names (e.g., "Button/Primary" or "Size=Small, Color=Primary")
+	let semanticCount = 0;
+	let visualCount = 0;
+	const visualVariantComps: string[] = [];
+
+	for (const comp of variantComponents) {
+		const nameLower = comp.name.toLowerCase();
+		const hasVisual = VISUAL_VARIANT_VALUES.some(
+			(v) =>
+				nameLower === v ||
+				nameLower.includes(`=${v}`) ||
+				nameLower.includes(`, ${v}`),
+		);
+		const hasSemantic = SEMANTIC_VARIANT_VALUES.some(
+			(v) =>
+				nameLower === v ||
+				nameLower.includes(`=${v}`) ||
+				nameLower.includes(`, ${v}`),
+		);
+
+		if (hasSemantic) semanticCount++;
+		if (hasVisual) {
+			visualCount++;
+			visualVariantComps.push(comp.name);
+		}
+	}
+
+	const totalEvaluated = semanticCount + visualCount;
+	if (totalEvaluated === 0) {
+		return {
+			id: "naming-variant-semantic",
+			label: "Variant naming",
+			score: 75,
+			severity: "warning",
+			tooltip:
+				"Variant values should use semantic terms (primary, danger) rather than visual ones (red, blue). This decouples design from implementation.",
+			details: "Variant values could not be classified as semantic or visual.",
+		};
+	}
+
+	const ratio = semanticCount / totalEvaluated;
+	const score = clamp(ratio * 100);
+
+	return {
+		id: "naming-variant-semantic",
+		label: "Variant naming",
+		score,
+		severity: getSeverity(score),
+		tooltip:
+			"Variant values should use semantic terms (primary, danger) rather than visual ones (red, blue). This decouples design from implementation.",
+		details:
+			visualCount > 0
+				? `${visualCount} variant values use visual names. Prefer semantic names like "primary", "danger".`
+				: "Variant values use semantic naming conventions.",
+		examples:
+			visualVariantComps.length > 0
+				? visualVariantComps.slice(0, MAX_EXAMPLES)
+				: undefined,
+	};
+}
+
+/**
+ * Score boolean variable naming.
+ * Boolean variables should follow is-, has-, can- prefix patterns.
+ */
+function scoreBooleanNaming(data: DesignSystemRawData): Finding {
+	const boolVars = data.variables.filter((v) => v.resolvedType === "BOOLEAN");
+
+	if (boolVars.length === 0) {
+		return {
+			id: "naming-boolean-prefix",
+			label: "Boolean naming",
+			score: 100,
+			severity: "info",
+			tooltip:
+				"Boolean variables should start with is, has, can, show, or similar prefixes (e.g. isDisabled). This makes their purpose immediately clear.",
+			details: "No boolean variables to evaluate.",
+		};
+	}
+
+	const collectionNames = buildCollectionNameMap(data.collections);
+
+	const missingPrefix = boolVars.filter((v) => {
+		const leaf = getLeafName(v.name);
+		return !BOOLEAN_PREFIX_RE.test(leaf);
+	});
+	const correctCount = boolVars.length - missingPrefix.length;
+
+	const ratio = correctCount / boolVars.length;
+	const score = clamp(ratio * 100);
+
+	return {
+		id: "naming-boolean-prefix",
+		label: "Boolean naming",
+		score,
+		severity: getSeverity(score),
+		tooltip:
+			"Boolean variables should start with is, has, can, show, or similar prefixes (e.g. isDisabled). This makes their purpose immediately clear.",
+		details:
+			missingPrefix.length > 0
+				? `${missingPrefix.length} of ${boolVars.length} boolean variables lack is*/has*/can* prefixes.`
+				: `All ${boolVars.length} boolean variables use proper prefixes.`,
+		examples:
+			missingPrefix.length > 0
+				? missingPrefix.slice(0, MAX_EXAMPLES).map((v) => v.name)
+				: undefined,
+		locations:
+			missingPrefix.length > 0
+				? missingPrefix.slice(0, MAX_EXAMPLES).map((v) => ({
+						name: v.name,
+						collection: collectionNames.get(v.variableCollectionId),
+						type: "variable",
+					}))
+				: undefined,
+	};
+}
+
+/**
+ * Naming & Semantics category scorer.
+ * Returns the average score across all naming checks.
+ */
+export function scoreNamingSemantics(data: DesignSystemRawData): CategoryScore {
+	const findings: Finding[] = [
+		scoreVariableNaming(data),
+		scoreComponentNaming(data),
+		scoreVariantNaming(data),
+		scoreBooleanNaming(data),
+	];
+
+	const score = clamp(
+		findings.reduce((sum, f) => sum + f.score, 0) / findings.length,
+	);
+
+	return {
+		id: "naming-semantics",
+		label: "Naming & Semantics",
+		shortLabel: "Naming",
+		score,
+		weight: 0.2,
+		findings,
+	};
+}
