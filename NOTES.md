@@ -11,6 +11,18 @@ The pi packages (`@earendil-works/pi-ai`, `pi-durable`, `chord`) are pinned to 1
 - The model picker closes when you select a model.
 - The plugin panel can be resized, and if possible it opens at the full available height. `figma.ui.resize(width, height)` in `code.js` sets the size: the UI needs a resize handle that sends the new size to `code.js`, and `code.js` can save it in `clientStorage`. Find out what height is available: `code.js` cannot read the size of the Figma window.
 
+## Local files and outside agents (user, 2026-11-01)
+
+FigPal needs at least one of these. Choose and plan before building:
+
+- **Local files:** the agent can read and write files on the user's machine, for example a codebase or an export folder. The hosted UI runs in a browser sandbox, so this needs a helper on the machine or a browser file API.
+- **Access from outside, like the figma-console-mcp Desktop Bridge:** an agent in a terminal (Claude Code, pi, Codex) can act on the open Figma file through FigPal, for example with an MCP server that sends requests to `code.js`.
+- **Remote threads:** a pi instance on another machine can start a thread in the plugin and follow it.
+
+## Layer chips in the agent's answers (user, 2026-11-01, deferred)
+
+The agent could write clickable layer chips in its answers, like the chips in the user's messages: a click selects the layers. It works for every tool, but it depends on the model writing the chips. Deferred: first the lint tool with pills under its step.
+
 ## TypeScript only (user, 2026-11-01)
 
 Rewrite all JavaScript in TypeScript. Now two files are JavaScript:
