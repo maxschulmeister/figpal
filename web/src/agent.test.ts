@@ -359,7 +359,7 @@ describe("figma_rest", () => {
 		});
 		expect(calls).toEqual([]);
 		expect(isError).toBe(true);
-		expect(text).toContain("Settings → Figma");
+		expect(text).toContain("Settings → Access");
 	});
 
 	it("gives the status and the error of Figma, and when to try again", async () => {

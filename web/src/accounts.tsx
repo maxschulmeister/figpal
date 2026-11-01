@@ -117,7 +117,7 @@ function TokenForm({ kind, onSave, onCancel }: { kind: TokenKind; onSave(token: 
 			<Paragraph>{kind.help}</Paragraph>
 			<Input
 				type="password"
-				aria-label={`${kind.name} token`}
+				aria-label={kind.title ?? `${kind.name} token`}
 				placeholder={kind.placeholder}
 				value={value}
 				onChange={(event) => {

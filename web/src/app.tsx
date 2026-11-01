@@ -299,7 +299,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 								<Tabs.List className="ml-auto">
 									<Tabs.Tab value="models">Models</Tabs.Tab>
 									<Tabs.Tab value="skills">Skills</Tabs.Tab>
-									<Tabs.Tab value="figma">Figma</Tabs.Tab>
+									<Tabs.Tab value="figma">Access</Tabs.Tab>
 								</Tabs.List>
 							</Dialog.Header>
 							<Tabs.Panel value="models" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">

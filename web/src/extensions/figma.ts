@@ -86,7 +86,7 @@ export function figmaExtension(
 	const token = async () => {
 		const credential = await credentials.read("figma");
 		if (credential?.type !== "api_key" || !credential.key)
-			throw new Error("No Figma token. Ask the user to add a personal access token in Settings → Figma.");
+			throw new Error("No Figma token. Ask the user to add a personal access token in Settings → Access.");
 		return credential.key;
 	};
 	return defineExtension({
