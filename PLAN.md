@@ -437,6 +437,7 @@ Checks:
 
 Scope (user decision, 2026-11-01). Details of the requests are in `NOTES.md`.
 
+- Browser checks in the repo (`e2e/`, `pnpm e2e`): the Chrome checks of `/tmp/pw` with real pass/fail results.
 - Token budget check: measure the tool schemas and the rules, then make them smaller.
 - Run in the background (hidden UI): `figma.ui.hide()` keeps the UI running. Find out first how the user shows it again.
 - UI requests: the model picker stays open after a model change; a resizable panel at full height; the context window usage next to the model picker.
@@ -616,6 +617,7 @@ Checks:
   - Figma opens its own "Video Export" tab at a video export, and later exports use the open tab (user test). The plugin cannot stop it.
   - Images for the model: at most 2000 px on the longest side (`MODEL_IMAGE_MAX_PX`, also for screenshots): Claude rejects larger images in requests with more than 20 images, and the images stay in the conversation.
 - Deploy (2026-11-01): `deploy.sh` keeps old files in `/assets` and deletes those older than 30 days. An open FigPal window loads parts of its build later (for example the ChatGPT provider), and the server sends `index.html` for a deleted file, so the import failed after a deploy.
+- Browser checks (Phase 7, step 1): `e2e/` with Playwright (`playwright-core`) and the installed Chrome. The fake Figma page sends each `code.js` request to Node, where the check answers it in TypeScript; the model is a mocked Anthropic route. Node runs the TypeScript directly, no build. The checks make no calls to the internet (the default skills are blocked), an uncaught page error fails a check, and Ctrl-C stops Vite. Only the 9 scripts with real checks moved; the older scripts in `/tmp/pw` only printed results.
 
 ## Open questions
 

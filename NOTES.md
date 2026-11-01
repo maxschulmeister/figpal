@@ -43,10 +43,6 @@ Rewrite all JavaScript in TypeScript. Now two files are JavaScript:
 
 `figma_diff_versions` reads `GET /v1/files/KEY?depth=1` for each version, as upstream does. A review expected the `components`, `componentSets` and `styles` maps of the whole file in that answer, which could be MB for a large library. Measured on 5 of the user's files (1 to 10 pages): 1 to 4 KB, with empty maps at depth 1. The 7th call in 30 seconds got a 429, so the Tier 1 limit is the real cost, not the size. If a large library is slow, measure it, and consider reading the current pages through `code.js` (`figma.root.children`): no REST call for "current".
 
-## Browser checks in the repo (2026-11-01)
-
-The Chrome checks (Playwright with a fake Figma page and a mocked model) are only in `/tmp/pw`: `chips`, `picker`, `export`, `diff`, `audit`, `lint`, `animation` (with test WebMs made by ffmpeg). They are the only test of the real video decoding (`web/src/video-frames.ts`; jsdom cannot decode). Move them into the repo, for example `e2e/`, with a script that starts Vite on a free port.
-
 ## Domain migration and export/import (deferred by the user, 2026-11-01)
 
 Conversations, settings and skills are stored for the origin `figpal.maxschulmeister.dev`. A new domain starts empty. Export and import of the data move it. Check: migrate data between two test subdomains.

@@ -24,3 +24,9 @@ The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm
 ## Checks
 
 `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`.
+
+Browser checks: `pnpm e2e` opens FigPal in Chrome, in a fake Figma page with a fake model, and runs the checks in `e2e/tests` in the light and the dark theme (about 3 minutes). It starts Vite on a free port and stops it at the end.
+
+- `pnpm e2e chips lint`: only these checks. `--light` or `--dark`: one theme.
+- `pnpm e2e --ui https://figpal.maxschulmeister.dev`: the deployed UI.
+- Chrome must be installed; `CHROME=/path/to/chrome` sets another path. Screenshots go to `$TMPDIR/figpal-e2e`.
