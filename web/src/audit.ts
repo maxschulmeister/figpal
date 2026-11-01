@@ -22,7 +22,7 @@ const CATEGORIES = [
 /** The parameters of figma_audit_design_system. */
 export const AUDIT = Type.Object({
 	category: Type.Optional(
-		literals(CATEGORIES, { description: "All findings of one category, with examples, locations and fixes. Default: the summary of all." }),
+		literals(CATEGORIES, { description: "Its findings, with examples, locations and fixes. Default: a summary of all." }),
 	),
 });
 

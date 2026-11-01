@@ -16,17 +16,9 @@ import { type DiffMode, diffNode, diffPageStructure } from "../vendor/figma-cons
 
 const RULES = `You are FigPal, an agent in a Figma plugin. You read and change the open Figma file.
 
-Each user message starts with a <figma> block: the file and the current page. In the text, <nodes> marks the layers that the user selected at that point (name, type, ID): the text next to it is about them.
+Each user message starts with a <figma> block (the file and the current page). In the text, <nodes> marks layers that the user selected (name, type, ID): the text next to it is about them.
 
-Tools:
-- figma_execute runs Plugin API JavaScript. Keep each call small. Return the IDs of the nodes that you make or change.
-- figma_screenshot shows a node. After a visual change, use it to check the result.
-- figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
-- figma_diff_versions compares two versions of the open file: get the version IDs with figma_rest GET /v1/files/KEY/versions.
-- figma_animation_frames shows you frames of a Motion animation. After an animation change, use it, not figma_screenshot: a screenshot shows the frame at rest.
-- figma_audit_design_system scores the design system of the open file (naming, tokens, components, accessibility, consistency, coverage) and says how to fix the findings.
-- figma_lint checks layers: accessibility, colors without variables, text without text styles, and more. It checks contrast with WCAG 2 and with APCA (the method of the WCAG 3 drafts). When they disagree on a fix, ask the user which standard to meet, unless they said it.
-- figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG, and animations as MP4, WEBM or GIF. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
+Check your work: after a visual change with figma_screenshot, after an animation change with figma_animation_frames (a screenshot shows a frame at rest).
 
 Plugin API rules:
 - Pages load on demand. Use the async API: getNodeByIdAsync, setCurrentPageAsync, getMainComponentAsync. Call \`await page.loadAsync()\` before you read another page.
@@ -37,7 +29,7 @@ Plugin API rules:
 - Images: \`const image = await figma.createImageAsync(url)\` loads a PNG, JPEG or GIF of at most 4096 px. Then set a fill { type: "IMAGE", imageHash: image.hash, scaleMode: "FILL" }.
 - Put new top-level frames next to the existing content, not on top of it.
 - Never call figma.closePlugin, figma.showUI or figma.ui: they stop FigPal.
-- If a call fails, read the error and fix the code. A call that failed can have changed part of the file: check before you run it again.`;
+- A failed call can have changed part of the file: check it before you run the code again.`;
 
 function toBase64(bytes: Uint8Array): string {
 	let binary = "";
@@ -102,7 +94,7 @@ function restError(response: Response, detail = ""): Error {
 
 /** What figma_diff_versions compares, for the model. */
 const DIFF_SCOPE =
-	"Compared: pages added, removed or renamed; for node_ids: name, children added, removed or renamed, component property definitions (type and default), and variable bindings to depth 2. Not compared: descriptions, variant options, other layer properties (layout, fills, sizes), instances, variable values.";
+	"Compared: pages (added, removed, renamed); for node_ids: name, children (added, removed, renamed), component property definitions, and variable bindings to depth 2. Not compared: descriptions, variant options, other layer properties, instances, variable values.";
 
 export function figmaExtension(
 	bridge: Pick<Bridge, "request">,
@@ -123,12 +115,10 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_execute",
 				description: [
-					"Runs Figma Plugin API JavaScript in the open file. The code is the body of an async function: use await,",
+					"Runs Figma Plugin API JavaScript in the open file. Keep each call small, and return the IDs of the nodes that you make or change. The code is the body of an async function: use await,",
 					`and \`return\` a JSON value. Nodes in the value become { id, name, type }. The output is cut after ${EXECUTE_OUTPUT_LIMIT.toLocaleString("en-US")} characters.`,
-					"`pi.attach(bytes, { mime, name })` sends a PNG, JPEG, GIF or WebP image (for example from exportAsync) to you with the result; other files (SVG, PDF, ...) go to the user as downloads.",
-					"Checks (node or ID; return their JSON):",
-					"`pi.auditAccessibility(componentSet)` scores states, focus, target size and contrast loss under color-blind simulation. Use figma_lint for baseline text contrast.",
-					"`pi.analyzeComponentSet(componentSet)` gives its variant axes, the CSS state of each variant, and what each variant changes.",
+					"`pi.attach(bytes, { mime, name })` sends an image (PNG, JPEG, GIF, WebP) to you; other files go to the user, but for files that the user asks for, use the export tools.",
+					"Checks of a component set (node or ID; return their JSON): `pi.auditAccessibility` scores states, focus, target size and color-blind contrast (figma_lint checks text contrast); `pi.analyzeComponentSet` gives the variant axes, the CSS state of each variant and what it changes.",
 				].join(" "),
 				parameters: Type.Object({
 					code: Type.String(),
@@ -149,7 +139,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_screenshot",
 				description:
-					`Returns a PNG of a node or a page, to check your work. Without node_id: the first selected node, else the current page. The longest side is at most ${MODEL_IMAGE_MAX_PX} px.`,
+					`Returns a PNG of a node or a page. Without node_id: the first selected node, else the current page. The longest side is at most ${MODEL_IMAGE_MAX_PX} px.`,
 				parameters: Type.Object({
 					node_id: Type.Optional(Type.String()),
 					scale: Type.Optional(Type.Number({ description: "Default 1." })),
@@ -166,12 +156,12 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_rest",
 				description: [
-					"Calls the Figma REST API (https://api.figma.com) with the user's personal access token.",
+					"Calls the Figma REST API (https://api.figma.com) with the user's personal access token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.",
 					"path starts with /v1/ or /v2/ and can have a query, for example /v1/files/KEY/comments. body is JSON for POST and PUT.",
 					`The answer is JSON, cut after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes.`,
 				].join(" "),
 				parameters: Type.Object({
-					method: Type.Union([Type.Literal("GET"), Type.Literal("POST"), Type.Literal("PUT"), Type.Literal("DELETE")]),
+					method: literals(["GET", "POST", "PUT", "DELETE"]),
 					path: Type.String(),
 					body: Type.Optional(Type.Object({}, { additionalProperties: true })),
 				}),
@@ -221,10 +211,10 @@ export function figmaExtension(
 			}),
 			defineTool({
 				name: "figma_diff_versions",
-				description: `Compares two versions of the open file and gives a changelog in Markdown. ${DIFF_SCOPE} It uses 2 REST calls, 4 with node_ids; Figma allows 10 to 20 a minute for most seats, and about 20 a month for View and Collab seats.`,
+				description: `A Markdown changelog between two versions of the open file. ${DIFF_SCOPE} It uses 2 REST calls (4 with node_ids); View and Collab seats get about 20 a month.`,
 				parameters: Type.Object({
 					from_version: Type.String({
-						description: 'The older version: an ID from GET /v1/files/KEY/versions, which lists the newest first, or "current".',
+						description: 'The older version: an ID from GET /v1/files/KEY/versions (newest first), or "current".',
 					}),
 					to_version: Type.Optional(Type.String({ description: 'Default "current": the file now.' })),
 					node_ids: Type.Optional(Type.Array(Type.String(), { description: "For example component sets." })),
@@ -283,7 +273,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_export_nodes",
 				description:
-					"Exports layers as files for the user, who downloads them from this step. The file name is the layer name. MP4, WEBM and GIF have the Motion animation of the top-level frame of the layer, with the name of the frame; Figma renders them, which can take some seconds. It does not change the file.",
+					"Exports layers as files for the user to download from this step, named after the layer. MP4, WEBM and GIF: the Motion animation of the top-level frame of the layer, named after the frame; the render can take some seconds.",
 				parameters: NODE_EXPORT,
 				// Read-only.
 				replay: "safe",
@@ -296,7 +286,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_animation_frames",
 				description:
-					"Shows you still frames of the Motion animation of a top-level frame, to check your animation work: a screenshot shows the frame at rest only. Figma renders a video first, which can take some seconds: check after all changes, not after each one. It does not change the file.",
+					"Shows you still frames of the Motion animation of a top-level frame. Figma renders a video first (some seconds): check after all changes, not after each one.",
 				parameters: ANIMATION_FRAMES,
 				// Read-only.
 				replay: "safe",
@@ -325,7 +315,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_audit_design_system",
 				description:
-					"Scores the design system of the open file from 0 to 100: naming, token architecture, component metadata, accessibility, consistency and coverage. It reads the local variables, components and styles of all pages, as they are now. Start without category, then get the findings of one category. It does not change the file.",
+					"Scores the design system of the open file from 0 to 100 for each category, from the local variables, components and styles of all pages, as they are now. Start without category, then get the findings of one category.",
 				parameters: AUDIT,
 				// Names in the file have no length limit.
 				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
@@ -339,7 +329,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_lint",
 				description:
-					"Checks the layers of the open file, as they are now: accessibility (contrast with WCAG 2 and APCA, target size, focus states, alt text, ...), design-system use (colors without variables, text without text styles, detached components, default names) and layout. The user can select the layers of each rule from this step. It does not change the file.",
+					"Checks the layers of the open file: accessibility (contrast with WCAG 2 and APCA, target size, focus states, ...), design-system use (colors without variables, text without text styles, ...) and layout. When WCAG 2 and APCA disagree on a fix, ask the user which standard to meet, unless they said it. The user can select the layers of each rule from this step.",
 				parameters: LINT,
 				// Names in the file have no length limit.
 				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
@@ -353,7 +343,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_export_tokens",
 				description:
-					"Exports the local variables of the open file as design tokens. The user downloads the files from this step; you get a summary and the start of the first file. dtcg_dialect 2025 gives DTCG 2025.10 colors and dimensions (Style Dictionary v5) in dtcg and json formats.",
+					"Exports the local variables of the open file as design tokens for the user to download from this step; you get a summary and the start of the first file.",
 				parameters: TOKEN_EXPORT,
 				// Read-only.
 				replay: "safe",

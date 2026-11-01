@@ -26,10 +26,10 @@ export const TOKEN_EXPORT = Type.Object({
 	] as const),
 	collections: Type.Optional(Type.Array(Type.String(), { description: "Names or IDs. Default: all." })),
 	modes: Type.Optional(Type.Array(Type.String(), { description: "Mode names. Default: all." })),
-	prefix: Type.Optional(Type.String({ description: "Goes before each name in css-vars, scss, tailwind-v4, json-flat and ts-module." })),
-	split_by_mode: Type.Optional(Type.Boolean({ description: "One file for each mode: dtcg, tokens-studio, css-vars, tailwind-v4, scss, style-dictionary-v3." })),
+	prefix: Type.Optional(Type.String({ description: "Before each name: css-vars, scss, tailwind-v4, json-flat, ts-module." })),
+	split_by_mode: Type.Optional(Type.Boolean({ description: "One file for each mode: dtcg, css-vars, tailwind-v4, scss, style-dictionary-v3." })),
 	split_by_collection: Type.Optional(Type.Boolean()),
-	dtcg_dialect: Type.Optional(literals(["legacy", "2025"] as const)),
+	dtcg_dialect: Type.Optional(literals(["legacy", "2025"] as const, { description: "2025: DTCG 2025.10 colors and dimensions (Style Dictionary v5), in dtcg and json." })),
 });
 export type TokenExport = Static<typeof TOKEN_EXPORT>;
 

@@ -11,6 +11,7 @@ import {
 	type CredentialStore,
 	InMemoryCredentialStore,
 	type Message,
+	type SystemMessage,
 	Type,
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -23,6 +24,7 @@ import { chipItem } from "./node-chips";
 import type { Bridge } from "./bridge";
 import { currentThread } from "./threads";
 import { toThread } from "./transcript";
+import { removeSkill, saveSkill } from "./skills/store";
 import { videoFrames } from "./video-frames";
 
 // jsdom cannot decode videos: the Chrome run in /tmp/pw checks the real frames.
@@ -179,6 +181,34 @@ async function run(
 	return { settled, view };
 }
 
+// The rules and the tools go with each request: they fill the context window (PLAN: Phase 7). The list of the skills
+// that the user installs is not in this budget, but FigPal's rules for skills are: one short skill shows them. Now about
+// 3,130: a new rule must take the place of an old one.
+describe("token budget", () => {
+	afterEach(() => removeSkill("tiny"));
+
+	it("the rules and the tools fit in 3,200 tokens, at about 3.5 characters for each token", async () => {
+		await saveSkill({ name: "tiny", description: "T.", source: { kind: "zip", file: "tiny.zip" }, hash: "", enabled: true }, []);
+		const faux = fauxProvider({ provider: "faux", models: [{ id: "script", input: ["text", "image"] }] });
+		let system: SystemMessage | undefined;
+		faux.setResponses([
+			(request) => {
+				system = request.messages[0] as SystemMessage;
+				return fauxAssistantMessage(fauxText("Done."));
+			},
+		]);
+		const models = createModels();
+		models.setProvider(faux.provider);
+		const subagentModels = () => ["anthropic/claude-sonnet-5-5"];
+		const harness = await startAgent(new MemoryStorage(), { models, bridge: fakeBridge(() => ({ result: null })).bridge, credentials: FIGMA_TOKEN, fileKey: "KEY1", subagentModels });
+		const root = await currentThread(harness, SCRIPT);
+		await (await root.submit(userInput("Hi", FILE), context)).wait(context);
+		await harness.close(context);
+		const characters = JSON.stringify(system!.sections).length + JSON.stringify(system!.toolsAdded).length;
+		expect(Math.round(characters / 3.5)).toBeLessThan(3200);
+	});
+});
+
 describe("figma tools", () => {
 	it("figma_screenshot gives the model the PNG of the node", async () => {
 		const { models, requests } = scriptedModels("figma_screenshot", { node_id: "1:2" });
@@ -324,6 +354,15 @@ describe("figma tools", () => {
 	it("figma_animation_frames takes 1 to 6 times", async () => {
 		const { models, requests } = scriptedModels("figma_animation_frames", { node_id: "1:2", times: [0, 1, 2, 3, 4, 5, 6] });
 		const { bridge, calls } = fakeBridge(() => ({ result: null }));
+		await run(models, bridge);
+		expect(calls).toEqual([]);
+		expect(requests[1]!.at(-1)).toMatchObject({ isError: true });
+	});
+
+	// The lists of names are a JSON Schema enum: short for the model, and the harness checks them.
+	it("a tool refuses a name that is not in its list", async () => {
+		const { models, requests } = scriptedModels("figma_export_nodes", { node_ids: ["1:2"], format: "BMP" });
+		const { bridge, calls } = fakeBridge(() => ({ result: { count: 0 } }));
 		await run(models, bridge);
 		expect(calls).toEqual([]);
 		expect(requests[1]!.at(-1)).toMatchObject({ isError: true });

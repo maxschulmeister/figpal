@@ -58,7 +58,7 @@ export function subagentExtension(options: Options): Extension {
 			section("subagents", () => {
 				const models = options.subagentModels();
 				return [
-					"Use the subagent tool for independent tasks that can run at the same time, for example one section of a page each. A subagent starts without your history: give each task the goal, the IDs of the nodes that it works on, and what it must return. On the canvas, give each subagent its own frame or section.",
+					"Use the subagent tool for independent tasks that can run at the same time, for example one section of a page each. On the canvas, give each subagent its own frame or section.",
 					...(models.length ? [`Models for subagents (the model field): ${models.join(", ")}. Without a model, a subagent uses yours.`] : []),
 				].join("\n");
 			}),
@@ -66,7 +66,7 @@ export function subagentExtension(options: Options): Extension {
 		tools: [
 			defineTool({
 				name: "subagent",
-				description: `Runs 1 to ${MAX_TASKS} tasks at the same time, each in a subagent: a new conversation with your tools (not this one) and without your history. Returns the last answer of each subagent.`,
+				description: `Runs 1 to ${MAX_TASKS} tasks at the same time, each in a subagent: a new conversation with your other tools and without your history. Returns the last answer of each subagent.`,
 				parameters: Type.Object({
 					tasks: Type.Array(
 						Type.Object({
