@@ -438,8 +438,7 @@ function ToolFiles({ callId, files, again }: { callId: string; files: FileRef[];
 	if (!again && !current.every((file) => fileById(file.id)))
 		return (
 			<Text className="pl-4 text-secondary">
-				{current.length === 1 ? `${current[0]!.name} is` : "The files are"} no longer available. FigPal keeps files only until it
-				closes: ask FigPal to make {current.length === 1 ? "it" : "them"} again.
+				{current.length === 1 ? `${current[0]!.name} is` : "The files are"} no longer available. Ask to export again.
 			</Text>
 		);
 	const download = async (file: FileRef) => {
@@ -453,9 +452,11 @@ function ToolFiles({ callId, files, again }: { callId: string; files: FileRef[];
 			setCurrent(next);
 			const same = next.find((made) => made.name === file.name);
 			if (same) downloadFile(fileById(same.id)!);
-			else setFailure(`The export has no ${file.name} now.`);
+			// For example, a layer or a collection has a new name.
+			else setFailure("The file changed, so the export has other files now. Download them below.");
 		} catch (error) {
-			setFailure(errorText(error));
+			const reason = errorText(error);
+			setFailure(`Cannot make ${file.name} again: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`);
 		} finally {
 			setRunning(false);
 		}

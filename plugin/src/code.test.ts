@@ -256,6 +256,6 @@ describe("export", () => {
 
 	it("fails for a node that does not exist", async () => {
 		const { response } = await exportNodes({ nodeIds: ["9:9"], format: "PDF" });
-		expect(response).toMatchObject({ ok: false, error: "No node with ID 9:9" });
+		expect(response).toMatchObject({ ok: false, error: "The layer with ID 9:9 no longer exists." });
 	});
 });

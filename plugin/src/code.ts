@@ -245,7 +245,8 @@ const handlers: Handlers = {
 		const attachments: Attachment[] = [];
 		for (const id of nodeIds) {
 			const node = await figma.getNodeByIdAsync(id);
-			if (!node) throw new Error(`No node with ID ${id}`);
+			// The chat shows this error when a Download makes the files again.
+			if (!node) throw new Error(`The layer with ID ${id} no longer exists.`);
 			if (!("exportAsync" in node)) throw new Error(`Cannot export a ${node.type} node`);
 			// SVG and PDF are vector files: no scale.
 			const settings: ExportSettings =
