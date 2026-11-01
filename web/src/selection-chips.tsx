@@ -3,7 +3,7 @@
 // - A new selection inserts a chip at the caret. If the caret is right after a chip and its space (nothing typed after
 //   it, or the user clicked it), the selection replaces that chip, and an empty selection removes it.
 // - Backspace or Delete next to a chip, or next to its space, removes the chip and its space.
-// - Highlighted text stays: the chip goes after it.
+// - Highlighted text stays: the chip goes after it. A caret inside a word puts the chip after the word.
 // - Selections that figma_execute code makes add no chip.
 
 import { defaultDirectiveFormatter, type TextMessagePartComponent } from "@assistant-ui/react";
@@ -120,6 +120,16 @@ function $applySelection({ selection: nodes, page, selectionCount }: Selected) {
 		const { key, offset, type } = selection.isBackward() ? selection.anchor : selection.focus;
 		selection.anchor.set(key, offset, type);
 		selection.focus.set(key, offset, type);
+	}
+	// A caret inside a word moves to the end of the word, so the chip does not split it.
+	const caret = $getSelection();
+	const at = $isRangeSelection(caret) && caret.isCollapsed() ? caret.anchor : null;
+	const node = at?.getNode();
+	if (at && $isTextNode(node) && /\S/.test(node.getTextContent()[at.offset - 1] ?? "")) {
+		const text = node.getTextContent();
+		const space = text.slice(at.offset).search(/\s/);
+		const end = space === -1 ? text.length : at.offset + space;
+		node.select(end, end);
 	}
 	const current = $chipAtCaret();
 	if (nodes.length === 0) {
