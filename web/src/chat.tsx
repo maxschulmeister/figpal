@@ -89,6 +89,7 @@ const TOOL_LABELS: Record<string, string> = {
 	figma_diff_versions: "Compare versions",
 	figma_audit_design_system: "Audit design system",
 	figma_lint: "Check layers",
+	figma_animation_frames: "Check animation",
 	subagent: "Subagents",
 };
 

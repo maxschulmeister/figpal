@@ -3,13 +3,14 @@
 import { awaitWithContext } from "@earendil-works/chord/context";
 import { type CredentialStore, type ImageContent, type Static, type TextContent, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
-import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, SCREENSHOT_MAX_PX } from "@figpal/shared";
+import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, MODEL_IMAGE_MAX_PX } from "@figpal/shared";
 import { AUDIT, auditDesignSystem } from "../audit";
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
 import { LINT, lint } from "../lint";
 import { literals, nodeIdOf } from "../schema";
 import { exportTokens, TOKEN_EXPORT } from "../tokens";
+import { DEFAULT_FRAMES, videoFrames } from "../video-frames";
 import { formatChangelogMarkdown } from "../vendor/figma-console-mcp/diff/changelog-formatter";
 import { type DiffMode, diffNode, diffPageStructure } from "../vendor/figma-console-mcp/diff/diff-engine";
 
@@ -22,9 +23,10 @@ Tools:
 - figma_screenshot shows a node. After a visual change, use it to check the result.
 - figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
 - figma_diff_versions compares two versions of the open file: get the version IDs with figma_rest GET /v1/files/KEY/versions.
+- figma_animation_frames shows you frames of a Motion animation. After an animation change, use it, not figma_screenshot: a screenshot shows the frame at rest. For a video, Figma can open a "Video Export" tab: tell the user that they can close it.
 - figma_audit_design_system scores the design system of the open file (naming, tokens, components, accessibility, consistency, coverage) and says how to fix the findings.
 - figma_lint checks layers: accessibility, colors without variables, text without text styles, and more. It checks contrast with WCAG 2 and with APCA (the method of the WCAG 3 drafts). When they disagree on a fix, ask the user which standard to meet, unless they said it.
-- figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
+- figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG, and animations as MP4, WEBM or GIF. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
 
 Plugin API rules:
 - Pages load on demand. Use the async API: getNodeByIdAsync, setCurrentPageAsync, getMainComponentAsync. Call \`await page.loadAsync()\` before you read another page.
@@ -59,8 +61,28 @@ const text = (value: string): TextContent => ({ type: "text", text: value });
 export const NODE_EXPORT = Type.Object({
 	node_ids: Type.Array(Type.String(), { minItems: 1 }),
 	format: literals(EXPORT_FORMATS),
-	scale: Type.Optional(Type.Number({ description: "PNG and JPG only. Default 1." })),
+	scale: Type.Optional(Type.Number({ description: "Not for SVG and PDF. MP4, WEBM and GIF: 0.5, 0.75, 1, 1.5, 2, 3 or 4. Default 1." })),
 });
+
+/** Small and fast: the frames are for the model. 24 fps puts a frame at most 42 ms before the time. */
+const FRAMES_VIDEO = { format: "WEBM", fps: 24, quality: "LOW", width: 480 } as const;
+
+/** The parameters of figma_animation_frames. Each image stays in the conversation: Figma's skill uses 4 to 6 frames. */
+const ANIMATION_FRAMES = Type.Object({
+	node_id: Type.String({ description: "A top-level frame, or a layer in it." }),
+	times: Type.Optional(
+		Type.Array(Type.Number({ minimum: 0 }), {
+			minItems: 1,
+			maxItems: 6,
+			description: `In seconds. Default: ${DEFAULT_FRAMES} frames from start to end.`,
+		}),
+	),
+	width: Type.Optional(
+		Type.Integer({ minimum: 120, maximum: 1920, description: `Default ${FRAMES_VIDEO.width}. Larger to read small text.` }),
+	),
+});
+
+const seconds = (value: number) => `${Number(value.toFixed(2))} s`;
 
 /** Exports the nodes as files. Read-only, so the chat can run it again without the agent. */
 export async function exportNodes(bridge: Pick<Bridge, "request">, args: Static<typeof NODE_EXPORT>): Promise<Attachment[]> {
@@ -127,7 +149,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_screenshot",
 				description:
-					`Returns a PNG of a node or a page, to check your work. Without node_id: the first selected node, else the current page. The longest side is at most ${SCREENSHOT_MAX_PX} px.`,
+					`Returns a PNG of a node or a page, to check your work. Without node_id: the first selected node, else the current page. The longest side is at most ${MODEL_IMAGE_MAX_PX} px.`,
 				parameters: Type.Object({
 					node_id: Type.Optional(Type.String()),
 					scale: Type.Optional(Type.Number({ description: "Default 1." })),
@@ -261,7 +283,7 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_export_nodes",
 				description:
-					"Exports layers as files for the user, who downloads them from this step. The file name is the layer name. It does not change the file.",
+					"Exports layers as files for the user, who downloads them from this step. The file name is the layer name. MP4, WEBM and GIF have the Motion animation of the top-level frame of the layer, with the name of the frame; Figma renders them, which can take some seconds. It does not change the file.",
 				parameters: NODE_EXPORT,
 				// Read-only.
 				replay: "safe",
@@ -269,6 +291,35 @@ export function figmaExtension(
 					const files = keepFiles(await awaitWithContext(exportNodes(bridge, args), context));
 					const count = `Exported ${files.length} file${files.length === 1 ? "" : "s"}.`;
 					return { output: [text(`${count} ${filesNote(files)}`)], details: { files } satisfies FileDetails };
+				},
+			}),
+			defineTool({
+				name: "figma_animation_frames",
+				description:
+					"Shows you still frames of the Motion animation of a top-level frame, to check your animation work: a screenshot shows the frame at rest only. Figma renders a video first, which can take some seconds: check after all changes, not after each one. It does not change the file.",
+				parameters: ANIMATION_FRAMES,
+				// Read-only.
+				replay: "safe",
+				execute: async ({ node_id, times, width = FRAMES_VIDEO.width }, _api, context) => {
+					const id = nodeIdOf(node_id);
+					const work = async () => {
+						const { format, fps, quality } = FRAMES_VIDEO;
+						const { attachments } = await bridge.request("export", { nodeIds: [id], format, width, fps, quality });
+						// After Stop, do not decode.
+						context.abortSignal?.throwIfAborted();
+						const video = attachments[0]!;
+						return videoFrames(video.bytes, video.mime, times);
+					};
+					const { duration, frames, ...size } = await awaitWithContext(work(), context);
+					return {
+						output: [
+							text(`The animation of the top-level frame of ${id} is ${seconds(duration)} long. Frames of ${size.width} × ${size.height} px:`),
+							...frames.flatMap(({ time, data, mime }): (TextContent | ImageContent)[] => [
+								text(seconds(time)),
+								{ type: "image", data, mimeType: mime },
+							]),
+						],
+					};
 				},
 			}),
 			defineTool({

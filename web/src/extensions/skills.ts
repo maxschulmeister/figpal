@@ -83,7 +83,7 @@ export function skillsExtension({ grep: search = grepInWorker }: { grep?: Grep }
 				return [
 					"Skills give you instructions and references for some tasks. Before a task that a skill covers, read the skill with skill_read. Use skill_grep to find text in large references.",
 					"Only the skills in this list are installed. A link such as ../figma-generate-design/SKILL.md is the skill figma-generate-design. If a skill names a skill that is not in the list, continue without it, and tell the user that they can install it in Settings.",
-					"Many skills are for the Figma MCP server. In FigPal, use figma_execute for use_figma and figma_screenshot for get_screenshot. FigPal has no other Figma MCP tools: do their work with figma_execute, or tell the user that FigPal cannot do it.",
+					"Many skills are for the Figma MCP server. In FigPal, use figma_execute for use_figma, figma_screenshot for get_screenshot, figma_export_nodes (MP4, WEBM or GIF) for export_video, and figma_animation_frames for export_video with frame sampling (one call; no ffmpeg, no jobId). FigPal has no other Figma MCP tools: do their work with figma_execute, or tell the user that FigPal cannot do it.",
 					"",
 					...skills.map((skill) => `- ${skill.name}: ${skill.description}`),
 				].join("\n");

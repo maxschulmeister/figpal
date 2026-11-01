@@ -80,15 +80,16 @@ describe("screenshot", () => {
 		return { response: posted[0], page: current };
 	}
 
-	it("exports a page: its content, with the longest side at most 2048 px", async () => {
+	// Claude rejects images over 2000 px in requests with more than 20 images.
+	it("exports a page: its content, with the longest side at most 2000 px", async () => {
 		const { response, page } = await screenshot({ nodeId: "0:1" });
 		expect(page.loadAsync).toHaveBeenCalled();
-		expect(page.exportAsync).toHaveBeenCalledWith({ format: "PNG", constraint: { type: "SCALE", value: 2048 / 6000 } });
+		expect(page.exportAsync).toHaveBeenCalledWith({ format: "PNG", constraint: { type: "SCALE", value: 2000 / 6000 } });
 		expect(response).toEqual({
 			kind: "response",
 			id: "1",
 			ok: true,
-			result: { nodeId: "0:1", width: 2048, height: 683 },
+			result: { nodeId: "0:1", width: 2000, height: 667 },
 			attachments: [{ name: "Page 1.png", mime: "image/png", bytes: png }],
 		});
 	});
@@ -380,5 +381,42 @@ describe("export", () => {
 	it("fails for a node that does not exist", async () => {
 		const { response } = await exportNodes({ nodeIds: ["9:9"], format: "PDF" });
 		expect(response).toMatchObject({ ok: false, error: "The layer with ID 9:9 no longer exists." });
+	});
+
+	// Figma exports the animation of a top-level frame only.
+	function animated() {
+		const hero = { ...node("1:1", "Hero"), getTopLevelFrame: () => hero };
+		const ball = { ...node("1:5", "Ball"), type: "ELLIPSE", getTopLevelFrame: () => hero };
+		const loose = { ...node("1:6", "Loose"), type: "SECTION", getTopLevelFrame: () => undefined };
+		return [hero, ball, loose];
+	}
+
+	it("exports the animation of the top-level frame as a video, once for layers of the same frame", async () => {
+		const { response, nodes } = await exportNodes({ nodeIds: ["1:5", "1:1"], format: "MP4" }, animated());
+		expect(nodes[0]!.exportAsync).toHaveBeenCalledTimes(1);
+		expect(nodes[0]!.exportAsync).toHaveBeenCalledWith({ format: "MP4", constraint: { type: "SCALE", value: 1 } });
+		expect(nodes[1]!.exportAsync).not.toHaveBeenCalled();
+		expect(response).toMatchObject({ ok: true, result: { count: 1 }, attachments: [{ name: "Hero.mp4", mime: "video/mp4" }] });
+	});
+
+	// For the frames of figma_animation_frames: small and fast.
+	it("exports a video at a width, frame rate and quality; a GIF has no quality", async () => {
+		const webm = await exportNodes({ nodeIds: ["1:5"], format: "WEBM", width: 480, fps: 24, quality: "LOW" }, animated());
+		expect(webm.nodes[0]!.exportAsync).toHaveBeenCalledWith({ format: "WEBM", constraint: { type: "WIDTH", value: 480 }, fps: 24, quality: "LOW" });
+		expect(webm.response).toMatchObject({ attachments: [{ name: "Hero.webm", mime: "video/webm" }] });
+		const gif = await exportNodes({ nodeIds: ["1:1"], format: "GIF", fps: 12, quality: "LOW" }, animated());
+		expect(gif.nodes[0]!.exportAsync).toHaveBeenCalledWith({ format: "GIF", constraint: { type: "SCALE", value: 1 }, fps: 12 });
+		expect(gif.response).toMatchObject({ attachments: [{ name: "Hero.gif", mime: "image/gif" }] });
+	});
+
+	it("exports a video only at the scales of Figma's export panel", async () => {
+		const { response, nodes } = await exportNodes({ nodeIds: ["1:1"], format: "MP4", scale: 0.6 }, animated());
+		expect(nodes[0]!.exportAsync).not.toHaveBeenCalled();
+		expect(response).toMatchObject({ ok: false, error: "Videos take the scales 0.5, 0.75, 1, 1.5, 2, 3 and 4." });
+	});
+
+	it("fails for a video of a layer that is not in a top-level frame", async () => {
+		const { response } = await exportNodes({ nodeIds: ["1:6"], format: "WEBM" }, animated());
+		expect(response).toMatchObject({ ok: false, error: 'The layer "Loose" is not in a top-level frame. Only top-level frames have animations.' });
 	});
 });

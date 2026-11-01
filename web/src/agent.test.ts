@@ -23,6 +23,10 @@ import { chipItem } from "./node-chips";
 import type { Bridge } from "./bridge";
 import { currentThread } from "./threads";
 import { toThread } from "./transcript";
+import { videoFrames } from "./video-frames";
+
+// jsdom cannot decode videos: the Chrome run in /tmp/pw checks the real frames.
+vi.mock("./video-frames", async (actual) => ({ ...(await actual<typeof import("./video-frames")>()), videoFrames: vi.fn() }));
 
 function anthropicAnswer(): Response {
 	const events = [
@@ -285,6 +289,44 @@ describe("figma tools", () => {
 				],
 			});
 		});
+	});
+
+	it("figma_animation_frames shows the model frames of a small WebM of the animation", async () => {
+		vi.mocked(videoFrames).mockResolvedValue({
+			duration: 2,
+			width: 480,
+			height: 270,
+			frames: [
+				{ time: 0, data: "AAA", mime: "image/webp" },
+				{ time: 1.25, data: "BBB", mime: "image/webp" },
+			],
+		});
+		const { models, requests } = scriptedModels("figma_animation_frames", { node_id: "1-2", times: [0, 1.25] });
+		const webm = new Uint8Array([26, 69, 223, 163]);
+		const { bridge, calls } = fakeBridge(() => ({ result: { count: 1 }, attachments: [{ name: "Hero.webm", mime: "video/webm", bytes: webm }] }));
+		await run(models, bridge);
+		expect(calls).toEqual([{ type: "export", params: { nodeIds: ["1:2"], format: "WEBM", width: 480, fps: 24, quality: "LOW" } }]);
+		expect(videoFrames).toHaveBeenCalledWith(webm, "video/webm", [0, 1.25]);
+		expect(requests[1]!.at(-1)).toMatchObject({
+			isError: false,
+			content: [
+				// The ID that the model gave: file names have "-" for "/".
+				{ type: "text", text: "The animation of the top-level frame of 1:2 is 2 s long. Frames of 480 × 270 px:" },
+				{ type: "text", text: "0 s" },
+				{ type: "image", data: "AAA", mimeType: "image/webp" },
+				{ type: "text", text: "1.25 s" },
+				{ type: "image", data: "BBB", mimeType: "image/webp" },
+			],
+		});
+	});
+
+	// Figma's skill uses 4 to 6 frames. Each image stays in the conversation, and Claude limits the images of a request.
+	it("figma_animation_frames takes 1 to 6 times", async () => {
+		const { models, requests } = scriptedModels("figma_animation_frames", { node_id: "1:2", times: [0, 1, 2, 3, 4, 5, 6] });
+		const { bridge, calls } = fakeBridge(() => ({ result: null }));
+		await run(models, bridge);
+		expect(calls).toEqual([]);
+		expect(requests[1]!.at(-1)).toMatchObject({ isError: true });
 	});
 
 	it("figma_lint takes 1 to 500 findings", async () => {

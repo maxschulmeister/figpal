@@ -6,7 +6,8 @@ import {
 	type ExportFormat,
 	type FileInfo,
 	isUiToPlugin,
-	SCREENSHOT_MAX_PX,
+	VIDEO_FORMATS,
+	MODEL_IMAGE_MAX_PX,
 	type NodeSummary,
 	type Params,
 	type PluginToUi,
@@ -86,7 +87,18 @@ function post(message: PluginToUi): void {
 	figma.ui.postMessage(message, { origin: uiOrigin() });
 }
 
-const EXPORT_MIME: Record<ExportFormat, string> = { SVG: "image/svg+xml", PDF: "application/pdf", PNG: "image/png", JPG: "image/jpeg" };
+/** The scales of Figma's export panel: the only scales for a video. */
+const VIDEO_SCALES = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+
+const EXPORT_MIME: Record<ExportFormat, string> = {
+	SVG: "image/svg+xml",
+	PDF: "application/pdf",
+	PNG: "image/png",
+	JPG: "image/jpeg",
+	MP4: "video/mp4",
+	WEBM: "video/webm",
+	GIF: "image/gif",
+};
 
 function summarize(node: BaseNode): NodeSummary {
 	return { id: node.id, name: node.name, type: node.type };
@@ -194,7 +206,7 @@ const handlers: Handlers = {
 		if (!node) throw new Error(`No node with ID ${nodeId}`);
 		if (!("exportAsync" in node)) throw new Error(`Cannot export a ${node.type} node`);
 		const size = node.type === "PAGE" ? await contentSize(node) : node;
-		const value = Math.min(scale ?? 1, SCREENSHOT_MAX_PX / Math.max(size.width, size.height, 1));
+		const value = Math.min(scale ?? 1, MODEL_IMAGE_MAX_PX / Math.max(size.width, size.height, 1));
 		const bytes = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value } });
 		return {
 			result: { nodeId: node.id, width: Math.round(size.width * value), height: Math.round(size.height * value) },
@@ -314,17 +326,34 @@ const handlers: Handlers = {
 		return { result: { count: selection.length } };
 	},
 
-	async export({ nodeIds, format, scale }) {
+	async export({ nodeIds, format, scale, width, fps, quality }) {
 		const attachments: Attachment[] = [];
+		const video = (VIDEO_FORMATS as readonly ExportFormat[]).includes(format);
+		if (video && !width && !VIDEO_SCALES.includes(scale ?? 1)) throw new Error(`Videos take the scales ${VIDEO_SCALES.join(", ").replace(/, (?=[^,]*$)/, " and ")}.`);
+		const exported = new Set<string>();
 		for (const id of nodeIds) {
-			const node = await figma.getNodeByIdAsync(id);
+			let node = await figma.getNodeByIdAsync(id);
 			// The chat shows this error when a Download makes the files again.
 			if (!node) throw new Error(`The layer with ID ${id} no longer exists.`);
 			if (!("exportAsync" in node)) throw new Error(`Cannot export a ${node.type} node`);
-			// SVG and PDF are vector files: no scale.
-			const settings: ExportSettings =
-				format === "SVG" || format === "PDF" ? { format } : { format, constraint: { type: "SCALE", value: scale ?? 1 } };
-			const bytes = await node.exportAsync(settings);
+			if (video) {
+				// Figma exports the animation of a top-level frame only: one file for each frame.
+				const frame = node.getTopLevelFrame();
+				if (!frame) throw new Error(`The layer ${JSON.stringify(node.name)} is not in a top-level frame. Only top-level frames have animations.`);
+				if (exported.has(frame.id)) continue;
+				exported.add(frame.id);
+				node = frame;
+			}
+			const constraint = width ? { type: "WIDTH" as const, value: width } : { type: "SCALE" as const, value: scale ?? 1 };
+			// SVG and PDF are vector files: no size. A GIF has no quality.
+			const settings =
+				format === "SVG" || format === "PDF"
+					? { format }
+					: format === "PNG" || format === "JPG"
+						? { format, constraint }
+						: { format, constraint, ...(fps && { fps }), ...(quality && format !== "GIF" && { quality }) };
+			// The video settings are a second overload of exportAsync, with fps as literal types: one call for all formats.
+			const bytes = await node.exportAsync(settings as ExportSettings);
 			// A download has no folders: "Icons/Arrow" becomes "Icons-Arrow".
 			attachments.push({ name: `${node.name.replaceAll("/", "-")}.${format.toLowerCase()}`, mime: EXPORT_MIME[format], bytes });
 		}

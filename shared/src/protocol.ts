@@ -15,7 +15,8 @@ export type UiSource = keyof typeof UI_ORIGINS;
 /** Limits that code.js applies. The tool descriptions tell the model. */
 export const EXECUTE_TIMEOUT_MS = { default: 30_000, max: 300_000 } as const;
 export const EXECUTE_OUTPUT_LIMIT = 20_000;
-export const SCREENSHOT_MAX_PX = 2048;
+/** The longest side of an image for the model: Claude rejects larger images in requests with more than 20 images. */
+export const MODEL_IMAGE_MAX_PX = 2000;
 
 /** code.js gives the UI Figma's theme class (`figma-light` or `figma-dark`) in this URL hash parameter. */
 export const THEME_HASH_KEY = "figma-theme";
@@ -108,12 +109,20 @@ export type Requests = {
 	lint: { params: { nodeId?: string; rules?: string[]; maxFindings?: number }; result: LintResult };
 	/** Selects the layers of the first page that has one of them, and zooms to them. */
 	select: { params: { nodeIds: string[] }; result: { count: number } };
-	/** Read-only, so the UI can export the nodes again without the agent. The files are the attachments. */
-	export: { params: { nodeIds: string[]; format: ExportFormat; scale?: number }; result: { count: number } };
+	/**
+	 * Read-only, so the UI can export the nodes again without the agent. The files are the attachments. A video has the
+	 * animation of the top-level frame of the node. `width` replaces `scale`; `fps` and `quality` are for videos.
+	 */
+	export: {
+		params: { nodeIds: string[]; format: ExportFormat; scale?: number; width?: number; fps?: number; quality?: VideoQuality };
+		result: { count: number };
+	};
 };
 
-export const EXPORT_FORMATS = ["SVG", "PDF", "PNG", "JPG"] as const;
+export const VIDEO_FORMATS = ["MP4", "WEBM", "GIF"] as const;
+export const EXPORT_FORMATS = ["SVG", "PDF", "PNG", "JPG", ...VIDEO_FORMATS] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+export type VideoQuality = "LOW" | "MEDIUM" | "HIGH";
 export type RequestType = keyof Requests;
 export type Params<T extends RequestType> = Requests[T]["params"];
 export type Result<T extends RequestType> = Requests[T]["result"];
