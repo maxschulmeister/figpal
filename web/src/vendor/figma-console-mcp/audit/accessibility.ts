@@ -7,6 +7,7 @@
  * and semantic color naming patterns.
  */
 
+import { APCAcontrast, sRGBtoY } from "apca-w3";
 import type { CategoryScore, DesignSystemRawData, Finding } from "./types.js";
 import { clamp, getSeverity } from "./types.js";
 
@@ -165,17 +166,25 @@ function componentScope(name: string): string | null {
  * - Names containing "text"/"foreground"/"fg"/"on" are foregrounds
  * Falls back to pairing dark colors with light colors if no naming convention found.
  */
-function scoreColorContrast(data: DesignSystemRawData): Finding {
+function scoreColorContrast(data: DesignSystemRawData, standard: "wcag2" | "apca"): Finding {
+	// FigPal: the same pairs with WCAG 2 (4.5:1) or with APCA (Lc 60, the minimum for content text; WCAG 3 draft method).
+	const apca = standard === "apca";
+	const id = apca ? "a11y-color-contrast-apca" : "a11y-color-contrast";
+	const label = apca ? "Color contrast (APCA)" : "Color contrast (WCAG 2)";
+	const tooltip = apca
+		? "Text and background color pairs should reach APCA Lc 60, the minimum for content text; body text needs Lc 75 (WCAG 3 draft method). Low contrast makes content unreadable for users with vision impairments."
+		: "Foreground/background color pairs should meet WCAG AA contrast ratio (4.5:1). Low contrast makes content unreadable for users with vision impairments.";
+	/** APCA reads 0-255 values, and the polarity matters: text first. Negative for light text on dark. */
+	const lc = (fg, bg) => APCAcontrast(sRGBtoY([fg.r * 255, fg.g * 255, fg.b * 255]), sRGBtoY([bg.r * 255, bg.g * 255, bg.b * 255]));
 	const colors = extractColorValues(data.variables);
 
 	if (colors.length < 2) {
 		return {
-			id: "a11y-color-contrast",
-			label: "Color contrast",
+			id,
+			label,
 			score: 100,
 			severity: "info",
-			tooltip:
-				"Foreground/background color pairs should meet WCAG AA contrast ratio (4.5:1). Low contrast makes content unreadable for users with vision impairments.",
+			tooltip,
 			details:
 				colors.length === 0
 					? "No direct color values to evaluate."
@@ -313,12 +322,11 @@ function scoreColorContrast(data: DesignSystemRawData): Finding {
 
 	if (pairs.length === 0) {
 		return {
-			id: "a11y-color-contrast",
-			label: "Color contrast",
+			id,
+			label,
 			score: 50,
 			severity: "warning",
-			tooltip:
-				"Foreground/background color pairs should meet WCAG AA contrast ratio (4.5:1). Low contrast makes content unreadable for users with vision impairments.",
+			tooltip,
 			details:
 				"Could not identify foreground/background color pairs to check contrast.",
 		};
@@ -333,11 +341,14 @@ function scoreColorContrast(data: DesignSystemRawData): Finding {
 	let passingPairs = 0;
 	const failingExamples: string[] = [];
 	for (const { fg, bg } of pairs) {
-		const ratio = contrastRatio(fg.r, fg.g, fg.b, bg.r, bg.g, bg.b);
-		if (ratio >= WCAG_AA_RATIO) {
+		const signed = apca ? lc(fg, bg) : 0;
+		const ratio = apca ? Math.abs(signed) : contrastRatio(fg.r, fg.g, fg.b, bg.r, bg.g, bg.b);
+		if (ratio >= (apca ? 60 : WCAG_AA_RATIO)) {
 			passingPairs++;
 		} else if (failingExamples.length < MAX_EXAMPLES) {
-			failingExamples.push(`${fg.name} / ${bg.name} (${ratio.toFixed(1)}:1)`);
+			// FigPal: rounded toward zero, so that a failing value does not show as the threshold (4.46 is not 4.5:1).
+			const value = apca ? `Lc ${Math.trunc(signed)}` : `${(Math.floor(ratio * 10) / 10).toFixed(1)}:1`;
+			failingExamples.push(`${fg.name} / ${bg.name} (${value})`);
 		}
 	}
 
@@ -345,13 +356,14 @@ function scoreColorContrast(data: DesignSystemRawData): Finding {
 	const score = clamp(passRatio * 100);
 
 	return {
-		id: "a11y-color-contrast",
-		label: "Color contrast",
+		id,
+		label,
 		score,
 		severity: getSeverity(score),
-		tooltip:
-			"Foreground/background color pairs should meet WCAG AA contrast ratio (4.5:1). Low contrast makes content unreadable for users with vision impairments.",
-		details: `${passingPairs} of ${pairs.length} color pairs meet WCAG AA contrast ratio (${WCAG_AA_RATIO}:1).`,
+		tooltip,
+		details: apca
+			? `${passingPairs} of ${pairs.length} color pairs reach APCA Lc 60, the minimum for content text; body text needs Lc 75 (WCAG 3 draft method).`
+			: `${passingPairs} of ${pairs.length} color pairs meet WCAG AA contrast ratio (${WCAG_AA_RATIO}:1).`,
 		examples: failingExamples.length > 0 ? failingExamples : undefined,
 	};
 }
@@ -477,7 +489,8 @@ function scoreSemanticColorNaming(data: DesignSystemRawData): Finding {
  */
 export function scoreAccessibility(data: DesignSystemRawData): CategoryScore {
 	const findings: Finding[] = [
-		scoreColorContrast(data),
+		scoreColorContrast(data, "wcag2"),
+		scoreColorContrast(data, "apca"),
 		scoreStateVariants(data),
 		scoreSemanticColorNaming(data),
 	];

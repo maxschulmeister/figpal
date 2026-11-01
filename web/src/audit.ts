@@ -4,6 +4,7 @@
 
 import { type Static, Type } from "@earendil-works/pi-ai";
 import type { Bridge } from "./bridge";
+import type { PillDetails } from "./lint";
 import { literals } from "./schema";
 import { scoreDesignSystem } from "./vendor/figma-console-mcp/audit/engine";
 import { describeFixability, getRemediation } from "./vendor/figma-console-mcp/audit/remediation";
@@ -100,7 +101,7 @@ function summary(scored: Scored, fileName: string): string {
 export async function auditDesignSystem(
 	bridge: Pick<Bridge, "request">,
 	{ category }: Static<typeof AUDIT>,
-): Promise<{ report: string; details?: AuditDetails }> {
+): Promise<{ report: string; details?: AuditDetails & PillDetails }> {
 	const [{ result: variables }, { result: components }] = await Promise.all([
 		bridge.request("variables", {}),
 		bridge.request("components", {}),
@@ -109,7 +110,7 @@ export async function auditDesignSystem(
 	const withNodeId = <T extends { id: string }>(items: T[]) => items.map((item) => ({ ...item, node_id: item.id }));
 	if (!components.components.length && !components.componentSets.length && !variables.variables.length)
 		return {
-			report: `Nothing to audit: ${components.fileName} has no local components and no local variables. The audit scores the file of a design-system library. To check the layers of this file (hard-coded colors, text without a text style, contrast), use pi.lint() in figma_execute.`,
+			report: `Nothing to audit: ${components.fileName} has no local components and no local variables. The audit scores the file of a design-system library. To check the layers of this file (colors without variables, text without a text style, contrast), use figma_lint.`,
 		};
 	const scored = withoutEmptyChecks(scoreDesignSystem({
 		variables: variables.variables,
@@ -130,5 +131,13 @@ export async function auditDesignSystem(
 		return { report: JSON.stringify({ file: components.fileName, overall: scored.overall, category: { ...found, findings } }) };
 	}
 	const categories = scored.categories.map(({ shortLabel, score }) => ({ label: shortLabel, score }));
-	return { report: summary(scored, components.fileName), details: { audit: { overall: scored.overall, status: scored.status, categories } } };
+	// The components of each finding that does not pass. Variables are not layers: the user cannot select them.
+	const pills = scored.categories.flatMap((category) =>
+		category.findings.flatMap((finding) => {
+			const nodeIds = (finding.locations ?? []).flatMap((location) => (location.nodeId ? [location.nodeId] : []));
+			return (finding.severity === "fail" || finding.severity === "warning") && nodeIds.length ? [{ label: finding.label, nodeIds }] : [];
+		}),
+	);
+	const details = { audit: { overall: scored.overall, status: scored.status, categories }, pills };
+	return { report: summary(scored, components.fileName), details };
 }

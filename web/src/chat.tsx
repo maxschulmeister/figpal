@@ -44,6 +44,7 @@ import { errorText } from "./accounts";
 import { exportNodes, type NODE_EXPORT } from "./extensions/figma";
 import type { SubagentDetails } from "./extensions/subagent";
 import { downloadFile, type FileDetails, type FileRef, fileById, fileSize, keepFiles } from "./files";
+import type { PillDetails } from "./lint";
 import { ChipText, NodeChip, SelectionChips } from "./selection-chips";
 import { enabledModelGroups, type Settings } from "./settings";
 import { exportTokens, type TokenExport } from "./tokens";
@@ -69,11 +70,14 @@ type Actions = {
 	openConversation(id: ConversationId): Promise<Conversation | undefined>;
 	/** Makes the files of an export again, without the agent: they are gone after a restart. Undefined for other tools. */
 	exportAgain(toolName: string, args: unknown): (() => Promise<FileRef[]>) | undefined;
+	/** Selects the layers on the canvas and zooms to them. Gives the number that it selected. */
+	selectNodes(nodeIds: string[]): Promise<number>;
 };
 const ChatActions = createContext<Actions>({
 	openExternal() {},
 	openConversation: async () => undefined,
 	exportAgain: () => undefined,
+	selectNodes: async () => 0,
 });
 
 const TOOL_LABELS: Record<string, string> = {
@@ -84,6 +88,7 @@ const TOOL_LABELS: Record<string, string> = {
 	figma_export_nodes: "Export layers",
 	figma_diff_versions: "Compare versions",
 	figma_audit_design_system: "Audit design system",
+	figma_lint: "Check layers",
 	subagent: "Subagents",
 };
 
@@ -114,7 +119,7 @@ function useThread(conversation: Conversation | undefined, onError: (message: st
 /** The messages are already in the assistant-ui format. A stable function keeps assistant-ui's message cache. */
 const asIs = (message: ThreadMessageLike) => message;
 
-type ChatProps = Omit<Actions, "exportAgain"> & {
+type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 	thread: Conversation;
 	file: FileInfo;
 	/** The selection events of code.js, for the chips in the composer, and its variables for a token export. */
@@ -166,6 +171,7 @@ export function Chat(props: ChatProps) {
 				if (toolName === "figma_export_nodes") return async () => keepFiles(await exportNodes(bridge, args as Static<typeof NODE_EXPORT>));
 				return undefined;
 			},
+			selectNodes: async (nodeIds: string[]) => (await bridge.request("select", { nodeIds })).result.count,
 		}),
 		[props.openExternal, props.fork, props.openConversation, bridge],
 	);
@@ -506,11 +512,51 @@ function AuditScores({ audit }: AuditDetails) {
 	);
 }
 
+/** A pill for each rule or finding: a click selects its layers, so that the user can check them. */
+function ToolPills({ pills }: PillDetails) {
+	const { selectNodes } = useContext(ChatActions);
+	const [running, setRunning] = useState(false);
+	const [note, setNote] = useState<{ text: string; failed: boolean }>();
+	const select = async (nodeIds: string[]) => {
+		setRunning(true);
+		setNote(undefined);
+		try {
+			const count = await selectNodes(nodeIds);
+			// A selection has the layers of one page.
+			if (count < nodeIds.length)
+				setNote({ text: `Selected ${count} of ${nodeIds.length} layers. The others are on other pages or no longer exist.`, failed: false });
+		} catch (error) {
+			setNote({ text: errorText(error), failed: true });
+		} finally {
+			setRunning(false);
+		}
+	};
+	return (
+		<div className="flex flex-col gap-1 pl-4">
+			<div className="flex flex-wrap gap-1">
+				{pills.map(({ label, nodeIds }) => (
+					<Button
+						key={label}
+						aria-label={`Select ${nodeIds.length} ${nodeIds.length === 1 ? "layer" : "layers"}: ${label}`}
+						disabled={running}
+						onClick={() => void select(nodeIds)}
+					>
+						{label} · {nodeIds.length}
+					</Button>
+				))}
+			</div>
+			<Text role="status" className={note?.failed ? "text-danger" : "text-secondary"}>
+				{note?.text}
+			</Text>
+		</div>
+	);
+}
+
 /** A tool call: its label and state, the files to download, and when opened, the arguments and the result. */
 const ToolCall: ToolCallMessagePartComponent = (props) => {
 	const { toolName, args, result, isError } = props;
 	const { exportAgain } = useContext(ChatActions);
-	const { files, audit } = (props.artifact ?? {}) as Partial<FileDetails & AuditDetails>;
+	const { files, audit, pills } = (props.artifact ?? {}) as Partial<FileDetails & AuditDetails & PillDetails>;
 	const content = (result ?? []) as (TextContent | ImageContent)[];
 	const state = callState(props);
 	const code = typeof args.code === "string" ? args.code : JSON.stringify(args, null, 2);
@@ -531,6 +577,7 @@ const ToolCall: ToolCallMessagePartComponent = (props) => {
 				/>
 			)}
 			{audit && <AuditScores audit={audit} />}
+			{pills && pills.length > 0 && <ToolPills pills={pills} />}
 			<Collapsible.Panel>
 				<div className="flex flex-col gap-2">
 					{code !== "{}" && <pre className="overflow-x-auto rounded-md bg-secondary p-2 font-mono">{code}</pre>}

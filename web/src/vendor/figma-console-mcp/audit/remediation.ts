@@ -113,6 +113,12 @@ const REMEDIATIONS: Record<string, Remediation> = {
 		tools: ["figma_update_variable", "figma_batch_update_variables"],
 		how: "Adjust failing token values toward AA (report lists exact pairs and ratios); the new hues are a design decision.",
 	},
+	// FigPal: the APCA contrast check.
+	"a11y-color-contrast-apca": {
+		fixability: "design-assisted",
+		tools: [],
+		how: "Adjust failing token values toward APCA Lc 60 for content text, Lc 75 for body text (report lists exact pairs and Lc values); the new hues are a design decision. Ask which standard to meet when WCAG 2 and APCA disagree.",
+	},
 	"a11y-state-variants": {
 		fixability: "design-assisted",
 		tools: ["figma_execute", "figma_set_instance_properties"],

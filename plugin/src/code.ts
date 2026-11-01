@@ -2,6 +2,7 @@
 
 import {
 	type Attachment,
+	EXECUTE_TIMEOUT_MS,
 	type ExportFormat,
 	type FileInfo,
 	isUiToPlugin,
@@ -19,6 +20,7 @@ import {
 	type UiToPlugin,
 } from "@figpal/shared";
 import { ExecuteTimeout, execute } from "./execute";
+import { lintDesign } from "./vendor/figma-console-mcp/checks.js";
 
 const UI_OPTIONS: ShowUIOptions = { width: 420, height: 680, themeColors: true };
 const LOAD_TIMEOUT_MS = 10_000;
@@ -288,6 +290,30 @@ const handlers: Handlers = {
 		};
 	},
 
+	async lint({ nodeId, rules, maxFindings }) {
+		// Outside figma_execute, so with the same time limit: the other requests wait for the lint.
+		return { result: await lintDesign({ nodeId, rules, maxFindings, timeLimitMs: EXECUTE_TIMEOUT_MS.default }) };
+	},
+
+	async select({ nodeIds }) {
+		const found = await Promise.all(nodeIds.map((id) => figma.getNodeByIdAsync(id)));
+		const pageOf = (node: BaseNode) => {
+			let parent = node.parent;
+			while (parent && parent.type !== "PAGE") parent = parent.parent;
+			return parent as PageNode | null;
+		};
+		const layers = found.filter((node): node is SceneNode => node !== null && node.type !== "PAGE" && node.type !== "DOCUMENT");
+		// A selection cannot have layers of two pages: the current page if it has one of them, else the first page.
+		const pages = layers.map(pageOf);
+		const page = pages.find((item) => item?.id === figma.currentPage.id) ?? pages.find((item) => item !== null);
+		if (!page) throw new Error("These layers no longer exist.");
+		const selection = layers.filter((layer) => pageOf(layer)?.id === page.id);
+		if (figma.currentPage.id !== page.id) await figma.setCurrentPageAsync(page);
+		page.selection = selection;
+		figma.viewport.scrollAndZoomIntoView(selection);
+		return { result: { count: selection.length } };
+	},
+
 	async export({ nodeIds, format, scale }) {
 		const attachments: Attachment[] = [];
 		for (const id of nodeIds) {
@@ -313,7 +339,7 @@ const handlers: Handlers = {
 };
 
 /** Calls that change or read the canvas run one at a time. */
-const QUEUED = new Set<RequestType>(["execute", "screenshot", "export", "components"]);
+const QUEUED = new Set<RequestType>(["execute", "screenshot", "export", "components", "lint", "select"]);
 let queue: Promise<unknown> = Promise.resolve();
 
 async function handle(message: RequestMessage): Promise<void> {

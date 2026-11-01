@@ -162,7 +162,8 @@ describe("Dashboard data contract for UI rendering", () => {
 			}
 		});
 
-		it("locations are capped at MAX_EXAMPLES (5)", () => {
+		// FigPal: the component locations are not capped, so that the chat can select all of them (README.md).
+		it("component locations are not capped", () => {
 			const data = makeData({
 				components: Array.from({ length: 20 }, (_, i) => ({
 					name: `Component${i}`,
@@ -178,7 +179,7 @@ describe("Dashboard data contract for UI rendering", () => {
 
 			for (const finding of compMeta!.findings) {
 				if (finding.locations) {
-					expect(finding.locations.length).toBeLessThanOrEqual(5);
+					expect(finding.locations.length).toBe(20);
 				}
 				if (finding.examples) {
 					expect(finding.examples.length).toBeLessThanOrEqual(5);

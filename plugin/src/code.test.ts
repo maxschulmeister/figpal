@@ -282,6 +282,63 @@ describe("components", () => {
 	});
 });
 
+describe("lint and select", () => {
+	const UI = "https://figpal.maxschulmeister.dev";
+	/** Two pages. A layer knows its parent, as in Figma. */
+	function pages() {
+		const home: Record<string, unknown> = { id: "0:1", name: "Home", type: "PAGE", selection: [] };
+		const icons: Record<string, unknown> = { id: "0:2", name: "Icons", type: "PAGE", selection: [] };
+		const frame = { id: "1:1", name: "Frame 1", type: "FRAME", visible: true, children: [], parent: home };
+		const card = { id: "1:2", name: "Card", type: "FRAME", visible: true, children: [], parent: home };
+		const star = { id: "2:1", name: "Star", type: "FRAME", visible: true, children: [], parent: icons };
+		home.children = [frame, card];
+		icons.children = [star];
+		const nodes: Record<string, unknown> = { "1:1": frame, "1:2": card, "2:1": star };
+		return { home, icons, nodes };
+	}
+	async function request(type: string, params: object, current: "home" | "icons" = "icons") {
+		const { home, icons, nodes } = pages();
+		const api = {
+			currentPage: current === "home" ? home : icons,
+			getNodeByIdAsync: async (id: string) => nodes[id] ?? null,
+			setCurrentPageAsync: vi.fn(async (page: unknown) => {
+				api.currentPage = page as typeof icons;
+			}),
+			viewport: { scrollAndZoomIntoView: vi.fn() },
+		};
+		const { posted, send } = await startPlugin(async () => "remote", api);
+		send({ kind: "request", id: "1", type, params }, UI);
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		return { response: posted[0] as { ok: boolean; result: never; error?: string }, api: figma as unknown as typeof api, home, nodes };
+	}
+
+	it("lints a node, with the rules", async () => {
+		const { response } = await request("lint", { nodeId: "1:1", rules: ["default-name"] });
+		expect(response).toMatchObject({ ok: true, result: { rootNodeId: "1:1", categories: [{ rule: "default-name", nodes: [{ id: "1:1" }] }] } });
+	});
+
+	it("selects the layers, goes to their page and zooms to them; it skips layers that no longer exist", async () => {
+		const { response, api, home, nodes } = await request("select", { nodeIds: ["9:9", "1:1", "1:2"] });
+		expect(response).toMatchObject({ ok: true, result: { count: 2 } });
+		expect(api.setCurrentPageAsync).toHaveBeenCalledWith(home);
+		expect(home.selection).toEqual([nodes["1:1"], nodes["1:2"]]);
+		expect(api.viewport.scrollAndZoomIntoView).toHaveBeenCalledWith([nodes["1:1"], nodes["1:2"]]);
+	});
+
+	// A selection cannot have layers of two pages.
+	it("stays on the current page when it has some of the layers, and selects only those", async () => {
+		const { response, api, home, nodes } = await request("select", { nodeIds: ["2:1", "1:2"] }, "home");
+		expect(response).toMatchObject({ ok: true, result: { count: 1 } });
+		expect(api.setCurrentPageAsync).not.toHaveBeenCalled();
+		expect(home.selection).toEqual([nodes["1:2"]]);
+	});
+
+	it("says when none of the layers exist", async () => {
+		const { response } = await request("select", { nodeIds: ["9:9"] });
+		expect(response).toMatchObject({ ok: false, error: "These layers no longer exist." });
+	});
+});
+
 describe("export", () => {
 	const UI = "https://figpal.maxschulmeister.dev";
 	const bytes = new Uint8Array([1, 2, 3]);

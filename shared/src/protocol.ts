@@ -74,6 +74,24 @@ export type Components = {
 	styles: { name: string; type: string }[];
 };
 
+/** The findings of the lint (checks.js of figma-console-mcp), by rule. Each finding has the layer and details. */
+export type LintResult = {
+	rootNodeId: string;
+	rootNodeName: string;
+	nodesScanned: number;
+	categories: {
+		rule: string;
+		severity: string;
+		wcagLevel: string | null;
+		count: number;
+		description: string;
+		nodes: ({ id: string; name: string } & Record<string, unknown>)[];
+	}[];
+	summary: Record<string, number>;
+	/** When it stopped at maxFindings. */
+	warning?: string;
+};
+
 /** Requests from the UI and the result that each one returns. */
 export type Requests = {
 	execute: { params: { code: string; timeoutMs?: number }; result: { value: string } };
@@ -86,6 +104,10 @@ export type Requests = {
 	variables: { params: Record<string, never>; result: Variables };
 	/** Read-only. For the design-system audit. */
 	components: { params: Record<string, never>; result: Components };
+	/** Read-only. Without nodeId: the current page. */
+	lint: { params: { nodeId?: string; rules?: string[]; maxFindings?: number }; result: LintResult };
+	/** Selects the layers of the first page that has one of them, and zooms to them. */
+	select: { params: { nodeIds: string[] }; result: { count: number } };
 	/** Read-only, so the UI can export the nodes again without the agent. The files are the attachments. */
 	export: { params: { nodeIds: string[]; format: ExportFormat; scale?: number }; result: { count: number } };
 };
@@ -129,6 +151,8 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	"open-external": true,
 	variables: true,
 	components: true,
+	lint: true,
+	select: true,
 	export: true,
 };
 

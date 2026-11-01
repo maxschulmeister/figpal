@@ -258,6 +258,55 @@ describe("figma tools", () => {
 		expect(new TextDecoder().decode(fileById(files[0]!.id)!.bytes)).toContain('"primary"');
 	});
 
+	describe("figma_lint", () => {
+		const RESULT = {
+			rootNodeId: "0:1",
+			rootNodeName: "Home",
+			nodesScanned: 3,
+			categories: [
+				{ rule: "apca-contrast", severity: "critical", wcagLevel: "wcag3-draft", count: 1, description: "…", nodes: [{ id: "1:2", name: "Label", lc: "Lc 73" }] },
+				{ rule: "hardcoded-color", severity: "warning", wcagLevel: "design-system", count: 3, description: "…", nodes: [{ id: "1:3", name: "A" }, { id: "1:4", name: "B" }, { id: "1:3", name: "A" }] },
+			],
+			summary: { critical: 1, warning: 3, info: 0, total: 4 },
+		};
+
+		it("lints in code.js: the model gets the findings, the chat a pill for each rule", async () => {
+			const { models, requests } = scriptedModels("figma_lint", { node_id: "1-2", rules: ["wcag"] });
+			const { bridge, calls } = fakeBridge(() => ({ result: RESULT }));
+			const { view } = await run(models, bridge);
+			// IDs in Figma links have dashes.
+			// A text that fails both contrast checks takes 2 places: 200, not upstream's 100.
+			expect(calls).toEqual([{ type: "lint", params: { nodeId: "1:2", rules: ["wcag"], maxFindings: 200 } }]);
+			expect(requests[1]!.at(-1)).toMatchObject({ isError: false, content: [{ type: "text", text: JSON.stringify(RESULT) }] });
+			expect(toolArtifact(view) as unknown).toEqual({
+				pills: [
+					{ label: "Contrast (APCA)", nodeIds: ["1:2"] },
+					{ label: "Color without variable", nodeIds: ["1:3", "1:4"] },
+				],
+			});
+		});
+	});
+
+	it("figma_lint takes 1 to 500 findings", async () => {
+		const { models, requests } = scriptedModels("figma_lint", { max_findings: 0 });
+		const { bridge, calls } = fakeBridge(() => ({ result: null }));
+		await run(models, bridge);
+		expect(calls).toEqual([]);
+		expect(requests[1]!.at(-1)).toMatchObject({ isError: true });
+	});
+
+	// IDs in Figma links have dashes: "1-2" is the node "1:2".
+	it("the layer tools take node IDs from Figma links", async () => {
+		const screenshot = scriptedModels("figma_screenshot", { node_id: "1-2" });
+		const first = fakeBridge(() => ({ result: { nodeId: "1:2", width: 1, height: 1 } }));
+		await run(screenshot.models, first.bridge);
+		expect(first.calls).toEqual([{ type: "screenshot", params: { nodeId: "1:2" } }]);
+		const exported = scriptedModels("figma_export_nodes", { node_ids: ["1-2", "3:4"], format: "SVG" });
+		const second = fakeBridge(() => ({ result: { count: 0 } }));
+		await run(exported.models, second.bridge);
+		expect(second.calls).toEqual([{ type: "export", params: { nodeIds: ["1:2", "3:4"], format: "SVG" } }]);
+	});
+
 	describe("figma_audit_design_system", () => {
 		const VARIABLES = {
 			collections: [{ id: "C:1", name: "Colors", modes: [{ modeId: "1:0", name: "Light" }], isExtension: false }],
@@ -286,6 +335,8 @@ describe("figma tools", () => {
 			const { calls, text, isError, artifact } = await audit({});
 			expect(isError).toBe(false);
 			expect(calls.map((call) => call.type).sort()).toEqual(["components", "variables"]);
+			// The user selects the components of a finding from the step.
+			expect((artifact as { pills: unknown }).pills).toContainEqual({ label: "Description presence", nodeIds: ["2:1", "1:1"] });
 			const lines = text.split("\n");
 			expect(lines.slice(0, 2)).toEqual([
 				expect.stringMatching(/^Design system: Library\. Overall health: \d+\/100 \((good|needs work|poor)\)\.$/),
@@ -297,7 +348,7 @@ describe("figma tools", () => {
 			// FigPal fixes with code: no upstream tool names, no "MCP".
 			expect(text).not.toMatch(/figma_|MCP/);
 			expect(lines.at(-1)).toBe("For all findings of one category, with examples, locations and fixes, call again with category.");
-			expect(artifact).toEqual({
+			expect(artifact).toMatchObject({
 				audit: {
 					overall: expect.any(Number),
 					status: expect.stringMatching(/^(good|needs-work|poor)$/),
@@ -310,7 +361,7 @@ describe("figma tools", () => {
 			const { text, isError, artifact } = await audit({}, { collections: [], variables: [] }, { fileName: "Empty", componentSets: [], components: [], styles: [] });
 			expect(isError).toBe(false);
 			expect(text).toBe(
-				"Nothing to audit: Empty has no local components and no local variables. The audit scores the file of a design-system library. To check the layers of this file (hard-coded colors, text without a text style, contrast), use pi.lint() in figma_execute.",
+				"Nothing to audit: Empty has no local components and no local variables. The audit scores the file of a design-system library. To check the layers of this file (colors without variables, text without a text style, contrast), use figma_lint.",
 			);
 			expect(artifact).toBeUndefined();
 		});

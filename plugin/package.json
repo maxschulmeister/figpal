@@ -8,7 +8,8 @@
 		"typecheck": "tsc -p ."
 	},
 	"dependencies": {
-		"@figpal/shared": "workspace:*"
+		"@figpal/shared": "workspace:*",
+		"apca-w3": "0.1.9"
 	},
 	"devDependencies": {
 		"@figma/plugin-typings": "^1.142.0",

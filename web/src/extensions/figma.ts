@@ -7,7 +7,8 @@ import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMA
 import { AUDIT, auditDesignSystem } from "../audit";
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
-import { literals } from "../schema";
+import { LINT, lint } from "../lint";
+import { literals, nodeIdOf } from "../schema";
 import { exportTokens, TOKEN_EXPORT } from "../tokens";
 import { formatChangelogMarkdown } from "../vendor/figma-console-mcp/diff/changelog-formatter";
 import { type DiffMode, diffNode, diffPageStructure } from "../vendor/figma-console-mcp/diff/diff-engine";
@@ -22,6 +23,7 @@ Tools:
 - figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
 - figma_diff_versions compares two versions of the open file: get the version IDs with figma_rest GET /v1/files/KEY/versions.
 - figma_audit_design_system scores the design system of the open file (naming, tokens, components, accessibility, consistency, coverage) and says how to fix the findings.
+- figma_lint checks layers: accessibility, colors without variables, text without text styles, and more. It checks contrast with WCAG 2 and with APCA (the method of the WCAG 3 drafts). When they disagree on a fix, ask the user which standard to meet, unless they said it.
 - figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
 
 Plugin API rules:
@@ -62,7 +64,7 @@ export const NODE_EXPORT = Type.Object({
 
 /** Exports the nodes as files. Read-only, so the chat can run it again without the agent. */
 export async function exportNodes(bridge: Pick<Bridge, "request">, args: Static<typeof NODE_EXPORT>): Promise<Attachment[]> {
-	const { attachments } = await bridge.request("export", { nodeIds: args.node_ids, format: args.format, scale: args.scale });
+	const { attachments } = await bridge.request("export", { nodeIds: args.node_ids.map(nodeIdOf), format: args.format, scale: args.scale });
 	return attachments;
 }
 
@@ -103,8 +105,7 @@ export function figmaExtension(
 					`and \`return\` a JSON value. Nodes in the value become { id, name, type }. The output is cut after ${EXECUTE_OUTPUT_LIMIT.toLocaleString("en-US")} characters.`,
 					"`pi.attach(bytes, { mime, name })` sends a PNG, JPEG, GIF or WebP image (for example from exportAsync) to you with the result; other files (SVG, PDF, ...) go to the user as downloads.",
 					"Checks (node or ID; return their JSON):",
-					'`pi.lint(node?, { rules?, maxFindings? })` finds accessibility (WCAG) and design-system problems; rules are "wcag", "design-system", "layout", "best-practice" or "all", default the first three; without node, the page.',
-					"`pi.auditAccessibility(componentSet)` scores states, focus, target size and contrast loss under color-blind simulation. Use `pi.lint` for baseline text contrast.",
+					"`pi.auditAccessibility(componentSet)` scores states, focus, target size and contrast loss under color-blind simulation. Use figma_lint for baseline text contrast.",
 					"`pi.analyzeComponentSet(componentSet)` gives its variant axes, the CSS state of each variant, and what each variant changes.",
 				].join(" "),
 				parameters: Type.Object({
@@ -133,7 +134,7 @@ export function figmaExtension(
 				}),
 				replay: "safe",
 				execute: async ({ node_id, scale }, _api, context) => {
-					const request = bridge.request("screenshot", { nodeId: node_id, scale });
+					const request = bridge.request("screenshot", { nodeId: node_id && nodeIdOf(node_id), scale });
 					const { result, attachments } = await awaitWithContext(request, context);
 					return {
 						output: [text(`Screenshot of ${result.nodeId} (${result.width} × ${result.height} px).`), ...images(attachments)],
@@ -228,8 +229,7 @@ export function figmaExtension(
 					const now = (file: { lastModified?: string }) => ({ version_id: "current", created_at: file.lastModified ?? null, is_head: true });
 					const both = (path: string, params: Record<string, string>) =>
 						Promise.all([read(path, from_version, params), read(path, to_version, params)]);
-					// IDs in Figma links have dashes: "1-2" is the node "1:2".
-					const ids = node_ids.map((id) => id.replaceAll("-", ":"));
+					const ids = node_ids.map(nodeIdOf);
 					// All nodes in one call for each version: upstream makes 2 calls for each node.
 					const [[from, to], [before, after]] = await Promise.all([
 						both("", { depth: "1" }),
@@ -282,6 +282,20 @@ export function figmaExtension(
 				replay: "safe",
 				execute: async (args, _api, context) => {
 					const { report, details } = await awaitWithContext(auditDesignSystem(bridge, args), context);
+					return { output: [text(report)], details };
+				},
+			}),
+			defineTool({
+				name: "figma_lint",
+				description:
+					"Checks the layers of the open file, as they are now: accessibility (contrast with WCAG 2 and APCA, target size, focus states, alt text, ...), design-system use (colors without variables, text without text styles, detached components, default names) and layout. The user can select the layers of each rule from this step. It does not change the file.",
+				parameters: LINT,
+				// Names in the file have no length limit.
+				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
+				// Read-only.
+				replay: "safe",
+				execute: async (args, _api, context) => {
+					const { report, details } = await awaitWithContext(lint(bridge, args), context);
 					return { output: [text(report)], details };
 				},
 			}),

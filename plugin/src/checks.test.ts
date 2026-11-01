@@ -89,7 +89,7 @@ describe("pi checks (copied from figma-console-mcp)", () => {
 	it("pi.lint takes a node ID and options", async () => {
 		const result = await run(`return pi.lint("1:1", { rules: ["wcag"] });`);
 		expect(result.rootNodeId).toBe("1:1");
-		expect(result.categories.map((category: { rule: string }) => category.rule)).toEqual(["wcag-contrast"]);
+		expect(result.categories.map((category: { rule: string }) => category.rule)).toEqual(["wcag-contrast", "apca-contrast"]);
 	});
 
 	it("pi.lint does not load styles or variables when the rule does not use them", async () => {
@@ -178,6 +178,38 @@ describe("pi checks (copied from figma-console-mcp)", () => {
 			const result = await run(`return pi.lint(${JSON.stringify(node)}, { rules: ${JSON.stringify(rules)} });`, figma);
 			return Object.fromEntries(result.categories.map((category: { rule: string; nodes: unknown[] }) => [category.rule, category.nodes]));
 		};
+
+		// APCA (WCAG 3 draft method): the font table of apca-w3 gives the smallest size for each weight at the contrast.
+		// Gray 0.45 on white: 4.76:1 passes WCAG 2; Lc 73 needs 19 px at weight 400.
+		it("pi.lint checks text contrast with APCA as well, by default, for the size and weight of the text", async () => {
+			const small = await lintRules(textOn({ fills: [rgb(0.45, 0.45, 0.45)], fontSize: 16, fontWeight: 400 }), ["wcag"]);
+			expect(small["wcag-contrast"]).toBeUndefined();
+			expect(small["apca-contrast"]).toEqual([{ id: "1:2", name: "Label", lc: "Lc 73", required: "19 px at weight 400", fg: "#737373", bg: "#FFFFFF" }]);
+			const large = await lintRules(textOn({ fills: [rgb(0.45, 0.45, 0.45)], fontSize: 20, fontWeight: 400 }), ["apca-contrast"]);
+			expect(large["apca-contrast"]).toBeUndefined();
+			const faint = await lintRules(textOn({ fills: [rgb(0.9, 0.9, 0.9)], fontSize: 40, fontWeight: 700 }), ["apca-contrast"]);
+			expect(faint["apca-contrast"]).toMatchObject([{ required: "not for text" }]);
+		});
+
+		// APCA keeps its sign: negative for light text on a dark background.
+		it("pi.lint gives the APCA contrast of light text on dark as a negative value", async () => {
+			const figma = textOn({ fills: [rgb(1, 1, 1)], fontSize: 12, fontWeight: 400 });
+			(figma.currentPage.children[0] as Record<string, unknown>).fills = [rgb(0, 0, 0)];
+			const rules = await lintRules(figma, ["apca-contrast"]);
+			expect(rules["apca-contrast"]).toMatchObject([{ lc: "Lc -107", required: "14.5 px at weight 400" }]);
+		});
+
+		// At the limit, the known standard gets the last place. Gray 0.5 at 16 px fails both.
+		it("pi.lint checks WCAG 2 before APCA", async () => {
+			const result = await run(`return pi.lint("1:1", { rules: ["wcag"], maxFindings: 1 });`, textOn({ fills: [rgb(0.5, 0.5, 0.5)], fontSize: 16 }));
+			expect(result.categories.map((category: { rule: string }) => category.rule)).toEqual(["wcag-contrast"]);
+		});
+
+		// FigPal's lint request is not inside figma_execute: without a limit, a long lint blocks the other requests.
+		it("pi.lint stops at its time limit and says how far it got", async () => {
+			const result = await run(`return pi.lint("1:1", { timeLimitMs: 0 });`, textOn({ fills: [rgb(0.5, 0.5, 0.5)] }));
+			expect(result).toMatchObject({ nodesScanned: 0, categories: [], warning: "Stopped after 0 s, after 0 layers. Check a smaller part, such as one frame." });
+		});
 
 		it("pi.lint treats text of at least 18.66 px and weight 700 as large text (3:1)", async () => {
 			// Gray 0.5 on white is about 4:1: enough for large text, too little for normal text.

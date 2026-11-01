@@ -166,9 +166,10 @@ function scoreDescriptionPresence(
 			withoutDesc.length > 0
 				? withoutDesc.slice(0, MAX_EXAMPLES).map((c) => c.name)
 				: undefined,
+		// FigPal: all locations, so that the chat can select them. The examples stay at 5.
 		locations:
 			withoutDesc.length > 0
-				? withoutDesc.slice(0, MAX_EXAMPLES).map((c) => ({
+				? withoutDesc.map((c) => ({
 						name: c.name,
 						nodeId: c.node_id,
 						type: "component",
@@ -281,9 +282,10 @@ function scorePropertyCompleteness(
 			standaloneWithoutProps.length > 0
 				? standaloneWithoutProps.slice(0, MAX_EXAMPLES).map((c) => c.name)
 				: undefined,
+		// FigPal: all locations, so that the chat can select them. The examples stay at 5.
 		locations:
 			standaloneWithoutProps.length > 0
-				? standaloneWithoutProps.slice(0, MAX_EXAMPLES).map((c) => ({
+				? standaloneWithoutProps.map((c) => ({
 						name: c.name,
 						nodeId: c.node_id,
 						type: "component",
@@ -377,9 +379,10 @@ function scoreCategoryOrganization(
 			withoutPath.length > 0
 				? withoutPath.slice(0, MAX_EXAMPLES).map((c) => c.name)
 				: undefined,
+		// FigPal: all locations, so that the chat can select them. The examples stay at 5.
 		locations:
 			withoutPath.length > 0
-				? withoutPath.slice(0, MAX_EXAMPLES).map((c) => ({
+				? withoutPath.map((c) => ({
 						name: c.name,
 						nodeId: c.node_id,
 						type: "component",
@@ -434,9 +437,10 @@ function scoreGenericNaming(classification: ComponentClassification): Finding {
 			genericComps.length > 0
 				? genericComps.slice(0, MAX_EXAMPLES).map((c) => c.name)
 				: undefined,
+		// FigPal: all locations, so that the chat can select them. The examples stay at 5.
 		locations:
 			genericComps.length > 0
-				? genericComps.slice(0, MAX_EXAMPLES).map((c) => ({
+				? genericComps.map((c) => ({
 						name: c.name,
 						nodeId: c.node_id,
 						type: "component",

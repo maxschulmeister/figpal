@@ -28,6 +28,12 @@
 //   ("Inactive" is not "active"). A presentational name (badge, tag, ...) stays presentational. The name test uses the
 //   last part of a name such as "Controls/Button". With these rules each component is interactive or presentational,
 //   so the upstream search for interaction words in ambiguous components is removed.
+// Added:
+// - LINT_DESIGN: the rule apca-contrast checks text contrast with APCA (apca-w3, the method of the WCAG 3 drafts) for
+//   the size and weight of the text. It is in the group "wcag", so it runs with wcag-contrast by default.
+// - LINT_DESIGN: the option timeLimitMs stops the walk, with a warning that says how far it got.
+
+import { APCAcontrast, fontLookupAPCA, sRGBtoY } from "apca-w3";
 
 // FigPal: the color of c at opacity a over the color under it. A paint without opacity is opaque.
 function blend(c, under, a) {
@@ -788,7 +794,7 @@ export async function lintDesign(msg) {
 
       // ---- Rule configuration ----
       var allRuleIds = [
-        'wcag-contrast', 'wcag-text-size', 'wcag-target-size', 'wcag-line-height',
+        'wcag-contrast', 'apca-contrast', 'wcag-text-size', 'wcag-target-size', 'wcag-line-height',
         'wcag-non-text-contrast', 'wcag-color-only', 'wcag-focus-indicator',
         'wcag-letter-spacing', 'wcag-paragraph-spacing', 'wcag-image-alt',
         'wcag-heading-hierarchy', 'wcag-reflow', 'wcag-reading-order',
@@ -805,8 +811,9 @@ export async function lintDesign(msg) {
         // In particular, WCAG 1.4.12 Text Spacing is a "support user overrides without
         // breaking" criterion — NOT a requirement to ship specific spacing values — so a
         // sub-1.5 line height is not a conformance failure (see 'best-practice' below).
+        // FigPal: apca-contrast (WCAG 3 draft method) runs with WCAG 2 by default, so that the user sees both.
         'wcag': [
-          'wcag-contrast', 'wcag-target-size',
+          'wcag-contrast', 'apca-contrast', 'wcag-target-size',
           'wcag-non-text-contrast', 'wcag-color-only', 'wcag-focus-indicator',
           'wcag-image-alt', 'wcag-heading-hierarchy', 'wcag-reflow', 'wcag-reading-order',
           'wcag-disabled-no-context'
@@ -822,6 +829,7 @@ export async function lintDesign(msg) {
 
       var severityMap = {
         'wcag-contrast': 'critical',
+        'apca-contrast': 'critical',
         'wcag-target-size': 'critical',
         'wcag-non-text-contrast': 'critical',
         'wcag-color-only': 'critical',
@@ -847,6 +855,7 @@ export async function lintDesign(msg) {
       // WCAG conformance level per rule — lets teams filter by target level (AA vs AAA)
       var wcagLevelMap = {
         'wcag-contrast': 'aa',           // 1.4.3 Contrast (Minimum) — Level AA
+        'apca-contrast': 'wcag3-draft',  // FigPal: APCA, the contrast method of the WCAG 3 drafts
         'wcag-target-size': 'aa',        // 2.5.8 Target Size (Minimum) — Level AA
         'wcag-non-text-contrast': 'aa',  // 1.4.11 Non-text Contrast — Level AA
         'wcag-color-only': 'a',          // 1.4.1 Use of Color — Level A
@@ -871,6 +880,7 @@ export async function lintDesign(msg) {
 
       var ruleDescriptions = {
         'wcag-contrast': 'Text does not meet WCAG AA contrast ratio (4.5:1 normal, 3:1 large text ≥24px or ≥18.5px bold). Best practice: always target 4.5:1, especially in dark mode.',
+        'apca-contrast': 'Text does not reach the APCA contrast (Lc) for its size and weight. APCA is the contrast method of the WCAG 3 drafts; its font table gives the smallest font size for each weight at a contrast. Lc is negative for light text on dark. Paragraphs of body text need Lc 15 more when under Lc 75. At weight 800 and 900 the table also has a smallest size at any contrast: there the fix is a larger size or a lighter weight, not a color. Pass and fail can differ from WCAG 2.',
         'wcag-text-size': 'Text size is below 12px — readability best practice. Note: WCAG 1.4.4 requires supporting 200% text-only zoom (use rem/em units), not a specific minimum size.',
         'wcag-target-size': 'Interactive element is smaller than 24x24px minimum target size (WCAG 2.5.8)',
         'wcag-line-height': 'Multi-line body text has line height below 1.5x font size — a readability best practice (only flagged on text that wraps to 2+ lines; single-line labels, buttons and headings are exempt). NOT a WCAG failure: 1.4.12 requires content to survive a user overriding line height to 1.5x without loss of content, which is verified in code, not by the default value in the design.',
@@ -1007,6 +1017,11 @@ export async function lintDesign(msg) {
 
       var maxDepth = typeof msg.maxDepth === 'number' ? msg.maxDepth : 10;
       var maxFindings = typeof msg.maxFindings === 'number' ? msg.maxFindings : 100;
+      // FigPal: a time limit. FigPal's lint request does not run inside figma_execute, so without it a long lint would
+      // block the other requests.
+      var timeLimitMs = typeof msg.timeLimitMs === 'number' ? msg.timeLimitMs : null;
+      var deadline = timeLimitMs === null ? null : Date.now() + timeLimitMs;
+      var timedOut = false;
 
       // ---- Resolve root node ----
       var rootNode;
@@ -1045,6 +1060,11 @@ export async function lintDesign(msg) {
       async function walkNode(node, depth) {
         if (depth > maxDepth) return;
         if (truncated) return;
+        if (deadline !== null && Date.now() >= deadline) {
+          timedOut = true;
+          truncated = true;
+          return;
+        }
         // Let timers and input run. The user can change the file in the meantime: skip a removed node.
         if (nodesScanned > 0 && nodesScanned % 500 === 0) {
           await new Promise(function(resolve) { setTimeout(resolve, 0); });
@@ -1068,8 +1088,8 @@ export async function lintDesign(msg) {
 
         // ---- WCAG checks ----
 
-        // wcag-contrast: TEXT nodes
-        if (activeRuleSet['wcag-contrast'] && nodeType === 'TEXT' && !truncated) {
+        // wcag-contrast and apca-contrast (FigPal): TEXT nodes
+        if ((activeRuleSet['wcag-contrast'] || activeRuleSet['apca-contrast']) && nodeType === 'TEXT' && !truncated) {
           try {
             var fills = node.fills;
             if (fills && fills.length > 0) {
@@ -1090,7 +1110,7 @@ export async function lintDesign(msg) {
                   var required = isLarge ? 3.0 : 4.5;
                   // What is under a transparent background is not known: white is a guess.
                   var approximate = bgFill.opacity < 1;
-                  if (ratio < required) {
+                  if (activeRuleSet['wcag-contrast'] && ratio < required) {
                     if (totalFindings < maxFindings) {
                       var finding = {
                         id: nodeId,
@@ -1105,6 +1125,32 @@ export async function lintDesign(msg) {
                       totalFindings++;
                     } else {
                       truncated = true;
+                    }
+                  }
+                  if (activeRuleSet['apca-contrast']) {
+                    // FigPal: after WCAG 2, so that the known standard gets the last place at maxFindings. APCA reads 0-255
+                    // values, text first, and keeps its sign: negative for light text on dark. The font table of apca-w3 gives
+                    // the smallest size for each weight from 100 to 900 at the contrast; 777 and 999 mean "not for text".
+                    var lcSigned = APCAcontrast(sRGBtoY([fg.r * 255, fg.g * 255, fg.b * 255]), sRGBtoY([bg.r * 255, bg.g * 255, bg.b * 255]));
+                    var lc = Math.abs(lcSigned);
+                    var weightIndex = Math.min(9, Math.max(1, Math.round((typeof fontWeight === 'number' ? fontWeight : 400) / 100)));
+                    var minSize = Number(fontLookupAPCA(lc)[weightIndex]);
+                    if (minSize >= 777 || fontSize < minSize) {
+                      if (totalFindings < maxFindings) {
+                        var apcaFinding = {
+                          id: nodeId,
+                          name: nodeName,
+                          lc: 'Lc ' + Math.trunc(lcSigned),
+                          required: minSize >= 777 ? 'not for text' : minSize + ' px at weight ' + weightIndex * 100,
+                          fg: lintRgbToHex(fg.r, fg.g, fg.b),
+                          bg: lintRgbToHex(bg.r, bg.g, bg.b)
+                        };
+                        if (approximate) apcaFinding.approximate = true;
+                        findings['apca-contrast'].push(apcaFinding);
+                        totalFindings++;
+                      } else {
+                        truncated = true;
+                      }
                     }
                   }
                   break; // Only check the first visible solid fill
@@ -1869,7 +1915,9 @@ export async function lintDesign(msg) {
         summary: summaryObj
       };
 
-      if (truncated) {
+      if (timedOut) {
+        responseData.warning = 'Stopped after ' + Math.round(timeLimitMs / 1000) + ' s, after ' + nodesScanned + ' layers. Check a smaller part, such as one frame.';
+      } else if (truncated) {
         responseData.warning = 'Showing first ' + maxFindings + ' findings...';
       }
 
