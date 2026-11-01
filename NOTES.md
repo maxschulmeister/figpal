@@ -20,7 +20,15 @@ FigPal needs at least one of these. Choose and plan before building:
 - **Access from outside, like the figma-console-mcp Desktop Bridge:** an agent in a terminal (Claude Code, pi, Codex) can act on the open Figma file through FigPal, for example with an MCP server that sends requests to `code.js`.
 - **Remote threads:** a pi instance on another machine can start a thread in the plugin and follow it.
 
-## Layer chips in the agent's answers (user, 2026-11-01, deferred)
+### Optional Node host (from PLAN.md)
+
+Use it only if you need repo access, long runs while Figma is closed, or a provider that no browser path supports.
+
+- The same extensions run in Node with SQLite storage. Only the transport changes (WebSocket instead of `postMessage`).
+- It adds pi-durable `createCodingTools` with a `NodeExecutionEnv` for each repo, and the figma-console-mcp codebase extraction (`src/core/extraction`).
+- A LaunchAgent (`RunAtLoad`, `KeepAlive`) starts it at login.
+
+## Layer chips in the agent's answers (user, 2026-11-01, Phase 7)
 
 The agent could write clickable layer chips in its answers, like the chips in the user's messages: a click selects the layers. It works for every tool, but it depends on the model writing the chips. Deferred: first the lint tool with pills under its step.
 
@@ -38,3 +46,32 @@ Rewrite all JavaScript in TypeScript. Now two files are JavaScript:
 ## Browser checks in the repo (2026-11-01)
 
 The Chrome checks (Playwright with a fake Figma page and a mocked model) are only in `/tmp/pw`: `chips`, `picker`, `export`, `diff`, `audit`, `lint`, `animation` (with test WebMs made by ffmpeg). They are the only test of the real video decoding (`web/src/video-frames.ts`; jsdom cannot decode). Move them into the repo, for example `e2e/`, with a script that starts Vite on a free port.
+
+## Domain migration and export/import (deferred by the user, 2026-11-01)
+
+Conversations, settings and skills are stored for the origin `figpal.maxschulmeister.dev`. A new domain starts empty. Export and import of the data move it. Check: migrate data between two test subdomains.
+
+## Agent profiles (from PLAN.md, not in Phase 7)
+
+Profiles with their own instructions, model, thinking level and skills, for the main agent and for subagents (decided 2026-10-31: not in Phase 4).
+
+- Use: rules that you write once, for example brand rules or "use only our library components".
+- A form in the settings (name, description, model, thinking level, skills, instructions), not Markdown.
+- An agent picker in the chat, next to the model picker: a thread can use a profile. The `subagent` tool gets an `agent` field.
+- A stale profile must not fail: a removed skill is left out, and a model that was removed (or whose provider is not connected) falls back to the thread's model, with a warning on the profile.
+- Storage: `figpal:global` already has an empty `agents` store (version 3).
+- Alternative with less code: one "Instructions" field in the settings for the main agent and all subagents.
+
+## Archive and delete threads (from PLAN.md, not in Phase 7)
+
+Now "Delete" only hides a thread: pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`). The user suggested two actions (2026-10-31).
+
+- Archive: hide the thread, as "Delete" does now, with a way to show archived threads again.
+- Delete: remove the entries, so that they do not fill the browser storage. This needs pi-durable support, or a "Delete all threads of this file" action.
+
+## Thread names (from PLAN.md, not in Phase 7)
+
+The UX of thread names. Now a thread takes the first line of its first message (at most 60 characters), and you can rename it.
+
+- Idea: an AI name, like T3 Code: after the first message, a small, fast model writes a short title. A name that the user gave stays.
+- Decide: which model (the provider of the thread, or a fixed small model), the cost, when it runs (the first message only, or again later), and what shows while it runs.
