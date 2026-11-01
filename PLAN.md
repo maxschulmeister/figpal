@@ -438,7 +438,7 @@ Checks:
 Scope (user decision, 2026-11-01). Details of the requests are in `NOTES.md`.
 
 - Browser checks in the repo (`e2e/`, `pnpm e2e`): the Chrome checks of `/tmp/pw` with real pass/fail results.
-- Token budget check: measure the tool schemas and the rules, then make them smaller.
+- Token budget check: measure the tool schemas and the rules, then make them smaller (done: a unit test limits them to 3,200 tokens).
 - Run in the background (hidden UI): `figma.ui.hide()` keeps the UI running. Find out first how the user shows it again.
 - UI requests: the model picker stays open after a model change; a resizable panel at full height; the context window usage next to the model picker.
 - Layer chips in the agent's answers.
@@ -448,7 +448,7 @@ Scope (user decision, 2026-11-01). Details of the requests are in `NOTES.md`.
 
 Checks:
 
-- Measure the token size of the tool schemas and the rules (goal: less than 3k).
+- Measure the token size of the tool schemas and the rules (goal: less than 3k; result: about 3,130 with the rules for skills, limit 3,200).
 - The agent finishes a task while the UI is hidden.
 
 ## Risks
@@ -618,6 +618,7 @@ Checks:
   - Images for the model: at most 2000 px on the longest side (`MODEL_IMAGE_MAX_PX`, also for screenshots): Claude rejects larger images in requests with more than 20 images, and the images stay in the conversation.
 - Deploy (2026-11-01): `deploy.sh` keeps old files in `/assets` and deletes those older than 30 days. An open FigPal window loads parts of its build later (for example the ChatGPT provider), and the server sends `index.html` for a deleted file, so the import failed after a deploy.
 - Browser checks (Phase 7, step 1): `e2e/` with Playwright (`playwright-core`) and the installed Chrome. The fake Figma page sends each `code.js` request to Node, where the check answers it in TypeScript; the model is a mocked Anthropic route. Node runs the TypeScript directly, no build. The checks make no calls to the internet (the default skills are blocked), an uncaught page error fails a check, and Ctrl-C stops Vite. Only the 9 scripts with real checks moved; the older scripts in `/tmp/pw` only printed results.
+- Token budget (Phase 7, step 2): the rules and the tools go with each request (cached, but in the context window). The unit test "token budget" measures the leading system message at about 3.5 characters for each token, with FigPal's fixed rules for skills (one short skill) and one subagent model, but not the user's skill list. Before about 3,900, now about 3,130; the test fails at 3,200, so a new rule must take the place of an old one. The goal of 3,000 would cost guidance that the agent uses (Plugin API rules, the tool mapping for skills). Changes: lists of names are a JSON Schema `enum` (pi-ai `StringEnum`, a third of the size of a union of literals); the "Tools:" list of the rules repeated the tool descriptions, so its guidance moved into the tools; shorter texts. The 16 default Figma skills add about 7,000 characters; their descriptions stay complete, as the Agent Skills format loads them, and the user can turn skills off.
 
 ## Open questions
 
