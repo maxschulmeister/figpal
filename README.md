@@ -15,6 +15,7 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 9. Selections: select layers while you type. Each selection goes into the message as a chip at the cursor, so one message can give feedback on several layers. A new selection replaces the chip before the cursor until you type; click a chip to replace it.
 10. Exports: ask FigPal to export the variables as design tokens (DTCG, CSS, Tailwind, SCSS and others), or to export layers as SVG or PDF. The step shows each file with a **Download** button. FigPal keeps the files only until it closes; after that, **Download** makes an export again from the current file.
 11. Versions: with a Figma token, ask what changed since a version, for example "What changed in the Button component since last week?". FigPal compares the pages, and for the layers you name their children, component properties and variable bindings.
+12. Design-system audit: ask FigPal to audit the design system. The step shows a score from 0 to 100 for naming, tokens, components, accessibility, consistency and coverage, and FigPal explains the findings and can fix them.
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 
