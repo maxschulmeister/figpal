@@ -431,7 +431,12 @@ const exportedAgain = new Map<string, FileRef[]>();
  * The files of a tool result, to download. FigPal keeps them only until it closes. Then a Download of an export makes
  * all its files again, without the agent. Files that the agent's code made need the agent.
  */
-function ToolFiles({ callId, files, again }: { callId: string; files: FileRef[]; again?: () => Promise<FileRef[]> }) {
+function ToolFiles({
+	callId,
+	files,
+	again,
+	layers,
+}: { callId: string; files: FileRef[]; again?: () => Promise<FileRef[]>; layers: boolean }) {
 	const [current, setCurrent] = useState(() => exportedAgain.get(callId) ?? files);
 	const [running, setRunning] = useState(false);
 	const [failure, setFailure] = useState<string>();
@@ -453,10 +458,11 @@ function ToolFiles({ callId, files, again }: { callId: string; files: FileRef[];
 			const same = next.find((made) => made.name === file.name);
 			if (same) downloadFile(fileById(same.id)!);
 			// For example, a layer or a collection has a new name.
-			else setFailure("The file changed, so the export has other files now. Download them below.");
+			else setFailure("The file has changed, so the export is different now. Download the new files below.");
 		} catch (error) {
 			const reason = errorText(error);
-			setFailure(`Cannot make ${file.name} again: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`);
+			// The file of a layer export names the layer. An error of a token export is about the whole export.
+			setFailure(layers ? `Cannot make ${file.name} again: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}` : reason);
 		} finally {
 			setRunning(false);
 		}
@@ -500,6 +506,7 @@ const ToolCall: ToolCallMessagePartComponent = (props) => {
 					callId={props.toolCallId}
 					files={files}
 					again={exportAgain(toolName, args)}
+					layers={toolName === "figma_export_nodes"}
 				/>
 			)}
 			<Collapsible.Panel>
