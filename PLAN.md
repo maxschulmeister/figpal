@@ -167,7 +167,7 @@ figpal/
   - Thread list for the current file: new, fork, rename, delete.
   - Chat: streamed text, tool calls (collapsible), subagent transcripts under their call, attachments.
   - Settings: providers and models, enabled models (for the model menu and subagents), skills, web search, export and import.
-- Every user message gets a short context block: file name, page, selection (IDs, names, types).
+- Every user message gets a short context block: file name and page. Node references (IDs, names, types) come from the selection chips at their places in the message.
 - Harness setup for each file: `IndexedDbStorage.open("figpal:file:<fileId>")` inside a Web Lock, then `harness.resume()`. Call `navigator.storage.persist()`.
 - If a second plugin window opens the same file, it shows a notice. (pi-durable 1.4.0 `IndexedDbStorage` has no `readOnly` option.)
 
@@ -190,7 +190,7 @@ figpal/
 |---|---|---|
 | `figma_execute(code, timeout_ms?)` | Runs Plugin API JavaScript. Top-level `await`, `return` gives JSON. `pi.*` helpers are available. | Not safe (`interrupted` after a restart) |
 | `figma_screenshot(node_id?, scale?)` | Returns a PNG of a node or of the viewport | Safe |
-| `figma_rest(method, path, body?)` (optional) | Figma REST API with a personal access token: comments, versions, library search across files | `GET` is safe |
+| `figma_rest(method, path, body?)` | Figma REST API with a personal access token: comments, versions, library search across files | Not safe (a POST must not run two times) |
 
 - A short rules section in the system prompt, written in our own words: fonts, `layoutSizing` order, read-only paints, pages, colors in the 0–1 range, return node IDs, verify with a screenshot.
 - Goal: less than 3k tokens for all tool schemas plus the rules.
@@ -291,7 +291,7 @@ Rules:
 | Store | Scope | Contents |
 |---|---|---|
 | `clientStorage` | Plugin ID, device | Settings (`figpal.settings`: model and thinking level of new threads, enabled models), the UI source (`figpal.ui`). No secrets: code from `figma_execute` can read it. |
-| `localStorage` | Hosted origin | Model credentials (`figpal.credentials`). Each UI origin (remote, local) has its own. |
+| `localStorage` | Hosted origin | Credentials (`figpal.credentials`): the model accounts and the Figma token (`figma`). Each UI origin (remote, local) has its own. |
 | IndexedDB `figpal:file:<fileId>` | Hosted origin | pi-durable session for the file: the thread list (`figpal.threads`), conversations, tasks, transcripts, attachments |
 | IndexedDB `figpal:global` | Hosted origin | Skills. Version 3 has an empty `agents` store (see [Later tasks](#later-tasks)). |
 | `figma.root` plugin data | Document | `figpal.fileId` (fallback only) |
@@ -467,7 +467,7 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 | IndexedDB is cleared with the Figma cache | Threads are lost | `navigator.storage.persist()`, export, optional sync to the VPS later. |
 | Figma skills have no license | Cannot be shipped with FigPal | Install them per user from skills.sh only. |
 | Long `figma_execute` calls block Figma | Figma does not respond | Timeout, yielding helpers, rules section. After a timeout, canvas calls fail until the old call ends. |
-| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage` and the open file. Since Phase 5, `allowedDomains: ["*"]` lets it send data to any host with `fetch` or an image URL, and `figma.openExternal(url)` opens the browser. A prompt injection (in the file, in a skill, in web results) can use this. | The credentials are in the storage of the UI since 2026-10-31, out of reach of this code and of the model. Accepted: injected code could send content of the open file out (the code shows in the chat as "Run code"). A check for network calls in the code would be easy to get around. Skills are instructions for the model: install only skills that you trust. |
+| Code from `figma_execute` runs in the same sandbox as `code.js` | It can read `figma.clientStorage` and the open file. Since Phase 5, `allowedDomains: ["*"]` lets it send data to any host with `fetch` or an image URL, and `figma.openExternal(url)` opens the browser. A prompt injection (in the file, in a skill, in web results) can use this. | The credentials are in the storage of the UI since 2026-10-31, out of reach of this code and of the model. Accepted: injected code could send content of the open file out (the code shows in the chat as "Run code"). With a Figma token, the agent can also read (and, with write scopes, change) other files through `figma_rest`, so the settings recommend read-only scopes. A check for network calls in the code would be easy to get around. Skills are instructions for the model: install only skills that you trust. |
 
 ## Decision log
 
@@ -553,6 +553,42 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - Image bytes from the UI to `figma.createImage`: with `"*"`, `createImageAsync` loads from every host, and both take the same formats.
   - `web_fetch`: Claude's tool needs a beta header that only a live token can check. ChatGPT's search opens pages itself. Add it if a test shows the need.
 
+2026-10-31 (Phase 6):
+
+- Delivery (user decision): run simplify and commit after each chunk, not only after the whole phase. Chunk 1 contains REST access, the three copied checks, selection chips, and model controls. Token export, version diff, design-system scoring, and Motion export are later chunks.
+- Chunk 1 review (three reviewers on the full diff, also the copied code). Fixed:
+  - Lint loads styles and variables only for the rules that use them. The accessibility audit reads only the 20 color pairs that it checks. `figma_rest` keeps only the first 40 KB of an answer in memory.
+  - Bugs in the copied checks (user decision: fix them in FigPal's copy and list each fix at the top of `checks.js`; no report to figma-console-mcp). Large text uses Figma's numeric font weight. Contrast uses the colors that show (paint opacity), for text, controls and focus rings. An unknown lint rule throws. The three checks share one search for the default variant: Figma's default, or with a state axis the variant with a resting state value (whole values such as "Default" or "Enabled", so "Size=Base" does not count). Before, the lint and the audit took the first child. Variant names without a space after the comma work. A removed paint is `null` in `diffFromDefault`. An "Interaction" axis and names such as "Controls/Button" count as interactive, and presentational names (badge, tag, …) stay presentational. The lint walk lets timers and input run every 500 nodes.
+  - Agent selections: Figma does not tell who changed the selection. A watch of the `selection` setter is not possible (Figma test 2026-11-01): the accessor on the page prototype cannot be redefined (`configurable: false`), and page objects are not extensible, so they cannot get an own property. A Proxy around the `figma` object that the code gets was rejected: comparisons such as `node.parent === figma.currentPage` would fail. So the rule stays: a selection change while `figma_execute` code runs counts as the code's, and so does the selection that the code left, until a different selection. Limit: a click by the user while code runs adds no chip.
+  - Highlighted text stays when you select a node: the chip goes after it.
+  - The pi checks refuse a wrong node argument, such as a list of nodes, instead of a scan of the whole page.
+  - `figma_rest` uses pi-durable's output limit (`outputLimits`: the first 40 KB), not its own buffer (user decision: the pi maintainers improve it), and stops reading after it. The model gets the same text. pi-durable's note counts only the bytes that FigPal read, so FigPal adds that the answer is longer.
+  - Chip size: assistant-ui's directive parser reads at most 1024 characters of chip data, so a chip keeps the nodes that fit (about 20) and layer names of at most 40 characters (Figma names a text layer with its text). Selection events have the count of all nodes (`selectionCount`; code.js sends at most 50). The label shows the count of all ("300 Nodes"; the type only when all nodes are known), and the model gets "and N more".
+  - The UI checks selection events at the entry point. An event of an older `code.js` (no page or `byAgent`) is ignored, with a console message to run the newest plugin.
+  - The first chip of a new chat comes from the last selection of the user, not of the agent. Names in the `<figma>` block have no `<` or `>`.
+  - Spaces (user request: one function, not separate rules): a chip has exactly one space before it and after it when text or a chip is next to it. Lexical node transforms run the function after each change of a chip or of the text next to one. Backspace or Delete next to a chip, or next to its space, removes the chip and the space after it.
+
+- `figma_rest(method, path, body?)` in the `figma` extension. `api.figma.com` allows CORS from every origin (`*`, also for `X-Figma-Token` and POST), so the UI calls it directly, with no Caddy route.
+  - The token is the credential `figma` in the UI's credential store (`localStorage`), out of reach of `figma_execute` code. pi-ai never lists the store, so an ID that is not a provider is safe.
+  - The token goes only to `https://api.figma.com/v1/…` or `/v2/…`: a path such as `//host` is refused.
+  - Errors give Figma's status and answer, and `Retry-After` for 429. Answers are cut after 40 KB with a hint (`depth`, `ids`, `/nodes`).
+  - Replay is `unsafe`: pi-durable sets it per tool, and a POST must not run two times after a restart.
+  - The `<figma>` block gives the file key (`figma.fileKey`, `FileInfo.fileKey`), so the model can build REST paths and file links.
+  - Settings → Figma: a token form, the same component as the Claude token (`TokenAccount`). FigPal does not check the token when you save it: every endpoint needs a scope, and the scopes are the user's choice.
+- Checks from figma-console-mcp `code.js` (commit `5ef4df3`, MIT): `plugin/src/vendor/figma-console-mcp/checks.js` (with its LICENSE) has the handlers `LINT_DESIGN`, `AUDIT_COMPONENT_ACCESSIBILITY` and `ANALYZE_COMPONENT_SET`. They are `pi.lint(node?, options)`, `pi.auditAccessibility(node?)` and `pi.analyzeComponentSet(node)` in `figma_execute`, so there is no new tool.
+  - The top of the file lists the changes: functions that return or throw instead of messages, no logs, and no names of MCP tools.
+  - `figma.variables.getVariableById` is sync, and a plugin with `documentAccess: "dynamic-page"` cannot call it. So the `token-misuse` rule did nothing. It now uses the names of the local variables, which the lint loads before the walk. Variables from libraries are not checked.
+  - Biome skips `vendor/`: the copy keeps its style, so a later update is a simple diff.
+  - figma-console-mcp's tests copy the math instead of running `code.js`, so none were ported. FigPal's tests run the copy through `execute` on a fake Plugin API tree.
+- Model controls (user request): the model and thinking level are separate menus on the left below the prompt. The model menu ends with "Edit Models", which opens Settings → Models even if another settings tab was open. The thinking menu shows only the levels that the model supports.
+- Selection chips (user request, like pen.dev): a message can be about more than one selection, for example "select a node, give feedback, select another, give feedback". The selection goes into the text as a chip, and each piece of feedback stays next to its node.
+  - Rules: a new selection inserts a chip at the caret, with a space after it (not a second one if a space follows). If the caret is right after a chip and its space (nothing typed after it, or the user clicked the chip), the selection replaces it, and an empty selection removes it. Several selected nodes make one chip: "2 Frames" for one type ("Text layers" for text), else "5 Nodes" (user request). The field starts with a chip of the selection when the chat opens, and is empty after Send.
+  - Keys: Backspace or Delete next to a chip removes the whole chip and its space, but keeps a space between two words. Chrome cannot move the caret over an inline element that is not editable, and Lexical's plain-text mode leaves that to Chrome, so the arrow keys jump over a chip in FigPal's code.
+  - Selections that `figma_execute` code makes add no chip. `code.js` marks a selection event `byAgent` while the code runs (code that timed out runs until it ends), and also for the selection that the code left, until a different selection: Figma can report the change after the code ends. The event also has the page, because React state can be one event late after a page change.
+  - Only the chips count: the `<figma>` block has the file and the page, no "Selection" line. The model gets each chip as `<nodes page="Home (0:1)">Card (FRAME, 1:2), …</nodes>` at its place in the text. The transcript keeps the chips (an assistant-ui directive `:node{…}` with the page and nodes as JSON). A thread title uses the chip labels. The selection line under the field was removed: the chips show it.
+  - The field is assistant-ui's Lexical input (`@assistant-ui/react-lexical` 0.2.20, Lexical 0.53.0), because a textarea cannot show chips. A Lexical plugin (`selection-chips.tsx`) inserts the chips. An update while the user is in Figma skips the DOM selection, so the plugin window does not take the focus. Lexical handles Cmd+A and Cmd+Z in its own code: with the key events as Figma Desktop sends them (no menu command), both work in Chrome. The main bundle grew from 1.70 MB to 1.94 MB.
+- Exports (user decision): an exported file stays in memory until FigPal closes, not in the thread. After a restart, the export step shows that the file is gone, with a button that runs the export again without the agent. That works because exports are read-only functions in `code.js`.
+
 ## Open questions
 
 None at the moment.
@@ -571,6 +607,13 @@ Profiles with their own instructions, model, thinking level and skills, for the 
 - A stale profile must not fail: a removed skill is left out, and a model that was removed (or whose provider is not connected) falls back to the thread's model, with a warning on the profile.
 - Storage: `figpal:global` already has an empty `agents` store (version 3).
 - Alternative with less code: one "Instructions" field in the settings for the main agent and all subagents.
+
+### Archive and delete threads
+
+Now "Delete" only hides a thread: pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`). The user suggested two actions (2026-10-31).
+
+- Archive: hide the thread, as "Delete" does now, with a way to show archived threads again.
+- Delete: remove the entries, so that they do not fill the browser storage. This needs pi-durable support, or a "Delete all threads of this file" action.
 
 ### Thread names
 
