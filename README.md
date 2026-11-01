@@ -18,6 +18,7 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 12. Design-system audit: ask FigPal to audit the design system. The step shows a score from 0 to 100 for naming, tokens, components, accessibility, consistency and coverage, and FigPal explains the findings and can fix them.
 13. Layer checks: ask FigPal to check a page or a frame, for example "Check this page". The step shows a pill for each problem, such as "Color without variable · 12"; click it to select those layers. Contrast is checked with WCAG 2 and with APCA (the method of the WCAG 3 drafts).
 14. Motion: ask FigPal to animate a frame, for example "Fade in the cards one after the other". FigPal checks its work with frames of the animation (the step "Check animation"). Ask for an MP4, WebM or GIF to download the animation.
+15. The panel: drag the grip in the bottom-right corner to resize FigPal (or focus it and use the arrow keys); FigPal keeps the size. Under the message box, on the right, FigPal shows how much of the model's context window the chat uses, for example "45k / 1M".
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 
