@@ -33,8 +33,7 @@ export default async function picker(t: Context) {
 	await t.screenshot(session, "picker-thinking");
 	await frame.getByRole("menuitemradio", { name: "High", exact: true }).click();
 	await page.waitForTimeout(400);
-	same("the level changes", await frame.getByRole("button", { name: "Thinking: High" }).textContent().catch(() => null), "High");
-	await page.keyboard.press("Escape");
+	same("the level changes, and the menu closes", [await frame.getByRole("button", { name: "Thinking: High" }).textContent().catch(() => null), await frame.getByRole("menu").count()], ["High", 0]);
 	await model.click();
 	await page.waitForTimeout(300);
 	const items = await frame.getByRole("menu").locator('[role="menuitem"], [role="menuitemradio"]').allTextContents();
@@ -71,4 +70,13 @@ export default async function picker(t: Context) {
 	});
 	await page.waitForTimeout(300);
 	same("a narrow panel has no horizontal scroll", await frame.evaluate(() => document.documentElement.scrollWidth === innerWidth), true);
+	await frame.getByRole("button", { name: "Claude Sonnet 5.5" }).click();
+	await frame.getByRole("menuitemradio", { name: "Claude Opus 5.5" }).click();
+	await page.waitForTimeout(400);
+	same("a model choice closes the menu", [await frame.getByRole("menu").count(), await frame.getByRole("button", { name: "Claude Opus 5.5" }).count()], [0, 1]);
+	// The mocked answer reports 10 input and 5 output tokens; Claude Opus 5.5 has 1,000,000.
+	same("no context usage before the first answer", await frame.getByText(/^Context:/).count(), 0);
+	await session.ask("Hi", "Done.");
+	same("the context usage after an answer", [await frame.getByText("15 / 1M").isVisible(), await frame.getByText("Context: 15 of 1,000,000 tokens").count()], [true, 1]);
+	await t.screenshot(session, "picker-context");
 }

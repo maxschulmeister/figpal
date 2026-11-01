@@ -30,6 +30,32 @@ function view(entries: unknown[], live: object = {}, agent?: object): Conversati
 }
 
 describe("toThread", () => {
+	// The size of the last request, as the provider reports it: what the conversation fills of the context window.
+	it("gives the context size of the newest answer with usage", () => {
+		const sized = (id: number, totalTokens: number) => {
+			const entry = assistant(id, [{ type: "text", text: "Done." }]);
+			entry.model[0]!.usage = totalTokens ? { ...usage, totalTokens } : { ...usage, input: 0, output: 0, totalTokens };
+			return entry;
+		};
+		expect(toThread(view([userEntry(1, "Hi")])).contextTokens).toBeUndefined();
+		// An answer that stopped before the provider counted has no tokens.
+		const thread = toThread(view([userEntry(1, "Hi"), sized(2, 1200), userEntry(3, "More"), sized(4, 4500), sized(5, 0)]));
+		expect(thread.contextTokens).toBe(4500);
+	});
+
+	// After a compaction, the kept answers measured the long context before it, as pi-durable's estimate knows.
+	it("gives no context size from answers before the newest compaction", () => {
+		const sized = (id: number, totalTokens: number) => {
+			const entry = assistant(id, [{ type: "text", text: "Done." }]);
+			entry.model[0]!.usage = { ...usage, totalTokens };
+			return entry;
+		};
+		const marker = { id: 10, conversationId: 1, kind: "pi.summary", head: 5, model: [{ role: "user", content: "Summary", timestamp: 1 }] };
+		const kept = [marker, userEntry(5, "Hi"), sized(6, 970_000)];
+		expect(toThread(view(kept)).contextTokens).toBeUndefined();
+		expect(toThread(view([...kept, userEntry(11, "More"), sized(12, 30_000)])).contextTokens).toBe(30_000);
+	});
+
 	it("shows the typed text of a user message and one assistant turn with its tool results", () => {
 		const { messages } = toThread(
 			view([

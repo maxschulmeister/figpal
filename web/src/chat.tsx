@@ -225,6 +225,7 @@ export function Chat(props: ChatProps) {
 									onChange={props.onModelChange}
 									onEditModels={props.onEditModels}
 								/>
+								<ContextUsage tokens={thread?.contextTokens} model={thread?.agent?.model} models={props.models} />
 							</div>
 						</ThreadPrimitive.ViewportFooter>
 					</ThreadPrimitive.Viewport>
@@ -243,6 +244,28 @@ const THINKING_LABELS: Record<ModelThinkingLevel, string> = {
 	xhigh: "Extra high",
 	max: "Max",
 };
+
+/** 1,234 as "1.2k", 45,300 as "45k", 1,000,000 as "1M". */
+function tokenCount(tokens: number): string {
+	const [value, unit] = tokens >= 1e6 ? [tokens / 1e6, "M"] : tokens >= 1e3 ? [tokens / 1e3, "k"] : [tokens, ""];
+	return `${value >= 10 || !unit ? Math.round(value) : Number(value.toFixed(1))}${unit}`;
+}
+
+/** How much of the context window the conversation fills: the size of its newest request. */
+function ContextUsage(props: { tokens: number | undefined; model: AgentState["model"] | undefined; models: Models }) {
+	const window = props.model && props.models.getModel(props.model.provider, props.model.modelId)?.contextWindow;
+	if (props.tokens === undefined || !window) return null;
+	return (
+		<Text className="ml-auto shrink-0 pr-2 text-secondary tabular-nums">
+			<span aria-hidden="true">
+				{tokenCount(props.tokens)} / {tokenCount(window)}
+			</span>
+			<span className="sr-only">
+				Context: {props.tokens.toLocaleString("en-US")} of {window.toLocaleString("en-US")} tokens
+			</span>
+		</Text>
+	);
+}
 
 /** The model and thinking level of the thread. pi-durable uses "off" when the thread has no thinking level. */
 function ModelPicker(props: {
@@ -293,7 +316,7 @@ function ModelPicker(props: {
 									{index > 0 && <DropdownMenu.Separator />}
 									<DropdownMenu.GroupLabel>{provider.label}</DropdownMenu.GroupLabel>
 									{models.map((item) => (
-										<DropdownMenu.RadioItem key={item.id} value={item.id}>
+										<DropdownMenu.RadioItem key={item.id} value={item.id} closeOnClick>
 											<DropdownMenu.RadioItemIndicator>
 												<CheckmarkIcon size="4" />
 											</DropdownMenu.RadioItemIndicator>
@@ -327,7 +350,7 @@ function ModelPicker(props: {
 									onValueChange={(level: ModelThinkingLevel) => void choose({ model: ref, thinkingLevel: level })}
 								>
 									{levels.map((level) => (
-										<DropdownMenu.RadioItem key={level} value={level}>
+										<DropdownMenu.RadioItem key={level} value={level} closeOnClick>
 											<DropdownMenu.RadioItemIndicator>
 												<CheckmarkIcon size="4" />
 											</DropdownMenu.RadioItemIndicator>

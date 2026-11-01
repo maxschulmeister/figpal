@@ -2,6 +2,7 @@
 
 import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { calculateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
 	AgentDoc,
 	type AgentState,
@@ -23,6 +24,8 @@ export type Thread = {
 	retry?: { at: number; error: string };
 	/** The model and thinking level of the thread. pi-durable uses thinking level "off" when it has none. */
 	agent?: AgentState;
+	/** The size of the newest request, as its provider reported it. Undefined before the first answer. */
+	contextTokens?: number;
 };
 
 /**
@@ -39,6 +42,9 @@ export function toThread(view: ConversationView): Thread {
 
 	const messages: ThreadMessageLike[] = [];
 	let userId = "start";
+	let contextTokens: number | undefined;
+	// After a compaction, the kept answers measured the context before it (pi-durable's estimateContext does the same).
+	const compacted = view.entries.find((entry) => entry.head !== undefined)?.id ?? Number.NEGATIVE_INFINITY;
 	/** `entryId` is absent for the streamed part of the running answer. */
 	const answer = (response: AssistantMessage, entryId?: number) => {
 		const last = messages.at(-1);
@@ -57,7 +63,12 @@ export function toThread(view: ConversationView): Thread {
 			messages.push({ id: userId, role: "user", content: [{ type: "text", text: entry.data.text }] });
 			continue;
 		}
-		for (const message of entry.model ?? []) if (message.role === "assistant") answer(message, entry.id);
+		for (const message of entry.model ?? []) {
+			if (message.role !== "assistant") continue;
+			answer(message, entry.id);
+			// An answer that stopped before the provider counted has no tokens.
+			if (entry.id > compacted) contextTokens = calculateContextTokens(message.usage) || contextTokens;
+		}
 	}
 
 	if (live?.generation?.message) answer(live.generation.message as AssistantMessage);
@@ -65,7 +76,7 @@ export function toThread(view: ConversationView): Thread {
 	const last = messages.at(-1);
 	if (isRunning && last?.role === "assistant") messages[messages.length - 1] = { ...last, status: { type: "running" } };
 	const agent = view.docs[AgentDoc.definition.kind] as AgentState | undefined;
-	return { messages, isRunning, retry: live?.generation?.retry, agent };
+	return { messages, isRunning, retry: live?.generation?.retry, agent, contextTokens };
 }
 
 function assistantParts(

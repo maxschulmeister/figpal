@@ -23,7 +23,14 @@ import {
 import { ExecuteTimeout, execute } from "./execute";
 import { lintDesign } from "./vendor/figma-console-mcp/checks.js";
 
-const UI_OPTIONS: ShowUIOptions = { width: 420, height: 680, themeColors: true };
+const UI_OPTIONS: ShowUIOptions = { themeColors: true };
+const DEFAULT_WIDTH = 420;
+const MIN_SIZE = { width: 320, height: 400 };
+/** Figma's smallest panel. */
+const FIGMA_MIN_SIZE = { width: 70, height: 0 };
+/** The title bar of the panel and a gap: the panel fits in the visible canvas. */
+const CANVAS_MARGIN = 64;
+const SIZE_KEY = "figpal.size";
 const LOAD_TIMEOUT_MS = 10_000;
 const UI_KEY = "figpal.ui";
 const FILE_ID_KEY = "figpal.fileId";
@@ -33,7 +40,30 @@ const MAX_SELECTION = 50;
 let source: UiSource = "remote";
 const uiOrigin = () => UI_ORIGINS[source];
 const uiUrl = () => `${uiOrigin()}/`;
-const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, title: `FigPal (${source})` });
+/** The size of the panel: the saved size, or the full height. */
+let size: { width: number; height: number } | undefined;
+const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, ...fit(size), title: `FigPal (${source})` });
+
+/**
+ * The size within the visible canvas, which is as large as the panel can be: code.js cannot read the size of the
+ * Figma window. Without a size: the default width and the full height.
+ */
+function fit(wanted?: { width: number; height: number }): { width: number; height: number } {
+	const { bounds, zoom } = figma.viewport;
+	const max = { width: Math.round(bounds.width * zoom) - CANVAS_MARGIN, height: Math.round(bounds.height * zoom) - CANVAS_MARGIN };
+	// The canvas wins over MIN_SIZE: the corner of the panel must stay on the screen.
+	const clamp = (value: number, key: "width" | "height") =>
+		Math.round(Math.max(FIGMA_MIN_SIZE[key], Math.min(max[key], Math.max(MIN_SIZE[key], value))));
+	return { width: clamp(wanted?.width ?? DEFAULT_WIDTH, "width"), height: clamp(wanted?.height ?? max.height, "height") };
+}
+
+const isSize = (value: unknown): value is { width: number; height: number } =>
+	typeof value === "object" &&
+	value !== null &&
+	Number.isFinite((value as { width?: unknown }).width) &&
+	Number.isFinite((value as { height?: unknown }).height);
+
+let saveTimer = 0;
 
 let loadTimer = 0;
 
@@ -360,6 +390,17 @@ const handlers: Handlers = {
 		return { result: { count: attachments.length }, attachments };
 	},
 
+	async resize(wanted) {
+		if (!isSize(wanted)) throw new Error("The size must be numbers.");
+		size = fit(wanted);
+		figma.ui.resize(size.width, size.height);
+		// A drag sends many sizes: save the last one.
+		clearTimeout(saveTimer);
+		const saving = size;
+		saveTimer = setTimeout(() => void figma.clientStorage.setAsync(SIZE_KEY, saving).catch((error) => console.warn("FigPal could not save the panel size:", error)), 300);
+		return { result: size };
+	},
+
 	async "open-external"({ url }) {
 		if (!/^https:\/\//.test(url)) throw new Error("Only https URLs can open");
 		figma.openExternal(url);
@@ -436,13 +477,10 @@ figma.on("currentpagechange", () => {
 	post({ kind: "event", type: "page", page: summarize(figma.currentPage) });
 });
 
-void figma.clientStorage
-	.getAsync(UI_KEY)
-	.then(
-		(saved: unknown) => {
-			if (saved === "local") source = "local";
-		},
-		// Without the setting, open the remote UI.
-		() => undefined,
-	)
-	.then(showUi);
+// Without a setting, the remote UI and the full height.
+const setting = (key: string) => figma.clientStorage.getAsync(key).catch(() => undefined);
+void Promise.all([setting(UI_KEY), setting(SIZE_KEY)]).then(([ui, saved]) => {
+	if (ui === "local") source = "local";
+	if (isSize(saved)) size = saved;
+	showUi();
+});

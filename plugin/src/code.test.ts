@@ -3,21 +3,32 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 type OnMessage = (message: unknown, props: { origin: string }) => void;
 
 /** Runs code.ts with a fake Plugin API. Returns the HTML of each `figma.showUI` call, and the UI channel. */
-async function startPlugin(getAsync: () => Promise<unknown>, api: object = {}) {
+async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: object = {}) {
 	const shown: string[] = [];
+	const options: ShowUIOptions[] = [];
 	const posted: unknown[] = [];
-	const ui = { postMessage: (message: unknown) => posted.push(message), onmessage: undefined as OnMessage | undefined };
+	const saved = new Map<string, unknown>();
+	const ui = {
+		postMessage: (message: unknown) => posted.push(message),
+		onmessage: undefined as OnMessage | undefined,
+		resize: vi.fn(),
+	};
 	vi.stubGlobal("figma", {
-		clientStorage: { getAsync, setAsync: async () => {} },
-		showUI: (html: string) => shown.push(html),
+		clientStorage: { getAsync, setAsync: async (key: string, value: unknown) => void saved.set(key, value) },
+		showUI: (html: string, option: ShowUIOptions) => {
+			shown.push(html);
+			options.push(option);
+		},
 		ui,
 		on() {},
 		...api,
+		// The visible canvas: 1600 × 900 px. A test can add to the viewport, for example scrollAndZoomIntoView.
+		viewport: { bounds: { width: 800, height: 450 }, zoom: 2, ...(api as { viewport?: object }).viewport },
 	});
 	vi.resetModules();
 	await import("./code");
 	await new Promise((resolve) => setTimeout(resolve, 0));
-	return { shown, posted, send: (message: unknown, origin: string) => ui.onmessage?.(message, { origin }) };
+	return { shown, options, posted, saved, ui, send: (message: unknown, origin: string) => ui.onmessage?.(message, { origin }) };
 }
 
 const start = async (getAsync: () => Promise<unknown>) => (await startPlugin(getAsync)).shown;
@@ -29,6 +40,34 @@ describe("code.ts start", () => {
 		const shown = await start(async () => "local");
 		expect(shown).toHaveLength(1);
 		expect(shown[0]).toContain("http://localhost:5173/");
+	});
+
+	// The canvas is 1600 × 900 px: the panel and its title bar fit in it.
+	it("opens at the height of the canvas without a saved size", async () => {
+		const { options } = await startPlugin(async () => undefined);
+		expect(options[0]).toMatchObject({ width: 420, height: 836 });
+	});
+
+	it("opens at the saved size, at most as large as the canvas", async () => {
+		const { options } = await startPlugin(async (key) => (key === "figpal.size" ? { width: 2000, height: 500 } : undefined));
+		expect(options[0]).toMatchObject({ width: 1536, height: 500 });
+		const broken = await startPlugin(async (key) => (key === "figpal.size" ? { width: "wide" } : undefined));
+		expect(broken.options[0]).toMatchObject({ width: 420, height: 836 });
+	});
+
+	// The corner of the panel must stay on the screen: the canvas wins over the minimum size.
+	it("fits a small canvas", async () => {
+		const { options } = await startPlugin(async () => undefined, { viewport: { bounds: { width: 300, height: 350 }, zoom: 1 } });
+		expect(options[0]).toMatchObject({ width: 236, height: 286 });
+	});
+
+	it("resizes the panel within the limits, and saves the size", async () => {
+		const { posted, saved, ui, send } = await startPlugin(async () => "remote");
+		send({ kind: "request", id: "1", type: "resize", params: { width: 100, height: 600 } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		expect(ui.resize).toHaveBeenCalledWith(320, 600);
+		expect(posted[0]).toMatchObject({ ok: true, result: { width: 320, height: 600 } });
+		await vi.waitFor(() => expect(saved.get("figpal.size")).toEqual({ width: 320, height: 600 }));
 	});
 
 	it("opens the remote UI when the setting cannot be read", async () => {

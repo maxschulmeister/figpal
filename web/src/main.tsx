@@ -5,6 +5,7 @@ import { THEME_HASH_KEY } from "@figpal/shared";
 import { createRoot } from "react-dom/client";
 import { App } from "./app";
 import { createBridge } from "./bridge";
+import { ResizeGrip } from "./resize-grip";
 
 const theme = new URLSearchParams(location.hash.slice(1)).get(THEME_HASH_KEY) ?? "";
 document.documentElement.classList.add(...theme.split(" ").filter((name) => name.startsWith("figma-")));
@@ -19,4 +20,10 @@ addEventListener("keydown", (event) => {
 	field.select();
 });
 
-createRoot(document.getElementById("app")!).render(<App bridge={createBridge()} />);
+const bridge = createBridge();
+createRoot(document.getElementById("app")!).render(
+	<>
+		<App bridge={bridge} />
+		<ResizeGrip bridge={bridge} />
+	</>,
+);

@@ -107,6 +107,8 @@ export type Requests = {
 	components: { params: Record<string, never>; result: Components };
 	/** Read-only. Without nodeId: the current page. */
 	lint: { params: { nodeId?: string; rules?: string[]; maxFindings?: number }; result: LintResult };
+	/** Resizes the panel, within the canvas, and saves the size. Gives the size that it set. */
+	resize: { params: { width: number; height: number }; result: { width: number; height: number } };
 	/** Selects the layers of the first page that has one of them, and zooms to them. */
 	select: { params: { nodeIds: string[] }; result: { count: number } };
 	/**
@@ -163,6 +165,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	lint: true,
 	select: true,
 	export: true,
+	resize: true,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
