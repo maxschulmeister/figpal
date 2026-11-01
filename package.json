@@ -7,6 +7,7 @@
 		"dev": "pnpm --parallel --filter @figpal/plugin --filter @figpal/web dev",
 		"build": "pnpm --filter @figpal/plugin build && pnpm --filter @figpal/web build",
 		"test": "vitest run",
+		"e2e": "node e2e/run.ts",
 		"typecheck": "pnpm -r typecheck",
 		"lint": "biome lint",
 		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh"
