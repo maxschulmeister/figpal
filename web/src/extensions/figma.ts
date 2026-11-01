@@ -5,6 +5,8 @@ import { type CredentialStore, type ImageContent, type TextContent, Type } from 
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, SCREENSHOT_MAX_PX } from "@figpal/shared";
 import type { Bridge } from "../bridge";
+import { type FileDetails, filesNote, keepFiles } from "../files";
+import { exportTokens, TOKEN_EXPORT } from "../tokens";
 
 const RULES = `You are FigPal, an agent in a Figma plugin. You read and change the open Figma file.
 
@@ -14,6 +16,7 @@ Tools:
 - figma_execute runs Plugin API JavaScript. Keep each call small. Return the IDs of the nodes that you make or change.
 - figma_screenshot shows a node. After a visual change, use it to check the result.
 - figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
+- figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...). The user downloads the files from the step.
 
 Plugin API rules:
 - Pages load on demand. Use the async API: getNodeByIdAsync, setCurrentPageAsync, getMainComponentAsync. Call \`await page.loadAsync()\` before you read another page.
@@ -32,10 +35,13 @@ function toBase64(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
+/** The image types that models read. Other files, such as SVG, go to the user. */
+const MODEL_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 /** Image attachments go to the model as images. */
 function images(attachments: Attachment[]): ImageContent[] {
 	return attachments
-		.filter((attachment) => attachment.mime.startsWith("image/"))
+		.filter((attachment) => MODEL_IMAGES.has(attachment.mime))
 		.map((attachment) => ({ type: "image", data: toBase64(attachment.bytes), mimeType: attachment.mime }));
 }
 
@@ -55,7 +61,7 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 				description: [
 					"Runs Figma Plugin API JavaScript in the open file. The code is the body of an async function: use await,",
 					`and \`return\` a JSON value. Nodes in the value become { id, name, type }. The output is cut after ${EXECUTE_OUTPUT_LIMIT.toLocaleString("en-US")} characters.`,
-					"`pi.attach(bytes, { mime, name })` sends an image (for example from exportAsync) to you with the result.",
+					"`pi.attach(bytes, { mime, name })` sends a PNG, JPEG, GIF or WebP image (for example from exportAsync) to you with the result; other files (SVG, PDF, ...) go to the user as downloads.",
 					"Checks (node or ID; return their JSON):",
 					'`pi.lint(node?, { rules?, maxFindings? })` finds accessibility (WCAG) and design-system problems; rules are "wcag", "design-system", "layout", "best-practice" or "all", default the first three; without node, the page.',
 					"`pi.auditAccessibility(componentSet)` scores states, focus, target size and contrast loss under color-blind simulation. Use `pi.lint` for baseline text contrast.",
@@ -71,7 +77,10 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 				execute: async ({ code, timeout_ms }, _api, context) => {
 					const request = bridge.request("execute", { code, timeoutMs: timeout_ms });
 					const { result, attachments } = await awaitWithContext(request, context);
-					return { output: [text(result.value), ...images(attachments)] };
+					const shown = images(attachments);
+					const files = keepFiles(attachments.filter((attachment) => !MODEL_IMAGES.has(attachment.mime)));
+					const note = files.length ? `\n${filesNote(files)}` : "";
+					return { output: [text(result.value + note), ...shown], ...(files.length && { details: { files } satisfies FileDetails }) };
 				},
 			}),
 			defineTool({
@@ -149,6 +158,18 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 							message: `FigPal stopped reading after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes, and the answer is longer. Ask for less, for example with depth=1, ids=…, or /v1/files/KEY/nodes?ids=….`,
 						});
 					return {};
+				},
+			}),
+			defineTool({
+				name: "figma_export_tokens",
+				description:
+					"Exports the local variables of the open file as design tokens. The user downloads the files from this step; you get a summary and the start of the first file. dtcg_dialect 2025 gives DTCG 2025.10 colors and dimensions (Style Dictionary v5) in dtcg and json formats.",
+				parameters: TOKEN_EXPORT,
+				// Read-only.
+				replay: "safe",
+				execute: async (args, _api, context) => {
+					const { files, summary } = await awaitWithContext(exportTokens(bridge, args), context);
+					return { output: [text(summary)], details: { files: keepFiles(files) } satisfies FileDetails };
 				},
 			}),
 		],

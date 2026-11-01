@@ -211,6 +211,33 @@ const handlers: Handlers = {
 		return { result: null };
 	},
 
+	async variables() {
+		const [collections, variables] = await Promise.all([
+			figma.variables.getLocalVariableCollectionsAsync(),
+			figma.variables.getLocalVariablesAsync(),
+		]);
+		return {
+			result: {
+				collections: collections.map((c) => ({
+					id: c.id,
+					name: c.name,
+					modes: c.modes,
+					isExtension: c.isExtension === true,
+				})),
+				variables: variables.map((v) => ({
+					id: v.id,
+					name: v.name,
+					resolvedType: v.resolvedType,
+					valuesByMode: v.valuesByMode,
+					variableCollectionId: v.variableCollectionId,
+					scopes: v.scopes,
+					codeSyntax: v.codeSyntax,
+					description: v.description,
+				})),
+			},
+		};
+	},
+
 	async "open-external"({ url }) {
 		if (!/^https:\/\//.test(url)) throw new Error("Only https URLs can open");
 		figma.openExternal(url);

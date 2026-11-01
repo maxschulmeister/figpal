@@ -37,6 +37,28 @@ export type FileInfo = {
 
 export type Attachment = { name: string; mime: string; bytes: Uint8Array };
 
+/** The local variables of the file, in the shape that the token converter of figma-console-mcp reads. */
+export type Variables = {
+	collections: {
+		id: string;
+		name: string;
+		/** The first mode is the default. */
+		modes: { modeId: string; name: string }[];
+		/** An extended collection keeps only its changes to another collection. */
+		isExtension: boolean;
+	}[];
+	variables: {
+		id: string;
+		name: string;
+		resolvedType: string;
+		valuesByMode: Record<string, unknown>;
+		variableCollectionId: string;
+		scopes: string[];
+		codeSyntax: Record<string, string>;
+		description: string;
+	}[];
+};
+
 /** Requests from the UI and the result that each one returns. */
 export type Requests = {
 	execute: { params: { code: string; timeoutMs?: number }; result: { value: string } };
@@ -45,6 +67,8 @@ export type Requests = {
 	"storage-set": { params: { key: string; value: unknown }; result: null };
 	"storage-delete": { params: { key: string }; result: null };
 	"open-external": { params: { url: string }; result: null };
+	/** Read-only, so the UI can export tokens again without the agent. */
+	variables: { params: Record<string, never>; result: Variables };
 };
 export type RequestType = keyof Requests;
 export type Params<T extends RequestType> = Requests[T]["params"];
@@ -81,6 +105,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	"storage-set": true,
 	"storage-delete": true,
 	"open-external": true,
+	variables: true,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

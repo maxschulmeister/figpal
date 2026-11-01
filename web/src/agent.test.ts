@@ -17,6 +17,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import type { Attachment, FileInfo } from "@figpal/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentModels, startAgent, userInput } from "./agent";
+import { type FileDetails, fileById } from "./files";
 import { chipItem } from "./node-chips";
 import type { Bridge } from "./bridge";
 import { currentThread } from "./threads";
@@ -117,6 +118,13 @@ const FILE: FileInfo = {
 
 const SCRIPT = { model: { provider: "faux", modelId: "script" } };
 
+/** The details of the first tool call, as the chat gets them. */
+function toolArtifact(view: Parameters<typeof toThread>[0]) {
+	for (const message of toThread(view).messages)
+		for (const part of message.content as unknown as { type: string; artifact?: unknown }[])
+			if (part.type === "tool-call") return part.artifact as FileDetails | undefined;
+}
+
 /** A scripted model: it calls the tool, then answers with the text of the tool result. */
 function scriptedModels(toolName: string, args: Parameters<typeof fauxToolCall>[1]) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "script", input: ["text", "image"] }] });
@@ -202,6 +210,35 @@ describe("figma tools", () => {
 			isError: false,
 			content: [{ type: "text", text: '"Card"' }, { type: "image", mimeType: "image/png", data: "iVBORw==" }],
 		});
+	});
+
+	// The user downloads them from the step. They stay in memory only.
+	it("figma_execute keeps files that are not images for the user, and tells the model", async () => {
+		const { models, requests } = scriptedModels("figma_execute", { code: "return 1" });
+		const svg = new TextEncoder().encode("<svg/>");
+		const { bridge } = fakeBridge(() => ({ result: { value: "1" }, attachments: [{ name: "Logo.svg", mime: "image/svg+xml", bytes: svg }] }));
+		const { view } = await run(models, bridge);
+		expect(requests[1]!.at(-1)).toMatchObject({ content: [{ type: "text", text: "1\nFiles for the user to download from this step: Logo.svg (6 bytes)." }] });
+		const files = toolArtifact(view)?.files ?? [];
+		expect(files).toMatchObject([{ name: "Logo.svg", mime: "image/svg+xml", size: 6 }]);
+		expect(fileById(files[0]!.id)?.bytes).toEqual(svg);
+	});
+
+	it("figma_export_tokens reads the variables in code.js and keeps the files for the user", async () => {
+		const { models, requests } = scriptedModels("figma_export_tokens", { format: "dtcg" });
+		const variables = {
+			collections: [{ id: "C:1", name: "Colors", modes: [{ modeId: "1:0", name: "Light" }], isExtension: false }],
+			variables: [
+				{ id: "V:1", name: "color/primary", resolvedType: "COLOR", valuesByMode: { "1:0": { r: 0, g: 0, b: 1, a: 1 } }, variableCollectionId: "C:1", scopes: [], codeSyntax: {}, description: "" },
+			],
+		};
+		const { bridge, calls } = fakeBridge(() => ({ result: variables }));
+		const { view } = await run(models, bridge);
+		expect(calls).toEqual([{ type: "variables", params: {} }]);
+		expect(requests[1]!.at(-1)).toMatchObject({ isError: false, content: [{ type: "text", text: expect.stringMatching(/^Exported 1 token from 1 collection as dtcg\./) }] });
+		const files = toolArtifact(view)?.files ?? [];
+		expect(files).toMatchObject([{ name: "tokens.tokens.json", mime: "application/json" }]);
+		expect(new TextDecoder().decode(fileById(files[0]!.id)!.bytes)).toContain('"primary"');
 	});
 
 	it("gives the model the file and page, and each chip as nodes in the text; the chat keeps the chips", async () => {

@@ -189,3 +189,29 @@ describe("selection events", () => {
 		expect(events().map((event) => event.byAgent)).toEqual([true]);
 	});
 });
+
+describe("variables", () => {
+	it("gives the local variables and collections for a token export", async () => {
+		const collection = { id: "VariableCollectionId:1", name: "Colors", modes: [{ modeId: "1:0", name: "Light" }], isExtension: false };
+		const variable = {
+			id: "VariableID:1",
+			name: "color/primary",
+			resolvedType: "COLOR",
+			valuesByMode: { "1:0": { r: 0, g: 0.4, b: 1, a: 1 } },
+			variableCollectionId: "VariableCollectionId:1",
+			scopes: ["ALL_SCOPES"],
+			codeSyntax: { WEB: "--color-primary" },
+			description: "Brand",
+		};
+		const { posted, send } = await startPlugin(async () => "remote", {
+			// Figma's objects have more fields, which the export does not read.
+			variables: {
+				getLocalVariablesAsync: async () => [{ ...variable, key: "k2", hiddenFromPublishing: false, remote: false }],
+				getLocalVariableCollectionsAsync: async () => [{ ...collection, key: "k1", defaultModeId: "1:0", variableIds: ["VariableID:1"] }],
+			},
+		});
+		send({ kind: "request", id: "1", type: "variables", params: {} }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		expect(posted[0]).toEqual({ kind: "response", id: "1", ok: true, result: { collections: [collection], variables: [variable] }, attachments: [] });
+	});
+});
