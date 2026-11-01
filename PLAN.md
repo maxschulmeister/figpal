@@ -598,6 +598,10 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
   - `figma_export_nodes(node_ids, format, scale?)` exports layers as SVG, PDF, PNG or JPG through a read-only `export` request in `code.js`, named after the layer. The rules tell the model to use the export tools, not `pi.attach`, for files the user wants.
   - Token file names stay automatic (user decision): `tokens.css`, or collection and mode names with one file per collection or mode.
   - `figma_execute` keeps attachments that are not PNG, JPEG, GIF or WebP (for example SVG or PDF) as downloads. Before, they went to the model as images, which models cannot read.
+- Version diff (part 3): `figma_diff_versions(from_version, to_version = "current", node_ids?, mode?)` uses the diff engine and changelog formatter of figma-console-mcp (`web/src/vendor/figma-console-mcp/diff`, its README lists the copied files and fixes). The agent gets version IDs with `figma_rest` `/versions`; the file key comes from `code.js` (`FileInfo.fileKey`), and without it the tool explains that it cannot work.
+  - Figma's limits for file calls are strict (Tier 1: 10 to 20 a minute for most seats, about 20 a month for View and Collab seats). So the tool reads all nodes in one call for each version: at most 4 calls, where upstream makes 2 for each node. A 429 says when to try again, as in `figma_rest`.
+  - The tool tells the model what it compares and what not (descriptions, variant options, layout, fills, instances, variable values), so the model does not say "no changes" for changes that it cannot see.
+  - No cache of versions and no author lookup: past versions show "metadata not available", the current version its date. `NOTES.md` has options for large files.
 - Deploy (2026-11-01): `deploy.sh` keeps old files in `/assets` and deletes those older than 30 days. An open FigPal window loads parts of its build later (for example the ChatGPT provider), and the server sends `index.html` for a deleted file, so the import failed after a deploy.
 
 ## Open questions
