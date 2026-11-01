@@ -1,18 +1,19 @@
 // The `figma` extension: tools that read and change the open file through code.js, and the rules for the model.
 
 import { awaitWithContext } from "@earendil-works/chord/context";
-import { type ImageContent, type TextContent, Type } from "@earendil-works/pi-ai";
+import { type CredentialStore, type ImageContent, type TextContent, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, SCREENSHOT_MAX_PX } from "@figpal/shared";
 import type { Bridge } from "../bridge";
 
 const RULES = `You are FigPal, an agent in a Figma plugin. You read and change the open Figma file.
 
-Each user message starts with a <figma> block: the file, the current page and the selected nodes (name, type, ID).
+Each user message starts with a <figma> block: the file and the current page. In the text, <nodes> marks the layers that the user selected at that point (name, type, ID): the text next to it is about them.
 
 Tools:
 - figma_execute runs Plugin API JavaScript. Keep each call small. Return the IDs of the nodes that you make or change.
 - figma_screenshot shows a node. After a visual change, use it to check the result.
+- figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
 
 Plugin API rules:
 - Pages load on demand. Use the async API: getNodeByIdAsync, setCurrentPageAsync, getMainComponentAsync. Call \`await page.loadAsync()\` before you read another page.
@@ -40,7 +41,11 @@ function images(attachments: Attachment[]): ImageContent[] {
 
 const text = (value: string): TextContent => ({ type: "text", text: value });
 
-export function figmaExtension(bridge: Pick<Bridge, "request">) {
+const REST_API = "https://api.figma.com";
+/** The answer of figma_rest is cut after this. The JSON of a whole file is often megabytes. */
+const REST_OUTPUT_BYTES = 40_000;
+
+export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pick<CredentialStore, "read">) {
 	return defineExtension({
 		name: "figma",
 		sections: [section("figma", () => RULES)],
@@ -51,6 +56,10 @@ export function figmaExtension(bridge: Pick<Bridge, "request">) {
 					"Runs Figma Plugin API JavaScript in the open file. The code is the body of an async function: use await,",
 					`and \`return\` a JSON value. Nodes in the value become { id, name, type }. The output is cut after ${EXECUTE_OUTPUT_LIMIT.toLocaleString("en-US")} characters.`,
 					"`pi.attach(bytes, { mime, name })` sends an image (for example from exportAsync) to you with the result.",
+					"Checks (node or ID; return their JSON):",
+					'`pi.lint(node?, { rules?, maxFindings? })` finds accessibility (WCAG) and design-system problems; rules are "wcag", "design-system", "layout", "best-practice" or "all", default the first three; without node, the page.',
+					"`pi.auditAccessibility(componentSet)` scores states, focus, target size and contrast loss under color-blind simulation. Use `pi.lint` for baseline text contrast.",
+					"`pi.analyzeComponentSet(componentSet)` gives its variant axes, the CSS state of each variant, and what each variant changes.",
 				].join(" "),
 				parameters: Type.Object({
 					code: Type.String(),
@@ -80,6 +89,66 @@ export function figmaExtension(bridge: Pick<Bridge, "request">) {
 					return {
 						output: [text(`Screenshot of ${result.nodeId} (${result.width} × ${result.height} px).`), ...images(attachments)],
 					};
+				},
+			}),
+			defineTool({
+				name: "figma_rest",
+				description: [
+					"Calls the Figma REST API (https://api.figma.com) with the user's personal access token.",
+					"path starts with /v1/ or /v2/ and can have a query, for example /v1/files/KEY/comments. body is JSON for POST and PUT.",
+					`The answer is JSON, cut after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes.`,
+				].join(" "),
+				parameters: Type.Object({
+					method: Type.Union([Type.Literal("GET"), Type.Literal("POST"), Type.Literal("PUT"), Type.Literal("DELETE")]),
+					path: Type.String(),
+					body: Type.Optional(Type.Object({}, { additionalProperties: true })),
+				}),
+				// Not safe to run again after a restart: a POST would, for example, add a comment two times.
+				// pi-durable keeps the head of the output and tells the model how much it dropped.
+				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
+				execute: async ({ method, path, body }, api, context) => {
+					// The token goes only to the API: a path such as //host goes to another host.
+					const url = new URL(path, REST_API);
+					if (url.origin !== REST_API || !/^\/v[12]\//.test(url.pathname)) throw new Error("path must start with /v1/ or /v2/.");
+					const credential = await credentials.read("figma");
+					if (credential?.type !== "api_key" || !credential.key)
+						throw new Error("No Figma token. Ask the user to add a personal access token in Settings → Figma.");
+					const headers: Record<string, string> = { "X-Figma-Token": credential.key };
+					if (body) headers["Content-Type"] = "application/json";
+					const response = await fetch(url.href, {
+						method,
+						headers,
+						body: body && JSON.stringify(body),
+						signal: context.abortSignal,
+					});
+					// Stop after the part that the model gets: the JSON of a whole file can be many megabytes.
+					let received = 0;
+					const reader = response.body?.getReader();
+					if (reader) {
+						try {
+							while (received <= REST_OUTPUT_BYTES) {
+								const { value, done } = await reader.read();
+								if (done) break;
+								received += value.byteLength;
+								api.output(value);
+							}
+							if (received > REST_OUTPUT_BYTES) await reader.cancel();
+						} finally {
+							reader.releaseLock();
+						}
+					}
+					// On an error, the output has the error of Figma.
+					if (!response.ok) {
+						const retry = response.headers.get("Retry-After");
+						throw new Error(`Figma answered ${response.status}.${retry ? ` Try again in ${retry} s.` : ""}`);
+					}
+					// The note of pi-durable counts only the bytes that FigPal read.
+					if (api.retainedOutput().truncated)
+						api.diagnostic({
+							severity: "info",
+							message: `FigPal stopped reading after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes, and the answer is longer. Ask for less, for example with depth=1, ids=…, or /v1/files/KEY/nodes?ids=….`,
+						});
+					return {};
 				},
 			}),
 		],

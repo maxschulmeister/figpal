@@ -16,6 +16,7 @@ import {
 	useAuiState,
 	useExternalStoreRuntime,
 } from "@assistant-ui/react";
+import { LexicalComposerInput } from "@assistant-ui/react-lexical";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
@@ -23,11 +24,23 @@ import type { ImageContent, ModelThinkingLevel, TextContent } from "@earendil-wo
 import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
 import type { AgentState, Conversation, ConversationId, ConversationView, EntryId } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
-import { Button, CheckmarkIcon, ChevronDownIcon, Collapsible, createIcon, DropdownMenu, IconButton, Text } from "figma-kit";
+import {
+	Button,
+	CheckmarkIcon,
+	ChevronDownIcon,
+	Collapsible,
+	createIcon,
+	DropdownMenu,
+	IconButton,
+	Text,
+	Tooltip,
+} from "figma-kit";
 import { type ComponentProps, createContext, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
+import type { Bridge } from "./bridge";
 import type { SubagentDetails } from "./extensions/subagent";
+import { ChipText, NodeChip, SelectionChips } from "./selection-chips";
 import { enabledModelGroups, type Settings } from "./settings";
 import { type Thread, toThread } from "./transcript";
 
@@ -52,7 +65,12 @@ type Actions = {
 };
 const ChatActions = createContext<Actions>({ openExternal() {}, openConversation: async () => undefined });
 
-const TOOL_LABELS: Record<string, string> = { figma_execute: "Run code", figma_screenshot: "Screenshot", subagent: "Subagents" };
+const TOOL_LABELS: Record<string, string> = {
+	figma_execute: "Run code",
+	figma_screenshot: "Screenshot",
+	figma_rest: "Figma API",
+	subagent: "Subagents",
+};
 
 /** The messages of the conversation, with its changes. Undefined until they are loaded. */
 function useThread(conversation: Conversation | undefined, onError: (message: string) => void): Thread | undefined {
@@ -84,6 +102,8 @@ const asIs = (message: ThreadMessageLike) => message;
 type ChatProps = Actions & {
 	thread: Conversation;
 	file: FileInfo;
+	/** The selection events of code.js, for the chips in the composer. */
+	bridge: Pick<Bridge, "onEvent">;
 	models: Models;
 	/** Provider IDs with a saved credential: the model picker shows their models. */
 	connected: ReadonlySet<string>;
@@ -93,6 +113,8 @@ type ChatProps = Actions & {
 	onSend(text: string): void;
 	/** The user picked a model or thinking level. New threads use it too. */
 	onModelChange(choice: ModelChoice): void;
+	/** Opens Settings → Models. */
+	onEditModels(): void;
 };
 
 export function Chat(props: ChatProps) {
@@ -124,11 +146,6 @@ export function Chat(props: ChatProps) {
 
 	if (failure) return <p className="p-6 text-danger">Cannot open the chat: {failure}</p>;
 	const retry = thread?.retry;
-	const selection = file.selection.length
-		? file.selection.length === 1
-			? file.selection[0]!.name
-			: `${file.selection.length} layers selected`
-		: "No selection";
 
 	return (
 		<ChatActions.Provider value={actions}>
@@ -142,12 +159,14 @@ export function Chat(props: ChatProps) {
 						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-1 bg-default pb-2">
 							{retry && <p className="text-secondary">The model call failed and runs again soon: {retry.error}</p>}
 							<ComposerPrimitive.Root className="flex items-end gap-1 rounded-md border border-default p-1 focus-within:border-selected">
-								<ComposerPrimitive.Input
+								<LexicalComposerInput
 									autoFocus
-									rows={1}
 									placeholder="Ask FigPal"
-									className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1 text-lg outline-none placeholder:text-tertiary"
-								/>
+									directiveChip={NodeChip}
+									className="max-h-40 min-w-0 flex-1 px-2 py-1 text-lg"
+								>
+									<SelectionChips bridge={props.bridge} initial={file} />
+								</LexicalComposerInput>
 								<AuiIf condition={(state) => !state.thread.isRunning}>
 									<ComposerPrimitive.Send asChild>
 										<IconButton aria-label="Send">
@@ -163,8 +182,7 @@ export function Chat(props: ChatProps) {
 									</ComposerPrimitive.Cancel>
 								</AuiIf>
 							</ComposerPrimitive.Root>
-							<div className="flex items-center justify-between gap-2">
-								<Text className="truncate text-secondary">{selection}</Text>
+							<div className="flex items-center gap-1">
 								<ModelPicker
 									conversation={conversation}
 									agent={thread?.agent}
@@ -172,6 +190,7 @@ export function Chat(props: ChatProps) {
 									connected={props.connected}
 									enabledModels={props.enabledModels}
 									onChange={props.onModelChange}
+									onEditModels={props.onEditModels}
 								/>
 							</div>
 						</ThreadPrimitive.ViewportFooter>
@@ -200,6 +219,8 @@ function ModelPicker(props: {
 	connected: ReadonlySet<string>;
 	enabledModels: string[];
 	onChange(choice: ModelChoice): void;
+	/** Opens Settings → Models. */
+	onEditModels(): void;
 }) {
 	const ref = props.agent?.model;
 	const thinkingLevel = props.agent?.thinkingLevel ?? "off";
@@ -221,62 +242,72 @@ function ModelPicker(props: {
 	};
 
 	return (
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger render={<Button variant="text" className="gap-1 text-secondary" />}>
-				{model?.name ?? "Model"}
-				{canThink && ` · ${THINKING_LABELS[thinkingLevel]}`}
-				<ChevronDownIcon size="4" />
-			</DropdownMenu.Trigger>
-			<DropdownMenu.Portal>
-				<DropdownMenu.Positioner side="top" align="end" sideOffset={4}>
-					<DropdownMenu.Popup style={{ minWidth: 220 }}>
-						{enabledModelGroups(props.models, props.connected, props.enabledModels).map(({ provider, models }, index) => (
-							<DropdownMenu.RadioGroup
-								key={provider.id}
-								value={ref?.provider === provider.id ? ref.modelId : ""}
-								onValueChange={(modelId: string) => chooseModel(provider.id, modelId)}
-							>
-								{index > 0 && <DropdownMenu.Separator />}
-								<DropdownMenu.GroupLabel>{provider.label}</DropdownMenu.GroupLabel>
-								{models.map((item) => (
-									<DropdownMenu.RadioItem key={item.id} value={item.id}>
-										<DropdownMenu.RadioItemIndicator>
-											<CheckmarkIcon size="4" />
-										</DropdownMenu.RadioItemIndicator>
-										{item.name}
-									</DropdownMenu.RadioItem>
-								))}
-							</DropdownMenu.RadioGroup>
-						))}
-						{canThink && <DropdownMenu.Separator />}
-						{canThink && (
-							<DropdownMenu.SubmenuRoot>
-								<DropdownMenu.SubmenuTrigger>Thinking: {THINKING_LABELS[thinkingLevel]}</DropdownMenu.SubmenuTrigger>
-								<DropdownMenu.Portal>
-									<DropdownMenu.Positioner sideOffset={12} alignOffset={-8}>
-										<DropdownMenu.Popup style={{ minWidth: 140 }}>
-											<DropdownMenu.RadioGroup
-												value={thinkingLevel}
-												onValueChange={(level: ModelThinkingLevel) => void choose({ model: ref, thinkingLevel: level })}
-											>
-												{levels.map((level) => (
-													<DropdownMenu.RadioItem key={level} value={level}>
-														<DropdownMenu.RadioItemIndicator>
-															<CheckmarkIcon size="4" />
-														</DropdownMenu.RadioItemIndicator>
-														{THINKING_LABELS[level]}
-													</DropdownMenu.RadioItem>
-												))}
-											</DropdownMenu.RadioGroup>
-										</DropdownMenu.Popup>
-									</DropdownMenu.Positioner>
-								</DropdownMenu.Portal>
-							</DropdownMenu.SubmenuRoot>
-						)}
-					</DropdownMenu.Popup>
-				</DropdownMenu.Positioner>
-			</DropdownMenu.Portal>
-		</DropdownMenu.Root>
+		<>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger render={<Button variant="text" className="gap-1 text-secondary" />}>
+					{model?.name ?? "Model"}
+					<ChevronDownIcon size="4" />
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Portal>
+					<DropdownMenu.Positioner side="top" align="start" sideOffset={4}>
+						<DropdownMenu.Popup style={{ minWidth: 220 }}>
+							{enabledModelGroups(props.models, props.connected, props.enabledModels).map(({ provider, models }, index) => (
+								<DropdownMenu.RadioGroup
+									key={provider.id}
+									value={ref?.provider === provider.id ? ref.modelId : ""}
+									onValueChange={(modelId: string) => chooseModel(provider.id, modelId)}
+								>
+									{index > 0 && <DropdownMenu.Separator />}
+									<DropdownMenu.GroupLabel>{provider.label}</DropdownMenu.GroupLabel>
+									{models.map((item) => (
+										<DropdownMenu.RadioItem key={item.id} value={item.id}>
+											<DropdownMenu.RadioItemIndicator>
+												<CheckmarkIcon size="4" />
+											</DropdownMenu.RadioItemIndicator>
+											{item.name}
+										</DropdownMenu.RadioItem>
+									))}
+								</DropdownMenu.RadioGroup>
+							))}
+							<DropdownMenu.Separator />
+							<DropdownMenu.Item onClick={props.onEditModels}>Edit Models</DropdownMenu.Item>
+						</DropdownMenu.Popup>
+					</DropdownMenu.Positioner>
+				</DropdownMenu.Portal>
+			</DropdownMenu.Root>
+			{canThink && (
+				<DropdownMenu.Root>
+					<Tooltip content="Thinking">
+						<DropdownMenu.Trigger
+							aria-label={`Thinking: ${THINKING_LABELS[thinkingLevel]}`}
+							render={<Button variant="text" className="gap-1 text-secondary" />}
+						>
+							{THINKING_LABELS[thinkingLevel]}
+							<ChevronDownIcon size="4" />
+						</DropdownMenu.Trigger>
+					</Tooltip>
+					<DropdownMenu.Portal>
+						<DropdownMenu.Positioner side="top" align="start" sideOffset={4}>
+							<DropdownMenu.Popup style={{ minWidth: 140 }}>
+								<DropdownMenu.RadioGroup
+									value={thinkingLevel}
+									onValueChange={(level: ModelThinkingLevel) => void choose({ model: ref, thinkingLevel: level })}
+								>
+									{levels.map((level) => (
+										<DropdownMenu.RadioItem key={level} value={level}>
+											<DropdownMenu.RadioItemIndicator>
+												<CheckmarkIcon size="4" />
+											</DropdownMenu.RadioItemIndicator>
+											{THINKING_LABELS[level]}
+										</DropdownMenu.RadioItem>
+									))}
+								</DropdownMenu.RadioGroup>
+							</DropdownMenu.Popup>
+						</DropdownMenu.Positioner>
+					</DropdownMenu.Portal>
+				</DropdownMenu.Root>
+			)}
+		</>
 	);
 }
 
@@ -286,7 +317,7 @@ const renderMessage = ({ message }: { message: { role: string } }) =>
 function UserMessage() {
 	return (
 		<MessagePrimitive.Root className="ml-10 self-end rounded-lg bg-secondary px-3 py-2 text-lg whitespace-pre-wrap break-words">
-			<MessagePrimitive.Parts />
+			<MessagePrimitive.Parts components={{ Text: ChipText }} />
 		</MessagePrimitive.Root>
 	);
 }

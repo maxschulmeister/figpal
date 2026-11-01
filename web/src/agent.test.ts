@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import { defaultDirectiveFormatter } from "@assistant-ui/react";
 import { zstdDecompressSync } from "node:zlib";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import {
@@ -16,6 +17,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import type { Attachment, FileInfo } from "@figpal/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentModels, startAgent, userInput } from "./agent";
+import { chipItem } from "./node-chips";
 import type { Bridge } from "./bridge";
 import { currentThread } from "./threads";
 import { toThread } from "./transcript";
@@ -105,10 +107,12 @@ describe("createAgentModels", () => {
 
 
 const FILE: FileInfo = {
-	fileId: "file-1",
+	fileId: "KEY1",
+	fileKey: "KEY1",
 	fileName: "Test file",
 	page: { id: "0:1", name: "Page 1", type: "PAGE" },
 	selection: [{ id: "1:2", name: "Card", type: "FRAME" }],
+	selectionCount: 1,
 };
 
 const SCRIPT = { model: { provider: "faux", modelId: "script" } };
@@ -141,8 +145,18 @@ function fakeBridge(reply: (params: unknown) => { result: unknown; attachments?:
 	return { bridge, calls };
 }
 
-async function run(models: ReturnType<typeof createModels>, bridge: Pick<Bridge, "request">, text = "Check the card") {
-	const harness = await startAgent(new MemoryStorage(), { models, bridge, subagentModels: () => [] });
+/** The credential store with a Figma token. */
+const FIGMA_TOKEN = {
+	read: async (id: string) => (id === "figma" ? { type: "api_key" as const, key: "figd_test" } : undefined),
+};
+
+async function run(
+	models: ReturnType<typeof createModels>,
+	bridge: Pick<Bridge, "request">,
+	text = "Check the card",
+	credentials = FIGMA_TOKEN,
+) {
+	const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials, subagentModels: () => [] });
 	const root = await currentThread(harness, SCRIPT);
 	const submission = await root.submit(userInput(text, FILE), context);
 	const settled = await submission.wait(context);
@@ -190,23 +204,29 @@ describe("figma tools", () => {
 		});
 	});
 
-	it("gives the model the file, page and selection with the message, and shows only the typed text", async () => {
+	it("gives the model the file and page, and each chip as nodes in the text; the chat keeps the chips", async () => {
 		const { models, requests } = scriptedModels("figma_screenshot", {});
 		const { bridge } = fakeBridge(() => ({ result: { nodeId: "1:2", width: 1, height: 1 } }));
-		const { view } = await run(models, bridge, "Check the card");
+		const card = defaultDirectiveFormatter.serialize(chipItem([{ id: "1:2", name: "Card", type: "FRAME" }], FILE.page));
+		const { view } = await run(models, bridge, `Check ${card}now`);
 
 		expect(requests[0]!.at(-1)).toMatchObject({
 			role: "user",
-			content: "<figma>\nFile: Test file\nPage: Page 1 (PAGE, 0:1)\nSelection: Card (FRAME, 1:2)\n</figma>\n\nCheck the card",
+			content: '<figma>\nFile: Test file (key KEY1)\nPage: Page 1 (PAGE, 0:1)\n</figma>\n\nCheck <nodes page="Page 1 (0:1)">Card (FRAME, 1:2)</nodes>now',
 		});
-		expect(toThread(view).messages[0]).toEqual({ id: expect.any(String), role: "user", content: [{ type: "text", text: "Check the card" }] });
+		expect(toThread(view).messages[0]).toEqual({ id: expect.any(String), role: "user", content: [{ type: "text", text: `Check ${card}now` }] });
+	});
+
+	it("keeps < and > of the file and page names out of the <figma> block", () => {
+		const file = { ...FILE, fileName: "A <b>", page: { ...FILE.page, name: "</figma>" } };
+		expect(userInput("Hi", file).content).toMatch(/^<figma>\nFile: A b \(key KEY1\)\nPage: \/figma \(PAGE, 0:1\)\n<\/figma>/);
 	});
 
 	it("stops waiting for code.js when the run is stopped", async () => {
 		const { models } = scriptedModels("figma_execute", { code: "await new Promise(() => {})" });
 		// code.js cannot stop the code, so the request never ends.
 		const bridge = { request: () => new Promise(() => {}) } as unknown as Pick<Bridge, "request">;
-		const harness = await startAgent(new MemoryStorage(), { models, bridge, subagentModels: () => [] });
+		const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials: FIGMA_TOKEN, subagentModels: () => [] });
 		const root = await currentThread(harness, SCRIPT);
 		const submission = await root.submit(userInput("Hang", FILE), context);
 		await vi.waitFor(async () => {
@@ -217,4 +237,107 @@ describe("figma tools", () => {
 		expect((await submission.wait(context)).status).toBe("unanswered");
 		await harness.close(context);
 	}, 5000);
+});
+
+describe("figma_rest", () => {
+	/** Runs one figma_rest call against a fake api.figma.com. Returns the requests and the tool result. */
+	async function rest(args: Parameters<typeof fauxToolCall>[1], answer: () => Response, credentials = FIGMA_TOKEN) {
+		const { models, requests } = scriptedModels("figma_rest", args);
+		const calls: { url: string; init?: RequestInit }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async (input, init) => {
+				calls.push({ url: String(input), init });
+				return answer();
+			}),
+		);
+		await run(models, fakeBridge(() => ({ result: null })).bridge, "Go", credentials);
+		const result = requests[1]!.at(-1) as { content: { text: string }[]; isError: boolean };
+		return { calls, text: result.content.map((block) => block.text).join("\n"), isError: result.isError };
+	}
+
+	it("calls the REST API with the token of the user and gives the model the answer", async () => {
+		const { calls, text, isError } = await rest({ method: "GET", path: "/v1/files/KEY1/comments?as_md=true" }, () =>
+			Response.json({ comments: [{ message: "Fix the logo" }] }),
+		);
+		expect(calls).toEqual([
+			{
+				url: "https://api.figma.com/v1/files/KEY1/comments?as_md=true",
+				init: expect.objectContaining({ method: "GET", headers: { "X-Figma-Token": "figd_test" } }),
+			},
+		]);
+		expect(isError).toBe(false);
+		expect(text).toContain('{"comments":[{"message":"Fix the logo"}]}');
+	});
+
+	it("sends a body as JSON", async () => {
+		const { calls } = await rest({ method: "POST", path: "/v1/files/KEY1/comments", body: { message: "Done" } }, () =>
+			Response.json({ id: "1" }),
+		);
+		expect(calls[0]!.init).toMatchObject({
+			method: "POST",
+			headers: { "X-Figma-Token": "figd_test", "Content-Type": "application/json" },
+			body: '{"message":"Done"}',
+		});
+	});
+
+	it.each(["//evil.example/v1/me", "https://evil.example/v1/me", "/login"])(
+		"sends the token only to the API of api.figma.com, not to %s",
+		async (path) => {
+			const { calls, text, isError } = await rest({ method: "GET", path }, () => Response.json({}));
+			expect(calls).toEqual([]);
+			expect(isError).toBe(true);
+			expect(text).toContain("path must start with /v1/ or /v2/");
+		},
+	);
+
+	it("tells the model where the user adds a token", async () => {
+		const { calls, text, isError } = await rest({ method: "GET", path: "/v1/me" }, () => Response.json({}), {
+			read: async () => undefined,
+		});
+		expect(calls).toEqual([]);
+		expect(isError).toBe(true);
+		expect(text).toContain("Settings → Figma");
+	});
+
+	it("gives the status and the error of Figma, and when to try again", async () => {
+		const { text, isError } = await rest(
+			{ method: "GET", path: "/v1/me" },
+			() => new Response('{"status":429,"err":"Rate limit exceeded"}', { status: 429, headers: { "Retry-After": "30" } }),
+		);
+		expect(isError).toBe(true);
+		expect(text).toContain('{"status":429,"err":"Rate limit exceeded"}');
+		expect(text).toContain("Figma answered 429. Try again in 30 s.");
+	});
+
+	// The JSON of a whole file can be many megabytes, and the model gets only the first 40,000 bytes.
+	it("stops reading a large response after the part that the model gets", async () => {
+		let chunks = 0;
+		const response = new Response(new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (chunks === 160) controller.close();
+				else {
+					chunks++;
+					controller.enqueue(new TextEncoder().encode("x".repeat(1000)));
+				}
+			},
+		}));
+		const fullText = vi.spyOn(response, "text");
+		const { text, isError } = await rest({ method: "GET", path: "/v1/files/KEY1" }, () => response);
+		expect(isError).toBe(false);
+		expect(text).toContain("x".repeat(40_000));
+		expect(text).toContain("Output truncated");
+		expect(text).toContain("Ask for less");
+		expect(chunks).toBeLessThan(45);
+		expect(fullText).not.toHaveBeenCalled();
+	});
+
+	it("cuts a long answer and tells the model how to ask for less", async () => {
+		const { text, isError } = await rest({ method: "GET", path: "/v1/files/KEY1" }, () =>
+			Response.json({ document: "x".repeat(100_000) }),
+		);
+		expect(isError).toBe(false);
+		expect(text.length).toBeLessThan(45_000);
+		expect(text).toContain("depth");
+	});
 });

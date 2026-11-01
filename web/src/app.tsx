@@ -18,12 +18,13 @@ import {
 	Tooltip,
 } from "figma-kit";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Accounts, errorText } from "./accounts";
+import { Accounts, errorText, FIGMA, TokenAccount } from "./accounts";
 import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
 import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
+import { chipLabels } from "./node-chips";
 import { SkillsPanel } from "./skills-panel";
 import { installDefaultSkills } from "./skills/defaults";
 import { EnabledModels } from "./enabled-models";
@@ -106,7 +107,10 @@ export function App({ bridge }: { bridge: Bridge }) {
 			if (event.type === "init") {
 				clearTimeout(timer);
 				setFile(event.file);
-			} else if (event.type === "selection") setFile((current) => current && { ...current, selection: event.selection });
+			}
+			// The first chip of a new chat comes from the last selection of the user.
+			else if (event.type === "selection" && !event.byAgent)
+				setFile((current) => current && { ...current, selection: event.selection, selectionCount: event.selectionCount });
 			else if (event.type === "page") setFile((current) => current && { ...current, page: event.page });
 		});
 		bridge.ready();
@@ -123,7 +127,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 		installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
-		openAgent(fileId, { models, bridge, subagentModels: () => allowedModels.current }).then(
+		openAgent(fileId, { models, bridge, credentials, subagentModels: () => allowedModels.current }).then(
 			// The first failure stays: a later result must not hide it.
 			(harness) =>
 				setPhase((current) =>
@@ -131,7 +135,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 				),
 			fail,
 		);
-	}, [fileId, models, bridge, refreshConnected, fail]);
+	}, [fileId, models, bridge, credentials, refreshConnected, fail]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
 
@@ -260,14 +264,19 @@ export function App({ bridge }: { bridge: Bridge }) {
 							key={thread.id}
 							thread={thread}
 							file={file}
+							bridge={bridge}
 							models={models}
 							connected={connected}
 							enabledModels={settings.enabledModels}
 							openExternal={openExternal}
 							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
 							openConversation={openConversation}
-							onSend={(text) => noteMessage(harness, thread.id, text).catch(report)}
+							onSend={(text) => noteMessage(harness, thread.id, chipLabels(text)).catch(report)}
 							onModelChange={updateSettings}
+							onEditModels={() => {
+								setSettingsTab("models");
+								setSettingsOpen(true);
+							}}
 						/>
 					)
 				)}
@@ -288,6 +297,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 								<Tabs.List className="ml-auto">
 									<Tabs.Tab value="models">Models</Tabs.Tab>
 									<Tabs.Tab value="skills">Skills</Tabs.Tab>
+									<Tabs.Tab value="figma">Figma</Tabs.Tab>
 								</Tabs.List>
 							</Dialog.Header>
 							<Tabs.Panel value="models" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
@@ -310,6 +320,11 @@ export function App({ bridge }: { bridge: Bridge }) {
 							<Tabs.Panel value="skills" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
 								<Dialog.Section>
 									<SkillsPanel />
+								</Dialog.Section>
+							</Tabs.Panel>
+							<Tabs.Panel value="figma" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
+								<Dialog.Section>
+									<TokenAccount kind={FIGMA} connected={connected} credentials={credentials} onChange={refreshConnected} />
 								</Dialog.Section>
 							</Tabs.Panel>
 						</Tabs.Root>

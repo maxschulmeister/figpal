@@ -41,6 +41,17 @@ describe("execute", () => {
 		});
 		expect(result.attachments).toEqual([{ bytes: new Uint8Array([1, 2]), mime: "image/png", name: "a.png" }]);
 	});
+
+	// A wrong argument must not change the scope without an error: a list of nodes has no ID, and a lint of the whole
+	// page is slow.
+	it.each([
+		["pi.lint([{ id: '1:2' }])", /pi\.lint needs one node or its ID/],
+		["pi.auditAccessibility({ name: 'Card' })", /pi\.auditAccessibility needs one node or its ID/],
+		["pi.analyzeComponentSet()", /pi\.analyzeComponentSet needs one node or its ID/],
+		["pi.lint(undefined, { rules: 'wcag' })", /rules must be a list/],
+	])("rejects wrong input to the checks: %s", async (call, message) => {
+		await expect(execute(`return ${call};`, { figma })).rejects.toThrow(message);
+	});
 });
 
 describe("serialize", () => {

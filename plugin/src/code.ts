@@ -87,8 +87,9 @@ function summarize(node: BaseNode): NodeSummary {
 	return { id: node.id, name: node.name, type: node.type };
 }
 
-function selection(): NodeSummary[] {
-	return figma.currentPage.selection.slice(0, MAX_SELECTION).map(summarize);
+/** The first nodes of the selection, and the count of all. */
+function selection(nodes = figma.currentPage.selection): Pick<FileInfo, "selection" | "selectionCount"> {
+	return { selection: nodes.slice(0, MAX_SELECTION).map(summarize), selectionCount: nodes.length };
 }
 
 function readFileKey(): string | null {
@@ -108,16 +109,18 @@ function uuid(): string {
 }
 
 function fileInfo(): FileInfo {
-	let fileId = readFileKey() ?? figma.root.getPluginData(FILE_ID_KEY);
+	const fileKey = readFileKey();
+	let fileId = fileKey ?? figma.root.getPluginData(FILE_ID_KEY);
 	if (!fileId) {
 		fileId = uuid();
 		figma.root.setPluginData(FILE_ID_KEY, fileId);
 	}
 	return {
 		fileId,
+		fileKey,
 		fileName: figma.root.name,
 		page: summarize(figma.currentPage),
-		selection: selection(),
+		...selection(),
 	};
 }
 
@@ -145,15 +148,35 @@ type Handlers = { [T in RequestType]: (params: Params<T>) => Promise<Handled<T>>
 /** An execute call that timed out but still runs. Canvas calls fail until it ends. */
 let lateRun: Promise<void> | undefined;
 
+const selectionKey = (nodes = figma.currentPage.selection) => nodes.map((node) => node.id).join(",");
+/**
+ * Figma does not tell who changed the selection, and a plugin cannot watch the setter: the accessor on the page
+ * prototype cannot be redefined, and pages are not extensible (Figma test 2026-11-01). So a selection change while
+ * figma_execute code runs counts as the code's. A click by the user in that time adds no chip.
+ */
+let executing = false;
+/** The selection that the last code left. Figma can report it after the code ends, and more than one time. */
+let agentSelection: string | undefined;
+
+function codeEnded() {
+	executing = false;
+	agentSelection = selectionKey();
+}
+
 const handlers: Handlers = {
 	async execute({ code, timeoutMs }) {
+		executing = true;
 		try {
 			const { attachments, ...result } = await execute(code, { figma, timeoutMs });
+			codeEnded();
 			return { result, attachments };
 		} catch (error) {
-			if (error instanceof ExecuteTimeout) {
+			if (!(error instanceof ExecuteTimeout)) codeEnded();
+			// The code still runs, and its selections are the code's until it ends.
+			else {
 				const done = () => {
 					lateRun = undefined;
+					codeEnded();
 				};
 				lateRun = error.running.then(done, done);
 			}
@@ -253,7 +276,11 @@ figma.ui.onmessage = (message: unknown, { origin }) => {
 };
 
 figma.on("selectionchange", () => {
-	post({ kind: "event", type: "selection", selection: selection() });
+	const nodes = figma.currentPage.selection;
+	const byAgent = executing || selectionKey(nodes) === agentSelection;
+	// A different selection is the user's, and so is any later one.
+	if (!byAgent) agentSelection = undefined;
+	post({ kind: "event", type: "selection", ...selection(nodes), page: summarize(figma.currentPage), byAgent });
 });
 
 figma.on("currentpagechange", () => {

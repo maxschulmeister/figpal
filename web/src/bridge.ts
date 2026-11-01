@@ -31,7 +31,10 @@ export function createBridge(host: Window = window, parent: Window = window.pare
 
 	host.addEventListener("message", (event: MessageEvent) => {
 		const message: unknown = event.data?.pluginMessage;
-		if (!isPluginToUi(message)) return;
+		if (!isPluginToUi(message)) {
+			if (message !== undefined) console.warn("FigPal ignored a message that it does not know. Run the newest FigPal plugin.");
+			return;
+		}
 		// Only a figma.com window can send with this origin. Do not require `event.source === parent`:
 		// in Figma Desktop, messages from code.js come from another window (spike 0.0).
 		if (event.origin !== FIGMA_ORIGIN) {

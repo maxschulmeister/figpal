@@ -1,4 +1,4 @@
-// The model accounts: the Claude token and the ChatGPT login. Used on the first screen and in the settings.
+// The accounts: the Claude token and the ChatGPT login (on the first screen and in the settings), and the Figma token.
 
 import type { CredentialStore } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";
@@ -20,7 +20,7 @@ type AccountsProps = {
 export function Accounts(props: AccountsProps) {
 	return (
 		<div className="flex flex-col gap-5">
-			<ClaudeAccount {...props} />
+			<TokenAccount {...props} kind={CLAUDE} />
 			<ChatGptAccount {...props} />
 		</div>
 	);
@@ -38,22 +38,51 @@ function Account({ name, status, children }: { name: string; status?: string; ch
 	);
 }
 
-function ClaudeAccount({ connected, credentials, onChange }: AccountsProps) {
+/** A token that the user pastes. `title` is the heading, if it is not the name. */
+type TokenKind = { id: string; name: string; title?: string; prefix: string; placeholder: string; help: ReactNode };
+
+const CLAUDE: TokenKind = {
+	id: "anthropic",
+	name: "Claude",
+	prefix: "sk-ant-",
+	placeholder: "sk-ant-oat01-…",
+	help: (
+		<>
+			In Terminal, run <code>claude setup-token</code>. Then paste the token here.
+		</>
+	),
+};
+
+/** For figma_rest. Not a model provider: pi-ai does not read it. */
+export const FIGMA: TokenKind = {
+	id: "figma",
+	name: "Figma",
+	title: "Personal access token",
+	prefix: "figd_",
+	placeholder: "figd_…",
+	help: "FigPal uses it for comments, versions and libraries. In Figma, open Settings → Security and generate a token. Read-only scopes are enough for most tasks.",
+};
+
+export function TokenAccount({
+	kind,
+	connected,
+	credentials,
+	onChange,
+}: Pick<AccountsProps, "connected" | "credentials" | "onChange"> & { kind: TokenKind }) {
 	const [editing, setEditing] = useState(false);
 	const [error, setError] = useState<string>();
-	const isConnected = connected.has("anthropic");
+	const isConnected = connected.has(kind.id);
 
 	const save = async (token: string) => {
-		await credentials.modify("anthropic", async () => ({ type: "api_key", key: token }));
+		await credentials.modify(kind.id, async () => ({ type: "api_key", key: token }));
 		setEditing(false);
 		onChange();
 	};
-	const remove = () =>
-		credentials.delete("anthropic").then(onChange, (reason) => setError(errorText(reason)));
+	const remove = () => credentials.delete(kind.id).then(onChange, (reason) => setError(errorText(reason)));
 
 	if (isConnected && !editing)
 		return (
-			<Account name="Claude" status="Connected">
+			<Account name={kind.title ?? kind.name} status="Connected">
 				<div className="flex gap-2">
 					<Button onClick={() => setEditing(true)}>Change token</Button>
 					<Button onClick={remove}>Remove</Button>
@@ -62,13 +91,13 @@ function ClaudeAccount({ connected, credentials, onChange }: AccountsProps) {
 			</Account>
 		);
 	return (
-		<Account name="Claude">
-			<TokenForm onSave={save} onCancel={isConnected ? () => setEditing(false) : undefined} />
+		<Account name={kind.title ?? kind.name}>
+			<TokenForm kind={kind} onSave={save} onCancel={isConnected ? () => setEditing(false) : undefined} />
 		</Account>
 	);
 }
 
-function TokenForm({ onSave, onCancel }: { onSave(token: string): Promise<void>; onCancel?(): void }) {
+function TokenForm({ kind, onSave, onCancel }: { kind: TokenKind; onSave(token: string): Promise<void>; onCancel?(): void }) {
 	const [value, setValue] = useState("");
 	const [error, setError] = useState<string>();
 
@@ -76,8 +105,8 @@ function TokenForm({ onSave, onCancel }: { onSave(token: string): Promise<void>;
 		event.preventDefault();
 		// A token copied from Terminal can contain line breaks. Tokens never contain white space.
 		const token = value.replace(/\s+/g, "");
-		if (!token.startsWith("sk-ant-")) {
-			setError("This is not a Claude token. It starts with sk-ant-.");
+		if (!token.startsWith(kind.prefix)) {
+			setError(`This is not a ${kind.name} token. It starts with ${kind.prefix}.`);
 			return;
 		}
 		onSave(token).catch((reason) => setError(errorText(reason)));
@@ -85,13 +114,11 @@ function TokenForm({ onSave, onCancel }: { onSave(token: string): Promise<void>;
 
 	return (
 		<form className="flex flex-col gap-2" onSubmit={submit}>
-			<Paragraph>
-				In Terminal, run <code>claude setup-token</code>. Then paste the token here.
-			</Paragraph>
+			<Paragraph>{kind.help}</Paragraph>
 			<Input
 				type="password"
-				aria-label="Claude token"
-				placeholder="sk-ant-oat01-…"
+				aria-label={`${kind.name} token`}
+				placeholder={kind.placeholder}
 				value={value}
 				onChange={(event) => {
 					setValue(event.target.value);

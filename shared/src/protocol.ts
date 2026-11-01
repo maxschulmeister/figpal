@@ -25,9 +25,14 @@ export type NodeSummary = { id: string; name: string; type: string };
 export type FileInfo = {
 	/** `figma.fileKey` if the plugin can read it, else a UUID kept in the document. */
 	fileId: string;
+	/** The key of the file in Figma URLs and in the REST API. Null if the plugin cannot read it. */
+	fileKey: string | null;
 	fileName: string;
 	page: NodeSummary;
+	/** The first 50 nodes of the selection. */
 	selection: NodeSummary[];
+	/** The count of all selected nodes. */
+	selectionCount: number;
 };
 
 export type Attachment = { name: string; mime: string; bytes: Uint8Array };
@@ -58,7 +63,8 @@ export type ResponseMessage =
 
 export type EventMessage =
 	| { kind: "event"; type: "init"; file: FileInfo }
-	| { kind: "event"; type: "selection"; selection: NodeSummary[] }
+	/** `byAgent`: figma_execute code made the selection. */
+	| ({ kind: "event"; type: "selection"; page: NodeSummary; byAgent: boolean } & Pick<FileInfo, "selection" | "selectionCount">)
 	| { kind: "event"; type: "page"; page: NodeSummary };
 
 /**
@@ -99,5 +105,14 @@ export function isUiToPlugin(value: unknown): value is UiToPlugin {
 export function isPluginToUi(value: unknown): value is PluginToUi {
 	if (!isRecord(value)) return false;
 	if (value.kind === "response") return typeof value.id === "string" && typeof value.ok === "boolean";
-	return value.kind === "event" && typeof value.type === "string";
+	if (value.kind !== "event" || typeof value.type !== "string") return false;
+	// The chips need these fields. An older code.js does not send them.
+	if (value.type === "selection")
+		return (
+			Array.isArray(value.selection) &&
+			typeof value.selectionCount === "number" &&
+			isRecord(value.page) &&
+			typeof value.byAgent === "boolean"
+		);
+	return true;
 }

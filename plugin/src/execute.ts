@@ -1,11 +1,26 @@
 // Runs Plugin API JavaScript from the model. Pure logic, so tests can run it without Figma.
 
 import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, type NodeSummary, type Result } from "@figpal/shared";
+import { analyzeComponentSet, auditComponentAccessibility, lintDesign } from "./vendor/figma-console-mcp/checks.js";
+
+/** A node or its ID. */
+type NodeRef = string | { id: string };
 
 type Helpers = {
 	/** Sends a file to the UI with the result. */
 	attach(bytes: Uint8Array, options: { mime: string; name: string }): void;
+	lint(node?: NodeRef, options?: { rules?: string[]; maxDepth?: number; maxFindings?: number }): Promise<unknown>;
+	auditAccessibility(node?: NodeRef, options?: { targetSize?: number }): Promise<unknown>;
+	analyzeComponentSet(node: NodeRef): Promise<unknown>;
 };
+
+/** The ID of a node argument. A wrong argument throws, so the scope does not change: a list of nodes has no ID. */
+function nodeId(helper: string, node: unknown, optional = true): string | undefined {
+	if (node === undefined && optional) return undefined;
+	const id = typeof node === "string" ? node : (node as { id?: unknown } | null)?.id;
+	if (typeof id !== "string") throw new TypeError(`pi.${helper} needs one node or its ID`);
+	return id;
+}
 
 type ExecuteResult = Result<"execute"> & { attachments: Attachment[] };
 
@@ -41,6 +56,14 @@ export async function execute(
 			if (!(bytes instanceof Uint8Array)) throw new TypeError("pi.attach needs a Uint8Array");
 			attachments.push({ bytes, mime, name });
 		},
+		async lint(node, options) {
+			if (options?.rules !== undefined && !Array.isArray(options.rules))
+				throw new TypeError("pi.lint: rules must be a list of rule IDs");
+			return lintDesign({ ...options, nodeId: nodeId("lint", node) });
+		},
+		auditAccessibility: async (node, options) =>
+			auditComponentAccessibility({ ...options, nodeId: nodeId("auditAccessibility", node) }),
+		analyzeComponentSet: async (node) => analyzeComponentSet({ nodeId: nodeId("analyzeComponentSet", node, false)! }),
 	};
 	const run = compile(code)(options.figma, pi);
 	let timer = 0;

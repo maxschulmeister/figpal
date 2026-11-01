@@ -6,7 +6,7 @@ import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness, type InputSubmissionDraft, type Storage } from "@earendil-works/pi-durable";
 import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
-import type { FileInfo, NodeSummary } from "@figpal/shared";
+import type { FileInfo } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
 import { skillsExtension } from "./extensions/skills";
@@ -14,6 +14,7 @@ import { subagentExtension } from "./extensions/subagent";
 import { webExtension } from "./extensions/web";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
+import { chipsForModel, clean, describeNode } from "./node-chips";
 import { wrapAnthropicProvider } from "./providers/pi-black";
 import { UserText } from "./transcript";
 
@@ -64,6 +65,8 @@ export function createAgentModels(credentials: CredentialStore, origin: string):
 type AgentOptions = {
 	models: Models;
 	bridge: Pick<Bridge, "request">;
+	/** The Figma token for figma_rest is the credential "figma". */
+	credentials: Pick<CredentialStore, "read">;
 	/** The models that the main agent can give to subagents: from the settings. */
 	subagentModels(): string[];
 };
@@ -71,7 +74,7 @@ type AgentOptions = {
 /** Opens the Harness on `storage` and continues the runs that a restart stopped. `threads.ts` opens the threads. */
 export async function startAgent(storage: Storage, options: AgentOptions): Promise<Harness> {
 	const registry = createRegistry();
-	registry.install(figmaExtension(options.bridge));
+	registry.install(figmaExtension(options.bridge, options.credentials));
 	registry.install(skillsExtension());
 	registry.install(webExtension());
 	registry.install(subagentExtension({ subagentModels: options.subagentModels }));
@@ -107,11 +110,12 @@ export function openAgent(fileId: string, options: AgentOptions): Promise<Harnes
 	});
 }
 
-const describeNode = (node: NodeSummary) => `${node.name} (${node.type}, ${node.id})`;
-
-/** The model gets the file, the page and the selection before the text. The transcript shows only the text. */
+/**
+ * The model gets the file and the page before the text, and the nodes of each chip in the text. The selection goes
+ * only as chips: a chip that the user removed is not sent. The transcript shows the text with its chips.
+ */
 export function userInput(text: string, file: FileInfo): InputSubmissionDraft {
-	const selection = file.selection.length ? file.selection.map(describeNode).join(", ") : "none";
-	const block = `<figma>\nFile: ${file.fileName}\nPage: ${describeNode(file.page)}\nSelection: ${selection}\n</figma>`;
-	return { type: "input", content: `${block}\n\n${text}`, entry: { kind: UserText.kind, data: { text } } };
+	const name = file.fileKey ? `${clean(file.fileName)} (key ${file.fileKey})` : clean(file.fileName);
+	const block = `<figma>\nFile: ${name}\nPage: ${describeNode(file.page)}\n</figma>`;
+	return { type: "input", content: `${block}\n\n${chipsForModel(text)}`, entry: { kind: UserText.kind, data: { text } } };
 }

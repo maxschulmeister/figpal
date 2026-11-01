@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createBridge } from "./bridge";
 
 function setup() {
@@ -44,6 +44,19 @@ describe("bridge", () => {
 		bridge.onEvent((event) => events.push(event));
 		reply({ kind: "event", type: "page", page: { id: "0:1", name: "Page", type: "PAGE" } }, {});
 		expect(events).toHaveLength(1);
+	});
+
+	// The remote UI deploys separately from code.js. A selection event of an older code.js has no page and no
+	// `byAgent`, and its chip would break.
+	it("ignores a selection event of an older code.js and asks for an update", () => {
+		const { bridge, reply } = setup();
+		const events: unknown[] = [];
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		bridge.onEvent((event) => events.push(event));
+		reply({ kind: "event", type: "selection", selection: [{ id: "1:2", name: "Card", type: "FRAME" }] });
+		expect(events).toHaveLength(0);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("Run the newest FigPal plugin"));
+		warn.mockRestore();
 	});
 
 	it("ignores messages from other origins", () => {

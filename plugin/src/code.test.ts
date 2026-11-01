@@ -98,3 +98,94 @@ describe("screenshot", () => {
 		expect(response).toMatchObject({ ok: true, result: { nodeId: "0:1" } });
 	});
 });
+
+describe("selection events", () => {
+	const UI = "https://figpal.maxschulmeister.dev";
+	const card = { id: "1:2", name: "Card", type: "FRAME" };
+	const logo = { id: "1:3", name: "Logo", type: "VECTOR" };
+
+	async function plugin() {
+		const handlers: Record<string, () => void> = {};
+		const page = { id: "0:1", name: "Home", type: "PAGE", selection: [] as object[] };
+		const fire = () => handlers.selectionchange?.();
+		const { posted, send } = await startPlugin(async () => "remote", {
+			currentPage: page,
+			on: (name: string, handler: () => void) => {
+				handlers[name] = handler;
+			},
+			fire,
+			logo,
+		});
+		const events = () =>
+			posted.filter((message) => (message as { type?: string }).type === "selection") as {
+				selection: { id: string }[];
+				selectionCount: number;
+				page: { name: string };
+				byAgent: boolean;
+			}[];
+		return { page, fire, events, posted, send };
+	}
+
+	it("gives the page of the selection, and a selection by the user is not by the agent", async () => {
+		const { page, fire, events } = await plugin();
+		page.selection = [card];
+		fire();
+		expect(events()).toEqual([
+			{ kind: "event", type: "selection", selection: [card], selectionCount: 1, page: { id: "0:1", name: "Home", type: "PAGE" }, byAgent: false },
+		]);
+	});
+
+	it("sends at most 50 nodes, and the count of all", async () => {
+		const { page, fire, events } = await plugin();
+		page.selection = Array.from({ length: 300 }, (_, index) => ({ ...card, id: `1:${index}` }));
+		fire();
+		expect(events()[0]).toMatchObject({ selectionCount: 300 });
+		expect(events()[0]!.selection).toHaveLength(50);
+	});
+
+	it("marks a selection that figma_execute code makes, also when Figma reports it after the code", async () => {
+		const { page, fire, events, posted, send } = await plugin();
+		// Figma can report the change while the code runs, or after it.
+		send({ kind: "request", id: "1", type: "execute", params: { code: "figma.currentPage.selection = [figma.logo]; figma.fire(); return 1;" } }, UI);
+		await vi.waitFor(() => expect(posted.some((message) => (message as { kind: string }).kind === "response")).toBe(true));
+		fire();
+		// Then the user selects: first another node, then the node that the code selected.
+		page.selection = [card];
+		fire();
+		page.selection = [logo];
+		fire();
+		expect(events().map((event) => [event.selection.map((node) => node.id), event.byAgent])).toEqual([
+			[["1:3"], true],
+			[["1:3"], true],
+			[["1:2"], false],
+			[["1:3"], false],
+		]);
+	});
+
+	// A long script often selects its result at the end, after the wait for it timed out.
+	it("marks a selection of code that still runs after its timeout", async () => {
+		const { page, fire, events, posted, send } = await plugin();
+		const code = "await new Promise((r) => setTimeout(r, 50)); figma.currentPage.selection = [figma.logo]; figma.fire();";
+		send({ kind: "request", id: "1", type: "execute", params: { code, timeoutMs: 10 } }, UI);
+		await vi.waitFor(() => expect(events()).toHaveLength(1), { timeout: 500 });
+		expect(posted.find((message) => (message as { kind: string }).kind === "response")).toMatchObject({ ok: false });
+		page.selection = [card];
+		fire();
+		expect(events().map((event) => [event.selection.map((node) => node.id), event.byAgent])).toEqual([
+			[["1:3"], true],
+			[["1:2"], false],
+		]);
+	});
+
+	// Figma can report a selection after the code ends. If the code put back the selection of the user, that report is
+	// not a new selection.
+	it("marks a late report of a selection that the code put back", async () => {
+		const { page, fire, events, posted, send } = await plugin();
+		page.selection = [card];
+		const code = "const before = figma.currentPage.selection; figma.currentPage.selection = [figma.logo]; figma.currentPage.selection = before;";
+		send({ kind: "request", id: "1", type: "execute", params: { code } }, UI);
+		await vi.waitFor(() => expect(posted.some((message) => (message as { kind: string }).kind === "response")).toBe(true));
+		fire();
+		expect(events().map((event) => event.byAgent)).toEqual([true]);
+	});
+});
