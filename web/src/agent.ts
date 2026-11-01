@@ -65,8 +65,10 @@ export function createAgentModels(credentials: CredentialStore, origin: string):
 type AgentOptions = {
 	models: Models;
 	bridge: Pick<Bridge, "request">;
-	/** The Figma token for figma_rest is the credential "figma". */
+	/** The Figma token for the REST tools (figma_rest, figma_diff_versions) is the credential "figma". */
 	credentials: Pick<CredentialStore, "read">;
+	/** The key of the file in the REST API, for figma_diff_versions. Null if code.js cannot read it. */
+	fileKey: string | null;
 	/** The models that the main agent can give to subagents: from the settings. */
 	subagentModels(): string[];
 };
@@ -74,7 +76,7 @@ type AgentOptions = {
 /** Opens the Harness on `storage` and continues the runs that a restart stopped. `threads.ts` opens the threads. */
 export async function startAgent(storage: Storage, options: AgentOptions): Promise<Harness> {
 	const registry = createRegistry();
-	registry.install(figmaExtension(options.bridge, options.credentials));
+	registry.install(figmaExtension(options.bridge, options.credentials, options.fileKey));
 	registry.install(skillsExtension());
 	registry.install(webExtension());
 	registry.install(subagentExtension({ subagentModels: options.subagentModels }));

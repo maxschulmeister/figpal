@@ -7,6 +7,8 @@ import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMA
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
 import { exportTokens, TOKEN_EXPORT } from "../tokens";
+import { formatChangelogMarkdown } from "../vendor/figma-console-mcp/diff/changelog-formatter";
+import { type DiffMode, diffNode, diffPageStructure } from "../vendor/figma-console-mcp/diff/diff-engine";
 
 const RULES = `You are FigPal, an agent in a Figma plugin. You read and change the open Figma file.
 
@@ -16,6 +18,7 @@ Tools:
 - figma_execute runs Plugin API JavaScript. Keep each call small. Return the IDs of the nodes that you make or change.
 - figma_screenshot shows a node. After a visual change, use it to check the result.
 - figma_rest calls the Figma REST API with the user's token: comments, versions, and the components and styles of other files and libraries. For the open file, use the Plugin API.
+- figma_diff_versions compares two versions of the open file: get the version IDs with figma_rest GET /v1/files/KEY/versions.
 - figma_export_tokens exports the local variables as design tokens (DTCG, CSS, Tailwind, ...), and figma_export_nodes exports layers as SVG, PDF, PNG or JPG. The user downloads the files from the step. Use them for files the user wants, not pi.attach: the user can download their files again later.
 
 Plugin API rules:
@@ -61,10 +64,31 @@ export async function exportNodes(bridge: Pick<Bridge, "request">, args: Static<
 }
 
 const REST_API = "https://api.figma.com";
-/** The answer of figma_rest is cut after this. The JSON of a whole file is often megabytes. */
+/** The answers of the REST tools are cut after this. The JSON of a whole file is often megabytes. */
 const REST_OUTPUT_BYTES = 40_000;
 
-export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pick<CredentialStore, "read">) {
+/** The error for a REST answer that is not OK. A 429 says when to try again: the limits for files are strict. */
+function restError(response: Response, detail = ""): Error {
+	const retry = response.headers.get("Retry-After");
+	return new Error(`Figma answered ${response.status}${detail}.${retry ? ` Try again in ${retry} s.` : ""}`);
+}
+
+/** What figma_diff_versions compares, for the model. */
+const DIFF_SCOPE =
+	"Compared: pages added, removed or renamed; for node_ids: name, children added, removed or renamed, component property definitions (type and default), and variable bindings to depth 2. Not compared: descriptions, variant options, other layer properties (layout, fills, sizes), instances, variable values.";
+
+export function figmaExtension(
+	bridge: Pick<Bridge, "request">,
+	credentials: Pick<CredentialStore, "read">,
+	/** Null if code.js cannot read it. */
+	fileKey: string | null,
+) {
+	const token = async () => {
+		const credential = await credentials.read("figma");
+		if (credential?.type !== "api_key" || !credential.key)
+			throw new Error("No Figma token. Ask the user to add a personal access token in Settings → Figma.");
+		return credential.key;
+	};
 	return defineExtension({
 		name: "figma",
 		sections: [section("figma", () => RULES)],
@@ -132,10 +156,7 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 					// The token goes only to the API: a path such as //host goes to another host.
 					const url = new URL(path, REST_API);
 					if (url.origin !== REST_API || !/^\/v[12]\//.test(url.pathname)) throw new Error("path must start with /v1/ or /v2/.");
-					const credential = await credentials.read("figma");
-					if (credential?.type !== "api_key" || !credential.key)
-						throw new Error("No Figma token. Ask the user to add a personal access token in Settings → Figma.");
-					const headers: Record<string, string> = { "X-Figma-Token": credential.key };
+					const headers: Record<string, string> = { "X-Figma-Token": await token() };
 					if (body) headers["Content-Type"] = "application/json";
 					const response = await fetch(url.href, {
 						method,
@@ -161,8 +182,7 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 					}
 					// On an error, the output has the error of Figma.
 					if (!response.ok) {
-						const retry = response.headers.get("Retry-After");
-						throw new Error(`Figma answered ${response.status}.${retry ? ` Try again in ${retry} s.` : ""}`);
+						throw restError(response);
 					}
 					// The note of pi-durable counts only the bytes that FigPal read.
 					if (api.retainedOutput().truncated)
@@ -171,6 +191,70 @@ export function figmaExtension(bridge: Pick<Bridge, "request">, credentials: Pic
 							message: `FigPal stopped reading after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes, and the answer is longer. Ask for less, for example with depth=1, ids=…, or /v1/files/KEY/nodes?ids=….`,
 						});
 					return {};
+				},
+			}),
+			defineTool({
+				name: "figma_diff_versions",
+				description: `Compares two versions of the open file and gives a changelog in Markdown. ${DIFF_SCOPE} It uses 2 REST calls, 4 with node_ids; Figma allows 10 to 20 a minute for most seats, and about 20 a month for View and Collab seats.`,
+				parameters: Type.Object({
+					from_version: Type.String({
+						description: 'The older version: an ID from GET /v1/files/KEY/versions, which lists the newest first, or "current".',
+					}),
+					to_version: Type.Optional(Type.String({ description: 'Default "current": the file now.' })),
+					node_ids: Type.Optional(Type.Array(Type.String(), { description: "For example component sets." })),
+					mode: Type.Optional(
+						Type.Unsafe<DiffMode>(
+							Type.Union(["summary", "standard", "detailed"].map((name) => Type.Literal(name)), {
+								description: "summary: counts. standard (default): names and counts. detailed: each property and binding.",
+							}),
+						),
+					),
+				}),
+				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
+				// Read-only.
+				replay: "safe",
+				execute: async ({ from_version, to_version = "current", node_ids = [], mode = "standard" }, _api, context) => {
+					if (!fileKey) throw new Error("FigPal cannot read the key of this file, so the REST API cannot read its versions.");
+					if (from_version === to_version) throw new Error("from_version and to_version are the same.");
+					const headers = { "X-Figma-Token": await token() };
+					/** A JSON answer about the file at a version ("current": the file now). */
+					const read = async (path: string, version: string, params: Record<string, string>) => {
+						const query = new URLSearchParams({ ...params, ...(version === "current" ? {} : { version }) });
+						const response = await fetch(`${REST_API}/v1/files/${fileKey}${path}?${query}`, { headers, signal: context.abortSignal });
+						if (!response.ok) throw restError(response, `: ${(await response.text()).slice(0, 1000)}`);
+						return response.json();
+					};
+					const now = (file: { lastModified?: string }) => ({ version_id: "current", created_at: file.lastModified ?? null, is_head: true });
+					const both = (path: string, params: Record<string, string>) =>
+						Promise.all([read(path, from_version, params), read(path, to_version, params)]);
+					// IDs in Figma links have dashes: "1-2" is the node "1:2".
+					const ids = node_ids.map((id) => id.replaceAll("-", ":"));
+					// All nodes in one call for each version: upstream makes 2 calls for each node.
+					const [[from, to], [before, after]] = await Promise.all([
+						both("", { depth: "1" }),
+						ids.length ? both("/nodes", { ids: ids.join(","), depth: "2" }) : [{}, {}],
+					]);
+					// The ID that the model gave, also for a node that neither version has.
+					const nodes = ids.map((id) => ({
+						...diffNode(before.nodes?.[id]?.document ?? null, after.nodes?.[id]?.document ?? null, mode),
+						node_id: id,
+					}));
+					const markdown = formatChangelogMarkdown(
+						{
+							file_key: fileKey,
+							file_name: to.name,
+							from_version_id: from_version,
+							to_version_id: to_version,
+							// The date of the current file, as upstream. A file answer has no label of a past version.
+							from_meta: from_version === "current" ? now(from) : null,
+							to_meta: to_version === "current" ? now(to) : null,
+							page_structure: diffPageStructure(from.document, to.document),
+							scoped_nodes: ids.length ? nodes : undefined,
+							notes: [DIFF_SCOPE],
+						},
+						mode,
+					);
+					return { output: [text(markdown)] };
 				},
 			}),
 			defineTool({

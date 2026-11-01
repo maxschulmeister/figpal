@@ -53,7 +53,7 @@ const CLAUDE: TokenKind = {
 	),
 };
 
-/** For figma_rest. Not a model provider: pi-ai does not read it. */
+/** For the Figma REST tools. Not a model provider: pi-ai does not read it. */
 export const FIGMA: TokenKind = {
 	id: "figma",
 	name: "Figma",

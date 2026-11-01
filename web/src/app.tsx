@@ -121,13 +121,15 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [bridge]);
 
 	const fileId = file?.fileId;
+	// The key does not change while FigPal runs: it is part of the file's ID when code.js can read it.
+	const fileKey = file?.fileKey ?? null;
 	useEffect(() => {
 		if (!fileId) return;
 		// In the background: the Skills tab shows an error.
 		installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
-		openAgent(fileId, { models, bridge, credentials, subagentModels: () => allowedModels.current }).then(
+		openAgent(fileId, { models, bridge, credentials, fileKey, subagentModels: () => allowedModels.current }).then(
 			// The first failure stays: a later result must not hide it.
 			(harness) =>
 				setPhase((current) =>
@@ -135,7 +137,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 				),
 			fail,
 		);
-	}, [fileId, models, bridge, credentials, refreshConnected, fail]);
+	}, [fileId, fileKey, models, bridge, credentials, refreshConnected, fail]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
 

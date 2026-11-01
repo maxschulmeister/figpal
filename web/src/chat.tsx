@@ -81,6 +81,7 @@ const TOOL_LABELS: Record<string, string> = {
 	figma_rest: "Figma API",
 	figma_export_tokens: "Export tokens",
 	figma_export_nodes: "Export layers",
+	figma_diff_versions: "Compare versions",
 	subagent: "Subagents",
 };
 

@@ -8,6 +8,7 @@ import {
 	fauxProvider,
 	fauxText,
 	fauxToolCall,
+	type CredentialStore,
 	InMemoryCredentialStore,
 	type Message,
 	Type,
@@ -162,9 +163,10 @@ async function run(
 	models: ReturnType<typeof createModels>,
 	bridge: Pick<Bridge, "request">,
 	text = "Check the card",
-	credentials = FIGMA_TOKEN,
+	credentials: Pick<CredentialStore, "read"> = FIGMA_TOKEN,
+	fileKey: string | null = FILE.fileKey,
 ) {
-	const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials, subagentModels: () => [] });
+	const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials, fileKey, subagentModels: () => [] });
 	const root = await currentThread(harness, SCRIPT);
 	const submission = await root.submit(userInput(text, FILE), context);
 	const settled = await submission.wait(context);
@@ -278,7 +280,7 @@ describe("figma tools", () => {
 		const { models } = scriptedModels("figma_execute", { code: "await new Promise(() => {})" });
 		// code.js cannot stop the code, so the request never ends.
 		const bridge = { request: () => new Promise(() => {}) } as unknown as Pick<Bridge, "request">;
-		const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials: FIGMA_TOKEN, subagentModels: () => [] });
+		const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials: FIGMA_TOKEN, fileKey: "KEY1", subagentModels: () => [] });
 		const root = await currentThread(harness, SCRIPT);
 		const submission = await root.submit(userInput("Hang", FILE), context);
 		await vi.waitFor(async () => {
@@ -291,22 +293,30 @@ describe("figma tools", () => {
 	}, 5000);
 });
 
+/** Runs one call of a tool against a fake api.figma.com. Returns the requests and the tool result. */
+async function callFigmaTool(
+	tool: string,
+	args: Parameters<typeof fauxToolCall>[1],
+	answer: (url: string) => Response,
+	{ credentials = FIGMA_TOKEN, fileKey = FILE.fileKey }: { credentials?: Pick<CredentialStore, "read">; fileKey?: string | null } = {},
+) {
+	const { models, requests } = scriptedModels(tool, args);
+	const calls: { url: string; init?: RequestInit }[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn<typeof fetch>(async (input, init) => {
+			calls.push({ url: String(input), init });
+			return answer(String(input));
+		}),
+	);
+	await run(models, fakeBridge(() => ({ result: null })).bridge, "Go", credentials, fileKey);
+	const result = requests[1]!.at(-1) as { content: { text: string }[]; isError: boolean };
+	return { calls, text: result.content.map((block) => block.text).join("\n"), isError: result.isError };
+}
+
 describe("figma_rest", () => {
-	/** Runs one figma_rest call against a fake api.figma.com. Returns the requests and the tool result. */
-	async function rest(args: Parameters<typeof fauxToolCall>[1], answer: () => Response, credentials = FIGMA_TOKEN) {
-		const { models, requests } = scriptedModels("figma_rest", args);
-		const calls: { url: string; init?: RequestInit }[] = [];
-		vi.stubGlobal(
-			"fetch",
-			vi.fn<typeof fetch>(async (input, init) => {
-				calls.push({ url: String(input), init });
-				return answer();
-			}),
-		);
-		await run(models, fakeBridge(() => ({ result: null })).bridge, "Go", credentials);
-		const result = requests[1]!.at(-1) as { content: { text: string }[]; isError: boolean };
-		return { calls, text: result.content.map((block) => block.text).join("\n"), isError: result.isError };
-	}
+	const rest = (args: Parameters<typeof fauxToolCall>[1], answer: () => Response, credentials = FIGMA_TOKEN) =>
+		callFigmaTool("figma_rest", args, answer, { credentials });
 
 	it("calls the REST API with the token of the user and gives the model the answer", async () => {
 		const { calls, text, isError } = await rest({ method: "GET", path: "/v1/files/KEY1/comments?as_md=true" }, () =>
@@ -391,5 +401,86 @@ describe("figma_rest", () => {
 		expect(isError).toBe(false);
 		expect(text.length).toBeLessThan(45_000);
 		expect(text).toContain("depth");
+	});
+});
+
+describe("figma_diff_versions", () => {
+	const API = "https://api.figma.com/v1/files/KEY1";
+	const file = (pages: { id: string; name: string }[]) => ({
+		name: "Test file",
+		lastModified: "2026-10-01T00:00:00Z",
+		version: "1",
+		document: { id: "0:0", name: "Document", type: "DOCUMENT", children: pages.map((page) => ({ ...page, type: "CANVAS" })) },
+	});
+	const buttons = (states: string[]) => ({
+		nodes: {
+			"1:2": {
+				document: { id: "1:2", name: "Button", type: "COMPONENT_SET", children: states.map((state, index) => ({ id: `1:${3 + index}`, name: `State=${state}`, type: "COMPONENT" })) },
+			},
+		},
+	});
+
+	/** Answers from a table of URLs, else 404. */
+	const diff = (args: Parameters<typeof fauxToolCall>[1], answers: Record<string, unknown>, fileKey: string | null = "KEY1") =>
+		callFigmaTool(
+			"figma_diff_versions",
+			args,
+			(url) => (url in answers ? Response.json(answers[url]) : new Response('{"err":"Not found"}', { status: 404 })),
+			{ fileKey },
+		);
+
+	it("compares a version with the current file and gives the model a changelog", async () => {
+		const answers = {
+			[`${API}?depth=1&version=111`]: file([{ id: "0:1", name: "Home" }]),
+			[`${API}?depth=1`]: file([{ id: "0:1", name: "Start" }, { id: "0:2", name: "Icons" }]),
+			[`${API}/nodes?ids=1%3A2&depth=2&version=111`]: buttons(["Default"]),
+			[`${API}/nodes?ids=1%3A2&depth=2`]: buttons(["Default", "Hover"]),
+		};
+		const { calls, text, isError } = await diff({ from_version: "111", node_ids: ["1:2"] }, answers);
+		expect(calls.map((call) => call.url).sort()).toEqual(Object.keys(answers).sort());
+		expect(calls.every((call) => new Headers(call.init?.headers).get("X-Figma-Token") === "figd_test")).toBe(true);
+		expect(isError).toBe(false);
+		expect(text).toContain("## Page Structure");
+		expect(text).toContain("Icons `0:2`");
+		expect(text).toContain("`0:1`: Home → Start");
+		expect(text).toContain("State=Hover");
+		expect(text).toContain("**To:** Current state (last modified 2026-10-01)");
+	});
+
+	// Figma's REST API has strict limits for these calls: one call for each version, for all nodes.
+	it("reads all nodes in one call for each version, with IDs from Figma links, and names a node it cannot find", async () => {
+		const answers = {
+			[`${API}?depth=1&version=111`]: file([{ id: "0:1", name: "Home" }]),
+			[`${API}?depth=1`]: file([{ id: "0:1", name: "Home" }]),
+			[`${API}/nodes?ids=1%3A2%2C1%3A9&depth=2&version=111`]: buttons(["Default"]),
+			[`${API}/nodes?ids=1%3A2%2C1%3A9&depth=2`]: buttons(["Default", "Hover"]),
+		};
+		const { calls, text } = await diff({ from_version: "111", node_ids: ["1-2", "1:9"] }, answers);
+		expect(calls.map((call) => call.url).sort()).toEqual(Object.keys(answers).sort());
+		expect(text).toContain("State=Hover");
+		expect(text).toContain("**Not found in either version:** `1:9`");
+	});
+
+	it("says when to try again after a rate limit", async () => {
+		const { text, isError } = await callFigmaTool(
+			"figma_diff_versions",
+			{ from_version: "111" },
+			() => new Response('{"status":429}', { status: 429, headers: { "Retry-After": "30" } }),
+		);
+		expect(isError).toBe(true);
+		expect(text).toContain('Figma answered 429: {"status":429}. Try again in 30 s.');
+	});
+
+	it("tells the model when FigPal cannot read the key of the file", async () => {
+		const { calls, text, isError } = await diff({ from_version: "111" }, {}, null);
+		expect(calls).toEqual([]);
+		expect(isError).toBe(true);
+		expect(text).toContain("FigPal cannot read the key of this file");
+	});
+
+	it("gives the error of Figma for a version that does not exist", async () => {
+		const { text, isError } = await diff({ from_version: "999" }, { [`${API}?depth=1`]: file([]) });
+		expect(isError).toBe(true);
+		expect(text).toContain('Figma answered 404: {"err":"Not found"}');
 	});
 });
