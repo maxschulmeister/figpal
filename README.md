@@ -13,7 +13,7 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 7. Web: FigPal searches the web with the model's own search tool and names its sources. It can find images on the web and put them on the canvas.
 8. Figma API: for comments, versions and libraries, paste a Figma personal access token in **Settings → Figma**. Read-only scopes are enough for most tasks.
 9. Selections: select layers while you type. Each selection goes into the message as a chip at the cursor, so one message can give feedback on several layers. A new selection replaces the chip before the cursor until you type; click a chip to replace it.
-10. Exports: ask FigPal to export the variables as design tokens (DTCG, CSS, Tailwind, SCSS and others), or to export layers as SVG or PDF. The step shows each file with a **Download** button. FigPal keeps the files only until it closes; after that, a token export has **Export again**.
+10. Exports: ask FigPal to export the variables as design tokens (DTCG, CSS, Tailwind, SCSS and others), or to export layers as SVG or PDF. The step shows each file with a **Download** button. FigPal keeps the files only until it closes; after that, **Download** makes an export again from the current file.
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 
