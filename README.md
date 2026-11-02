@@ -22,8 +22,9 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 16. Run in the background: the eye button in the header, between New chat and Settings, hides FigPal. A Figma notice with a Show button brings it back, and says when FigPal is done. Closing the notice closes FigPal.
 17. Send while FigPal works: Enter adds the message to the running work (after the current step); Cmd+Enter sends it after the answer. Waiting messages show above the message box, where you can send them now or remove them.
 18. Attachments: add images and text files with the + button, by paste or by drop. Long pasted text becomes a file. FigPal cannot send PDFs yet.
-19. Layers in answers: when FigPal names layers, they show as chips; click one to select those layers. Settings → Models → Text size makes the chat text smaller or larger.
-20. Local helper (optional, macOS): `pnpm local:install` in this repo starts a helper at login, adds the command `figpal` next to `node` (agents run `figpal mcp`), and adds FigPal's MCP server to Claude Code. Run it again after you move the repo or remove the Node version; `pnpm local:uninstall` removes all three. Then, in Settings → Access:
+19. Reply: select text in an answer and click Reply; it goes into the message box at the cursor as a quote.
+20. Layers in answers: when FigPal names layers, they show as chips; click one to select those layers. Settings → Models → Text size makes the chat text smaller or larger.
+21. Local helper (optional, macOS): `pnpm local:install` in this repo starts a helper at login, adds the command `figpal` next to `node` (agents run `figpal mcp`), and adds FigPal's MCP server to Claude Code. Run it again after you move the repo or remove the Node version; `pnpm local:uninstall` removes all three. Then, in Settings → Access:
     - Shared folders: "Add folders" opens the folder picker; the agent can read and write these folders, with their subfolders. "Share Home" gives it all your files.
     - MCP → Enable: agents on this Mac can run code in the open file through FigPal. For another agent, pick it there (Codex, OpenCode, Cursor, Devin, pi, Copilot CLI, Zed, Droid, Cline, or Manual for the JSON) and copy its command. FigPal must be open in Figma; with several files, the agent names the file.
 

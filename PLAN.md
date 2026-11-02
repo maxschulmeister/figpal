@@ -637,6 +637,8 @@ Checks:
 
 - Attachments: assistant-ui's image and text adapters (`web/src/attachments.ts`), with FigPal's limits: images (PNG, JPEG, GIF, WebP) only for a model that reads images, and over 2000 px they get smaller (WebP, as for screenshots); text files by type or name (code, Markdown, JSON, CSV, SVG, …) up to 500 KB, as text in `<attachment name="…">`; other files (PDF: pi-ai sends only text and images) get a note that says why. The "+" button, paste and drop add files (a Lexical paste plugin: assistant-ui's Lexical composer has none); pasted text of 2,000 characters or 30 lines becomes "Pasted text.txt". `userInput` sends the images as images and the files as text; the `figpal.user` entry keeps their names, and the images stay in its model content, so the sent message shows its chips. "Send now" of a waiting message sends its stored input again, so its attachments stay. A button in the composer form needs `type="button"`, else it sends the message. `e2e/run.ts` stops Vite also after an unhandled rejection.
 
+- Reply: assistant-ui's selection toolbar (`SelectionToolbarPrimitive.Root`: it shows at the selection in a message, and keeps the selection on a click) with FigPal's own Reply button, because assistant-ui's Quote puts one quote above the composer and its selection hook is not public. Reply puts the selected text into the composer at the cursor as a Markdown quote (`> …`, on its own line, then an empty line for the reply); several quotes in one message work. A small Lexical plugin keeps the editor of the composer for it. Group A is done; its reviews could not run (the Codex CLI is not signed in) and were checked by hand.
+
 ## Open questions
 
 None at the moment.

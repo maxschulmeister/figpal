@@ -21,10 +21,6 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 - It adds pi-durable `createCodingTools` with a `NodeExecutionEnv` for each repo, and the figma-console-mcp codebase extraction (`src/core/extraction`).
 - A LaunchAgent (`RunAtLoad`, `KeepAlive`) starts it at login.
 
-## Reply to a part of an answer (user, 2026-11-02)
-
-The user selects text in an answer, and a "Reply" button shows next to it, as "Cite" in T3 Code. Reply puts the text in the composer as a quote; the user writes a comment for it. Several quotes in one message are possible.
-
 ## Size of the version diff answers (2026-11-01)
 
 `figma_diff_versions` reads `GET /v1/files/KEY?depth=1` for each version, as upstream does. A review expected the `components`, `componentSets` and `styles` maps of the whole file in that answer, which could be MB for a large library. Measured on 5 of the user's files (1 to 10 pages): 1 to 4 KB, with empty maps at depth 1. The 7th call in 30 seconds got a 429, so the Tier 1 limit is the real cost, not the size. If a large library is slow, measure it, and consider reading the current pages through `code.js` (`figma.root.children`): no REST call for "current".
