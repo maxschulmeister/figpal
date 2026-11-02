@@ -5,6 +5,8 @@ import type { Models } from "@earendil-works/pi-ai/models";
 import { Button, Input, Paragraph, Text } from "figma-kit";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
+const CHATGPT_ID = "openai-codex";
+
 export const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 type AccountsProps = {
@@ -18,20 +20,32 @@ type AccountsProps = {
 };
 
 export function Accounts(props: AccountsProps) {
+	// FigPal needs one model account: without any, both say so in red.
+	const required = !props.connected.has(CLAUDE.id) && !props.connected.has(CHATGPT_ID);
 	return (
 		<div className="flex flex-col gap-5">
-			<TokenAccount {...props} kind={CLAUDE} />
-			<ChatGptAccount {...props} />
+			<TokenAccount {...props} kind={CLAUDE} required={required} />
+			<ChatGptAccount {...props} required={required} />
 		</div>
 	);
 }
 
-export function Account({ name, status, children }: { name: string; status?: string; children: ReactNode }) {
+/** Green when on; grey when off and nothing is wrong; red when FigPal cannot work without it. */
+export type Status = { text: string; tone: "on" | "off" | "problem" };
+const TONE_CLASS = { on: "text-success", off: "text-secondary", problem: "text-danger" } as const;
+
+/** The status of a part that is on or off. */
+export const status = (on: boolean, texts: [on: string, off: string], required = false): Status => ({
+	text: on ? texts[0] : texts[1],
+	tone: on ? "on" : required ? "problem" : "off",
+});
+
+export function Account({ name, status, children }: { name: string; status?: Status; children: ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
 			<div className="flex items-baseline justify-between">
 				<Text weight="strong">{name}</Text>
-				{status && <Text className="text-secondary">{status}</Text>}
+				{status && <Text className={TONE_CLASS[status.tone]}>{status.text}</Text>}
 			</div>
 			{children}
 		</section>
@@ -68,7 +82,8 @@ export function TokenAccount({
 	connected,
 	credentials,
 	onChange,
-}: Pick<AccountsProps, "connected" | "credentials" | "onChange"> & { kind: TokenKind }) {
+	required,
+}: Pick<AccountsProps, "connected" | "credentials" | "onChange"> & { kind: TokenKind; required?: boolean }) {
 	const [editing, setEditing] = useState(false);
 	const [error, setError] = useState<string>();
 	const isConnected = connected.has(kind.id);
@@ -82,7 +97,7 @@ export function TokenAccount({
 
 	if (isConnected && !editing)
 		return (
-			<Account name={kind.title ?? kind.name} status="Connected">
+			<Account name={kind.title ?? kind.name} status={status(true, ["Connected", "Not connected"])}>
 				<div className="flex gap-2">
 					<Button onClick={() => setEditing(true)}>Change token</Button>
 					<Button onClick={remove}>Remove</Button>
@@ -91,7 +106,7 @@ export function TokenAccount({
 			</Account>
 		);
 	return (
-		<Account name={kind.title ?? kind.name}>
+		<Account name={kind.title ?? kind.name} status={status(false, ["Connected", "Not connected"], required)}>
 			<TokenForm kind={kind} onSave={save} onCancel={isConnected ? () => setEditing(false) : undefined} />
 		</Account>
 	);
@@ -142,7 +157,7 @@ function TokenForm({ kind, onSave, onCancel }: { kind: TokenKind; onSave(token: 
 
 type Login = { code?: string; url?: string; controller: AbortController };
 
-function ChatGptAccount({ connected, models, credentials, openExternal, onChange }: AccountsProps) {
+function ChatGptAccount({ connected, models, credentials, openExternal, onChange, required }: AccountsProps & { required: boolean }) {
 	const [login, setLogin] = useState<Login>();
 	const [error, setError] = useState<string>();
 	// Closing the settings stops the login. Without this, it polls OpenAI for up to 15 minutes.
@@ -154,7 +169,7 @@ function ChatGptAccount({ connected, models, credentials, openExternal, onChange
 		setLogin(current);
 		setError(undefined);
 		models
-			.login("openai-codex", "oauth", {
+			.login(CHATGPT_ID, "oauth", {
 				signal: current.controller.signal,
 				prompt: () => Promise.reject(new Error("Not supported")),
 				notify: (event) => {
@@ -168,11 +183,11 @@ function ChatGptAccount({ connected, models, credentials, openExternal, onChange
 			})
 			.finally(() => setLogin(undefined));
 	};
-	const signOut = () => credentials.delete("openai-codex").then(onChange, (reason) => setError(errorText(reason)));
+	const signOut = () => credentials.delete(CHATGPT_ID).then(onChange, (reason) => setError(errorText(reason)));
 
-	if (connected.has("openai-codex"))
+	if (connected.has(CHATGPT_ID))
 		return (
-			<Account name="ChatGPT" status="Signed in">
+			<Account name="ChatGPT" status={status(true, ["Signed in", "Not signed in"])}>
 				<div className="flex gap-2">
 					<Button onClick={signOut}>Sign out</Button>
 				</div>
@@ -180,7 +195,7 @@ function ChatGptAccount({ connected, models, credentials, openExternal, onChange
 			</Account>
 		);
 	return (
-		<Account name="ChatGPT">
+		<Account name="ChatGPT" status={status(false, ["Signed in", "Not signed in"], required)}>
 			{login ? (
 				<>
 					<Paragraph>

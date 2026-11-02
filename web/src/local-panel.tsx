@@ -17,7 +17,7 @@ import {
 	Tooltip,
 } from "figma-kit";
 import { type ReactNode, useId, useState } from "react";
-import { Account, errorText } from "./accounts";
+import { Account, errorText, status } from "./accounts";
 import type { LocalState } from "./local";
 import type { Settings } from "./settings";
 
@@ -60,7 +60,7 @@ export function LocalHelperSettings(props: {
 		<>
 			{/* FigPal cannot pick or keep a folder of the Mac, or start an agent's helper: the local helper does it. */}
 			<Dialog.Section>
-				<Account name="Local helper" status={local.manage ? "Running" : "Not running"}>
+				<Account name="Local helper" status={status(local.manage, ["Running", "Not running"])}>
 					<Text className="text-secondary">Shares folders of this Mac with the agent, and connects agents such as Claude Code.</Text>
 					{!local.manage && (
 						<>
@@ -103,7 +103,7 @@ export function LocalHelperSettings(props: {
 				</Account>
 			</Dialog.Section>
 			<Dialog.Section>
-				<Account name="MCP" status={local.agent ? "Connected" : "Not connected"}>
+				<Account name="MCP" status={status(local.agent, ["Connected", "Not connected"])}>
 					<SwitchRow label="Enable" checked={settings.outsideAgents} onChange={(outsideAgents) => props.onChange({ outsideAgents })} />
 					<AgentSetup />
 				</Account>
