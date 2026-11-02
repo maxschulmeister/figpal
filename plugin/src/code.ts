@@ -40,7 +40,7 @@ const uiOrigin = () => UI_ORIGINS[source];
 const uiUrl = () => `${uiOrigin()}/`;
 /** The size of the panel: the saved size, or the full height. */
 let size: { width: number; height: number } | undefined;
-const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, ...fit(size), title: `FigPal (${source})` });
+const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, ...fit(size), title: source === "local" ? "FigPal (local)" : "FigPal" });
 
 /**
  * The size within the visible canvas, which is as large as the panel can be: code.js cannot read the size of the

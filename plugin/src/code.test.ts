@@ -50,6 +50,12 @@ describe("code.ts start", () => {
 		expect(shown[0]).toContain("http://localhost:5173/");
 	});
 
+	// User request: the deployed UI is the normal case, so its title has no "(remote)".
+	it("is titled FigPal, and FigPal (local) with the local UI", async () => {
+		expect((await startPlugin(async () => "remote")).options[0]?.title).toBe("FigPal");
+		expect((await startPlugin(async () => "local")).options[0]?.title).toBe("FigPal (local)");
+	});
+
 	// The canvas is 1600 × 900 px: the panel and its title bar fit in it.
 	it("opens at the height of the canvas without a saved size", async () => {
 		const { options } = await startPlugin(async () => undefined);
