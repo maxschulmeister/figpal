@@ -25,10 +25,6 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 
 The user selects text in an answer, and a "Reply" button shows next to it, as "Cite" in T3 Code. Reply puts the text in the composer as a quote; the user writes a comment for it. Several quotes in one message are possible.
 
-## Attachments in the composer (user, 2026-11-02)
-
-As in T3 Code: the user can attach files and images to a message, with a button or with copy and paste into the composer. Long pasted text becomes an attachment too, not a wall of text in the message. The composer shows each attachment as a chip that the user can remove. Images go to the model as images; other files as text.
-
 ## Size of the version diff answers (2026-11-01)
 
 `figma_diff_versions` reads `GET /v1/files/KEY?depth=1` for each version, as upstream does. A review expected the `components`, `componentSets` and `styles` maps of the whole file in that answer, which could be MB for a large library. Measured on 5 of the user's files (1 to 10 pages): 1 to 4 KB, with empty maps at depth 1. The 7th call in 30 seconds got a 429, so the Tier 1 limit is the real cost, not the size. If a large library is slow, measure it, and consider reading the current pages through `code.js` (`figma.root.children`): no REST call for "current".
