@@ -2,7 +2,7 @@
 // to the list commits together with the conversation that it creates.
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { type Api, type AssistantMessage, contentText, type Model } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, contentText, type Model, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";
 import {
 	type AgentChange,
@@ -101,12 +101,15 @@ export function noteMessage(harness: Harness, id: ConversationId, text: string):
 	}, context);
 }
 
+/** The text generation model, and its thinking level (fitted to the model). */
+export type Namer = { models: Models; model: Model<Api>; thinking: ModelThinkingLevel };
+
 /**
- * After the answer to the first message (`submission`): a short name from the message and the answer, by `model`. The
- * name changes only while it is the first line of the message, so a name that the user gave stays. If the answer
- * stopped or the model fails, the first line stays.
+ * After the answer to the first message (`submission`): a short name from the message and the answer, by the text
+ * generation model. The name changes only while it is the first line of the message, so a name that the user gave
+ * stays. If the answer stopped or the model fails, the first line stays.
  */
-export async function nameThread(harness: Harness, submission: Submission, text: string, models: Models, model: Model<Api>): Promise<void> {
+export async function nameThread(harness: Harness, submission: Submission, text: string, { models, model, thinking }: Namer): Promise<void> {
 	const settled = await submission.wait(context);
 	if (settled.status !== "done" || settled.type !== "input") return;
 	const id = settled.conversationId;
@@ -119,7 +122,8 @@ export async function nameThread(harness: Harness, submission: Submission, text:
 	const reply = await models.completeSimple(
 		model,
 		{ systemPrompt: NAME_PROMPT, messages: [{ role: "user", content, timestamp: Date.now() }] },
-		{ maxTokens: 40 },
+		// Thinking needs more tokens than the name.
+		thinking === "off" ? { maxTokens: 40 } : { reasoning: thinking },
 	);
 	if (reply.stopReason === "error") {
 		console.warn("FigPal could not name the chat:", reply.errorMessage);

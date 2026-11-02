@@ -2,7 +2,7 @@
 // (like pi's scoped models): the chat's model menu shows them, and the main agent can give them to subagents.
 
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import type { Models } from "@earendil-works/pi-ai/models";
+import { getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import type { ModelRef } from "@earendil-works/pi-durable";
 import type { Bridge } from "./bridge";
@@ -20,6 +20,18 @@ export type Settings = {
 	textSize: TextSize;
 	/** "provider/modelId" of the model that names chats. Empty: Automatic, see `textModel`. */
 	textModel: string;
+	/** The thinking level of the text generation model. Each request fits it to the model. */
+	textThinking: ModelThinkingLevel;
+};
+
+export const THINKING_LABELS: Record<ModelThinkingLevel, string> = {
+	off: "Off",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "Extra high",
+	max: "Max",
 };
 
 export const TEXT_SIZES = ["small", "medium", "large"] as const;
@@ -51,11 +63,25 @@ export const modelGroups = (models: Models, connected: ReadonlySet<string>): Mod
  * provider (by price, so that it stays right when the catalog changes). None if that provider is not connected either.
  */
 export function textModel(models: Models, connected: ReadonlySet<string>, setting: string, chat: ModelRef): Model<Api> | undefined {
+	return chosenTextModel(models, connected, setting) ?? cheapest(modelGroups(models, connected).find(({ provider }) => provider.id === chat.provider));
+}
+
+function chosenTextModel(models: Models, connected: ReadonlySet<string>, setting: string): Model<Api> | undefined {
 	const chosen = parseModelRef(setting);
-	const model = chosen && connected.has(chosen.provider) ? models.getModel(chosen.provider, chosen.modelId) : undefined;
-	if (model) return model;
-	const group = modelGroups(models, connected).find(({ provider }) => provider.id === chat.provider);
-	return group && [...group.models].sort((a, b) => a.cost.input - b.cost.input)[0];
+	return chosen && connected.has(chosen.provider) ? models.getModel(chosen.provider, chosen.modelId) : undefined;
+}
+
+const cheapest = (group: ModelGroup | undefined) => group && [...group.models].sort((a, b) => a.cost.input - b.cost.input)[0];
+
+/**
+ * The thinking levels of the text generation model. Automatic can use the cheapest model of each connected provider:
+ * the levels of all of them.
+ */
+export function textThinkingLevels(models: Models, connected: ReadonlySet<string>, setting: string): ModelThinkingLevel[] {
+	const chosen = chosenTextModel(models, connected, setting);
+	const candidates = chosen ? [chosen] : modelGroups(models, connected).flatMap((group) => cheapest(group) ?? []);
+	const levels = new Set(candidates.flatMap((model) => getSupportedThinkingLevels(model)));
+	return MODEL_THINKING_LEVELS.filter((level) => levels.has(level));
 }
 
 /** The enabled models of the connected providers. If none of them is enabled, all: the model menu is never empty. */
@@ -74,12 +100,13 @@ export const DEFAULT_SETTINGS: Settings = {
 	outsideAgents: false,
 	textSize: "medium",
 	textModel: "",
+	textThinking: "off",
 };
 
 /** The model and thinking level. The other settings came later: loadSettings checks them alone. */
 function isSettings(
 	value: unknown,
-): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "outsideAgents" | "textSize" | "textModel", unknown>> {
+): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "outsideAgents" | "textSize" | "textModel" | "textThinking", unknown>> {
 	if (typeof value !== "object" || value === null) return false;
 	const { model, thinkingLevel } = value as Partial<Record<keyof Settings, unknown>>;
 	const ref = model as Partial<Record<keyof ModelRef, unknown>> | null | undefined;
@@ -94,7 +121,7 @@ function isSettings(
 export async function loadSettings(bridge: Pick<Bridge, "request">): Promise<Settings> {
 	const { result } = await bridge.request("storage-get", { key: KEY });
 	if (!isSettings(result)) return DEFAULT_SETTINGS;
-	const { model, thinkingLevel, enabledModels, outsideAgents, textSize, textModel } = result;
+	const { model, thinkingLevel, enabledModels, outsideAgents, textSize, textModel, textThinking } = result;
 	const list = Array.isArray(enabledModels) ? enabledModels : [];
 	return {
 		model,
@@ -103,6 +130,7 @@ export async function loadSettings(bridge: Pick<Bridge, "request">): Promise<Set
 		outsideAgents: outsideAgents === true,
 		textSize: TEXT_SIZES.find((size) => size === textSize) ?? "medium",
 		textModel: typeof textModel === "string" && parseModelRef(textModel) ? textModel : "",
+		textThinking: MODEL_THINKING_LEVELS.find((level) => level === textThinking) ?? "off",
 	};
 }
 

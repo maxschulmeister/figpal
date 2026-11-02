@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { type FauxResponseStep, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
+import { type FauxResponseStep, fauxAssistantMessage, fauxProvider, fauxText, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
@@ -77,7 +77,8 @@ describe("threads", () => {
 			await noteMessage(opened.harness, thread.id, text);
 			const submission = await thread.submit({ type: "input", content: text || "(image)" }, context);
 			const model = opened.models.getModel("faux", "script")!;
-			const name = () => nameThread(opened.harness, submission, text, opened.models, model);
+			const name = (thinking: ModelThinkingLevel = "off") =>
+				nameThread(opened.harness, submission, text, { models: opened.models, model, thinking });
 			return { ...opened, thread, submission, requests, name };
 		}
 
@@ -88,6 +89,22 @@ describe("threads", () => {
 			expect(requests[0]).toContain(ANSWER);
 			// The first line, without quotes and the full stop.
 			expect((await list()).threads[0]!.title).toBe("Card padding check");
+		});
+
+		it("asks with the thinking level of the setting; without thinking, for at most 40 tokens", async () => {
+			const options: unknown[] = [];
+			const step: FauxResponseStep = (_request, given) => {
+				options.push({ reasoning: given?.reasoning, maxTokens: given?.maxTokens });
+				return fauxAssistantMessage(fauxText("Name"));
+			};
+			const off = await answered([step]);
+			await off.name();
+			const low = await answered([step]);
+			await low.name("low");
+			expect(options).toEqual([
+				{ reasoning: undefined, maxTokens: 40 },
+				{ reasoning: "low", maxTokens: undefined },
+			]);
 		});
 
 		it("uses the answer of the first message, also when a follow-up waits", async () => {

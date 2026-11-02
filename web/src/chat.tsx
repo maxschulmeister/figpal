@@ -59,7 +59,7 @@ import { downloadFile, type FileDetails, type FileRef, fileById, fileSize, keepF
 import type { PillDetails } from "./lint";
 import { nodeIdsOfLink, quoteItem, quoteLines } from "./node-chips";
 import { ChipText, ComposerChip, SelectionChips } from "./selection-chips";
-import { enabledModelGroups, type Settings, type TextSize } from "./settings";
+import { enabledModelGroups, type Settings, THINKING_LABELS, type TextSize } from "./settings";
 import { exportTokens, type TokenExport } from "./tokens";
 import { type Thread, toThread } from "./transcript";
 
@@ -518,16 +518,6 @@ function WaitingMessages({ queue }: { queue: Thread["queue"] }) {
 		</ul>
 	);
 }
-
-const THINKING_LABELS: Record<ModelThinkingLevel, string> = {
-	off: "Off",
-	minimal: "Minimal",
-	low: "Low",
-	medium: "Medium",
-	high: "High",
-	xhigh: "Extra high",
-	max: "Max",
-};
 
 /** 1,234 as "1.2k", 45,300 as "45k", 1,000,000 as "1M". */
 function tokenCount(tokens: number): string {

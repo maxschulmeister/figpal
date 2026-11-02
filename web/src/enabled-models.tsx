@@ -1,11 +1,12 @@
 // The enabled models in the settings, like pi's scoped models: the chat's model menu shows them, and the main agent can
 // give them to subagents. A combobox with a search field adds them (the catalog is long), and the list below it shows
-// them, each with a remove button. Below: the text generation model, which names chats.
+// them, each with a remove button. Below: the text generation model, which names chats, and its thinking level.
 
-import type { Models } from "@earendil-works/pi-ai/models";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, type Models } from "@earendil-works/pi-ai/models";
 import { CheckmarkIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, Combobox, IconButton, Select, Text, Tooltip } from "figma-kit";
 import { useMemo } from "react";
-import { modelGroups } from "./settings";
+import { modelGroups, parseModelRef, type Settings, THINKING_LABELS, textThinkingLevels } from "./settings";
 
 type Option = { value: string; label: string };
 
@@ -111,53 +112,100 @@ export function EnabledModels({ models, connected, value, onChange }: Props) {
 // The Select needs a value: "auto" stands for the empty setting.
 const AUTOMATIC: Option = { value: "auto", label: "Automatic" };
 
-/** The model that names chats. Empty: Automatic. A chosen model of a provider that is not connected shows as Automatic. */
-export function TextModel({ models, connected, value, onChange }: Omit<Props, "value" | "onChange"> & { value: string; onChange(value: string): void }) {
+type TextModelProps = Pick<Props, "models" | "connected"> & {
+	value: Pick<Settings, "textModel" | "textThinking">;
+	onChange(change: Partial<Pick<Settings, "textModel" | "textThinking">>): void;
+};
+
+/**
+ * The model that names chats, and its thinking level. Empty: Automatic. A chosen model of a provider that is not
+ * connected shows as Automatic. The thinking level shows as the chosen model uses it (fitted), and hides without levels.
+ */
+export function TextModel({ models, connected, value, onChange }: TextModelProps) {
 	const groups = useOptions(models, connected);
-	const items = [AUTOMATIC, ...groups.flatMap((group) => group.items)];
-	const current = items.some((item) => item.value === value) ? value : AUTOMATIC.value;
+	const current = groups.some((group) => group.items.some((item) => item.value === value.textModel)) ? value.textModel : AUTOMATIC.value;
+	const ref = parseModelRef(current);
+	const chosen = ref && models.getModel(ref.provider, ref.modelId);
+	const levels = textThinkingLevels(models, connected, value.textModel);
+	const thinking = chosen ? clampThinkingLevel(chosen, value.textThinking) : value.textThinking;
 	return (
 		<section className="flex flex-col gap-2">
 			<Text weight="strong" id="text-model">
 				Text generation model
 			</Text>
 			<Text className="text-secondary">Names new chats. Automatic uses the cheapest model of the chat's provider.</Text>
-			<Select.Root items={items} value={current} onValueChange={(next) => next && onChange(next === AUTOMATIC.value ? "" : next)}>
-					<Select.Trigger aria-labelledby="text-model">
-						<Select.Value />
-						<Select.Icon>
-							<ChevronDownIcon />
-						</Select.Icon>
-					</Select.Trigger>
-					<Select.Portal>
-						<Select.Positioner>
-							<Select.Popup>
-								<Select.ScrollUpArrow>
-									<ChevronUpIcon />
-								</Select.ScrollUpArrow>
-								<Select.List>
-									<Option option={AUTOMATIC} />
-									{groups.map((group) => (
-										<Select.Group key={group.label}>
-											<Select.GroupLabel>{group.label}</Select.GroupLabel>
-											{group.items.map((option) => (
-												<Option key={option.value} option={option} />
-											))}
-										</Select.Group>
-									))}
-								</Select.List>
-								<Select.ScrollDownArrow>
-									<ChevronDownIcon />
-								</Select.ScrollDownArrow>
-							</Select.Popup>
-						</Select.Positioner>
-					</Select.Portal>
-			</Select.Root>
+			<div className="flex gap-2">
+				{/* figma-kit's trigger fills its box. */}
+				<div className="min-w-0 flex-1">
+					<SettingSelect
+						labelledBy="text-model"
+						groups={[{ items: [AUTOMATIC] }, ...groups]}
+						value={current}
+						onChange={(next) => onChange({ textModel: next === AUTOMATIC.value ? "" : next })}
+					/>
+				</div>
+				{levels.length > 1 && (
+					<div className="w-28 shrink-0">
+						<SettingSelect
+							label="Thinking"
+							groups={[{ items: levels.map((level) => ({ value: level, label: THINKING_LABELS[level] })) }]}
+							value={thinking}
+							onChange={(next) => onChange({ textThinking: next as ModelThinkingLevel })}
+						/>
+					</div>
+				)}
+			</div>
 		</section>
 	);
 }
 
-function Option({ option }: { option: Option }) {
+type SelectProps = {
+	groups: { label?: string; items: Option[] }[];
+	value: string;
+	onChange(value: string): void;
+} & ({ label: string; labelledBy?: never } | { labelledBy: string; label?: never });
+
+/** figma-kit's Select with groups. */
+function SettingSelect({ groups, value, onChange, label, labelledBy }: SelectProps) {
+	return (
+		<Select.Root items={groups.flatMap((group) => group.items)} value={value} onValueChange={(next) => next && onChange(next)}>
+			<Select.Trigger aria-label={label} aria-labelledby={labelledBy}>
+				<Select.Value />
+				<Select.Icon>
+					<ChevronDownIcon />
+				</Select.Icon>
+			</Select.Trigger>
+			<Select.Portal>
+				<Select.Positioner>
+					<Select.Popup>
+						<Select.ScrollUpArrow>
+							<ChevronUpIcon />
+						</Select.ScrollUpArrow>
+						<Select.List>
+							{groups.map((group) =>
+								group.label ? (
+									<Select.Group key={group.label}>
+										<Select.GroupLabel>{group.label}</Select.GroupLabel>
+										{group.items.map((option) => (
+											<SelectOption key={option.value} option={option} />
+										))}
+									</Select.Group>
+								) : (
+									group.items.map((option) => <SelectOption key={option.value} option={option} />)
+								),
+							)}
+						</Select.List>
+						<Select.ScrollDownArrow>
+							<ChevronDownIcon />
+						</Select.ScrollDownArrow>
+					</Select.Popup>
+				</Select.Positioner>
+			</Select.Portal>
+		</Select.Root>
+	);
+}
+
+function SelectOption({ option }: { option: Option }) {
 	return (
 		<Select.Item value={option.value}>
 			<Select.ItemIndicator>

@@ -3,7 +3,7 @@ import type { Bridge } from "./bridge";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { chatgptProvider } from "./providers/chatgpt";
-import { DEFAULT_SETTINGS, enabledModelGroups, loadSettings, saveSettings, textModel } from "./settings";
+import { DEFAULT_SETTINGS, enabledModelGroups, loadSettings, saveSettings, textModel, textThinkingLevels } from "./settings";
 
 function storage(value?: unknown) {
 	const data = new Map<string, unknown>(value === undefined ? [] : [["figpal.settings", value]]);
@@ -33,6 +33,12 @@ describe("settings", () => {
 		expect((await loadSettings(storage(settings(3)).bridge)).textModel).toBe("");
 	});
 
+	it("keeps a known thinking level of the text generation model, and uses Off for any other value", async () => {
+		const settings = (textThinking: unknown) => ({ model: DEFAULT_SETTINGS.model, thinkingLevel: "high", textThinking });
+		expect((await loadSettings(storage(settings("low")).bridge)).textThinking).toBe("low");
+		expect((await loadSettings(storage(settings("huge")).bridge)).textThinking).toBe("off");
+	});
+
 	it("saves and loads the model and thinking level for new threads", async () => {
 		const { bridge } = storage();
 		expect(await loadSettings(bridge)).toEqual(DEFAULT_SETTINGS);
@@ -43,6 +49,7 @@ describe("settings", () => {
 			outsideAgents: true,
 			textSize: "large",
 			textModel: "anthropic/claude-haiku-5-5",
+			textThinking: "low",
 		} as const;
 		await saveSettings(bridge, { ...settings, enabledModels: [...settings.enabledModels] });
 		expect(await loadSettings(bridge)).toEqual(settings);
@@ -51,7 +58,7 @@ describe("settings", () => {
 	it("loads the settings of Phase 2 without enabled models, and leaves out values that are not model names", async () => {
 		const phase2 = { model: { provider: "anthropic", modelId: "claude-sonnet-5-5" }, thinkingLevel: "low" };
 		// Older settings have no MCP setting: it stays off.
-		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false, textSize: "medium", textModel: "" });
+		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false, textSize: "medium", textModel: "", textThinking: "off" });
 		const mixed = { ...phase2, enabledModels: ["anthropic/claude-haiku-5", 3, "no-slash"] };
 		expect((await loadSettings(storage(mixed).bridge)).enabledModels).toEqual(["anthropic/claude-haiku-5"]);
 	});
@@ -118,6 +125,12 @@ describe("settings", () => {
 
 		it("is none when the chat's provider is not connected either", () => {
 			expect(id("", chatgpt, new Set(["anthropic"]))).toBeUndefined();
+		});
+
+		it("has the thinking levels of the chosen model; with Automatic, of the cheapest model of each connected provider", () => {
+			expect(textThinkingLevels(models, both, "anthropic/claude-sonnet-5-5")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+			expect(textThinkingLevels(models, new Set(["anthropic"]), "")).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
+			expect(textThinkingLevels(models, both, "")).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 		});
 	});
 });

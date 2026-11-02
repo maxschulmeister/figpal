@@ -25,6 +25,7 @@ import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
+import { clampThinkingLevel } from "@earendil-works/pi-ai/models";
 import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings, TEXT_SIZES, type TextSize, textModel } from "./settings";
 import { chipLabels } from "./node-chips";
 import { SkillsPanel } from "./skills-panel";
@@ -341,7 +342,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 										if (!first) return;
 										const chat = (await thread.agent(context)).model ?? settings.model;
 										const model = textModel(models, connected, settings.textModel, chat);
-										if (model) await nameThread(harness, submission, label, models, model);
+										const thinking = model && clampThinkingLevel(model, settings.textThinking);
+										if (model && thinking) await nameThread(harness, submission, label, { models, model, thinking });
 									})
 									.catch(report);
 							}}
@@ -389,8 +391,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 									<TextModel
 										models={models}
 										connected={connected}
-										value={settings.textModel}
-										onChange={(textModel) => updateSettings({ textModel })}
+										value={settings}
+										onChange={updateSettings}
 									/>
 								</Dialog.Section>
 								<Dialog.Section>

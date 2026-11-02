@@ -4,7 +4,9 @@
 
 import { type Context, type ModelRequest, text } from "../harness.ts";
 
-type Request = ModelRequest & { model: string };
+type Request = ModelRequest & { model: string; thinking?: { type: string } };
+/** pi-ai sends the thinking level of Claude 5.5 models as the last message: `output_config.effort`. */
+const effort = (request: Request | undefined) => (request?.messages.at(-1) as { output_config?: { effort?: string } } | undefined)?.output_config?.effort;
 
 export default async function names(t: Context) {
 	const naming: Request[] = [];
@@ -24,8 +26,8 @@ export default async function names(t: Context) {
 	const first = naming[0];
 	t.check(
 		"after the first answer, the cheapest model of the chat's provider names the chat, without tools",
-		first?.model === "claude-haiku-5-5" && !first.tools?.length && JSON.stringify(first.messages).includes("The padding is 12 px."),
-		JSON.stringify({ model: first?.model, tools: first?.tools?.length }),
+		first?.model === "claude-haiku-5-5" && !first.tools?.length && JSON.stringify(first.messages).includes("The padding is 12 px.") && first.thinking?.type === "disabled",
+		JSON.stringify({ model: first?.model, tools: first?.tools?.length, thinking: first?.thinking }),
 	);
 	await session.ask("Now make it blue", "The padding is 12 px.");
 	await session.page.waitForTimeout(500);
@@ -36,10 +38,20 @@ export default async function names(t: Context) {
 	t.check("the setting is Automatic by default", (await select.textContent())?.includes("Automatic") === true, (await select.textContent()) ?? "");
 	await select.click();
 	await frame.getByRole("option", { name: "Claude Sonnet 5.5" }).click();
+	// Claude Sonnet 5.5 always thinks: Off shows as its lowest level.
+	const thinking = frame.getByRole("combobox", { name: "Thinking" });
+	t.check("the thinking level shows as the chosen model uses it", (await thinking.textContent())?.includes("Low") === true, (await thinking.textContent()) ?? "");
+	await thinking.click();
+	await frame.getByRole("option", { name: "Medium" }).click();
 	await t.screenshot(session, "names-setting");
 	await frame.getByRole("button", { name: "Back to the chat" }).click();
 	await frame.getByRole("button", { name: "New chat" }).click();
 	await session.ask("Check the buttons", "The padding is 12 px.");
 	await frame.getByRole("button", { name: "Button colors" }).waitFor();
-	t.check("the chosen model names the next chat", naming[1]?.model === "claude-sonnet-5-5", naming[1]?.model ?? "none");
+	const second = naming[1];
+	t.check(
+		"the chosen model and thinking level name the next chat",
+		second?.model === "claude-sonnet-5-5" && second.thinking?.type !== "disabled" && effort(second) === "medium",
+		JSON.stringify({ model: second?.model, thinking: second?.thinking?.type, effort: effort(second) }),
+	);
 }
