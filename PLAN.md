@@ -639,6 +639,8 @@ Checks:
 
 - Reply: assistant-ui's selection toolbar (`SelectionToolbarPrimitive.Root`: it shows at the selection in a message, and keeps the selection on a click) with FigPal's own Reply button, because assistant-ui's Quote puts one quote above the composer and its selection hook is not public. Reply puts the selected text into the composer at the cursor as a Markdown quote (`> …`, on its own line, then an empty line for the reply); several quotes in one message work. A small Lexical plugin keeps the editor of the composer for it. Group A is done; its reviews could not run (the Codex CLI is not signed in) and were checked by hand.
 
+- After the user's test of group A: (1) Reply showed a raw `>`: a quote is now a chip, `:quote{name="{\"quote\":…}"}` (JSON, so the name may have line breaks), on its own line in the composer and a block in the sent message; the model still gets Markdown quote lines; a quote over 900 characters stays Markdown text. (2) A pasted image showed a broken image: the page policy allows `img-src 'self' data:`, so previews are data URLs, not blob: URLs; the e2e check decodes the preview, which catches it against the deployed page. (3) "Clumsy, pills too big, spacing not consistent": chips are 20 px with an 18 px Remove, waiting rows 24 px, steps of an answer 24 px rows close together (figma-kit's Collapsible has 8 px padding), text blocks 8 px apart, 8 px between the parts under the chat, and the hidden "Fork from here" row no longer adds space after an answer. The e2e check of the bridge waits as the user does (focus, then the folders in Access) before it asks the agent: it failed sometimes when the agent asked before FigPal was connected.
+
 ## Open questions
 
 None at the moment.
