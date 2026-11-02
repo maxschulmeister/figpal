@@ -1,6 +1,7 @@
 // The statuses of the settings: green when on; grey when off and nothing is wrong; red when FigPal cannot work (no
 // model account).
 
+import { LOCAL_ORIGINS } from "@figpal/shared/local";
 import type { Context } from "../harness.ts";
 
 export default async function status(t: Context) {
@@ -20,11 +21,10 @@ export default async function status(t: Context) {
 	const models = [await tone("Claude"), await tone("ChatGPT")];
 	t.check("with Claude: Connected in green, ChatGPT Not signed in in grey", JSON.stringify(models) === JSON.stringify(["Connected: success", "Not signed in: secondary"]), JSON.stringify(models));
 	await frame.getByRole("tab", { name: "Access" }).click();
-	const access = [await tone("Personal access token"), await tone("Local helper"), await tone("MCP")];
-	t.check(
-		"the optional parts that are off are grey",
-		JSON.stringify(access) === JSON.stringify(["Not connected: secondary", "Not running: secondary", "Not connected: secondary"]),
-		JSON.stringify(access),
-	);
+	// The user's own helpers answer FigPal's real origins: there, the helper parts can be on.
+	const real = LOCAL_ORIGINS.includes(new URL(t.ui).origin);
+	const access = [await tone("Personal access token"), ...(real ? [] : [await tone("Local helper"), await tone("MCP")])];
+	const off = ["Not connected: secondary", ...(real ? [] : ["Not running: secondary", "Not connected: secondary"])];
+	t.check("the optional parts that are off are grey", JSON.stringify(access) === JSON.stringify(off), JSON.stringify(access));
 	await t.screenshot(session, "status-access");
 }
