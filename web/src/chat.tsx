@@ -31,7 +31,7 @@ import {
 	Collapsible,
 	createIcon,
 	DropdownMenu,
-	EyeClosedIcon,
+	MinusIcon,
 	IconButton,
 	Text,
 	Tooltip,
@@ -195,13 +195,6 @@ export function Chat(props: ChatProps) {
 						<ThreadPrimitive.Messages>{renderMessage}</ThreadPrimitive.Messages>
 						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-1 bg-default pb-2">
 							{retry && <p className="text-secondary">The model call failed and runs again soon: {retry.error}</p>}
-							{/* Above the box, on the left: far from Stop, so that the user does not click Stop by mistake. */}
-							<AuiIf condition={(state) => state.thread.isRunning}>
-								<Button variant="text" className="gap-1 self-start" onClick={props.onHide}>
-									<EyeClosedIcon />
-									Run in the background
-								</Button>
-							</AuiIf>
 							<ComposerPrimitive.Root className="flex items-end gap-1 rounded-md border border-default p-1 focus-within:border-selected">
 								<LexicalComposerInput
 									autoFocus
@@ -236,7 +229,17 @@ export function Chat(props: ChatProps) {
 									onChange={props.onModelChange}
 									onEditModels={props.onEditModels}
 								/>
-								<ContextUsage tokens={thread?.contextTokens} model={thread?.agent?.model} models={props.models} />
+								{/* The right end; mr-3 keeps it off the resize grip in the corner. */}
+								<div className="mr-3 ml-auto flex shrink-0 items-center gap-1">
+									<ContextUsage tokens={thread?.contextTokens} model={thread?.agent?.model} models={props.models} />
+									<AuiIf condition={(state) => state.thread.isRunning}>
+										<Tooltip content="Run in the background">
+											<IconButton aria-label="Run in the background" onClick={props.onHide}>
+												<MinusIcon />
+											</IconButton>
+										</Tooltip>
+									</AuiIf>
+								</div>
 							</div>
 						</ThreadPrimitive.ViewportFooter>
 					</ThreadPrimitive.Viewport>
@@ -270,7 +273,7 @@ function ContextUsage(props: { tokens: number | undefined; model: AgentState["mo
 	const percent = Math.min(100, Math.ceil((props.tokens / window) * 100));
 	return (
 		<Tooltip content={`${tokenCount(props.tokens)} / ${tokenCount(window)} tokens (${percent}%)`}>
-			<span data-testid="context-usage" className="mr-3 ml-auto flex h-6 shrink-0 items-center">
+			<span data-testid="context-usage" className="flex h-6 shrink-0 items-center">
 				<span aria-hidden="true" className="h-1 w-8 overflow-hidden rounded-full bg-tertiary">
 					<span className="block h-full rounded-full bg-[var(--color-icon-secondary)]" style={{ width: `${percent}%` }} />
 				</span>

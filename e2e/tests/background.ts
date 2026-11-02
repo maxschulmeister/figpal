@@ -1,4 +1,4 @@
-// Run in the background: the button is next to Stop, while the agent works. code.js hides the panel and shows a notice;
+// Run in the background: a minimize button right of the context usage, while the agent works. code.js hides the panel and shows a notice;
 // when the agent is idle, the notice says so. The chat list replaces the chat while the agent works: the notice must not
 // depend on the open chat.
 
@@ -27,6 +27,9 @@ export default async function background(t: Context) {
 	await session.page.keyboard.press("Enter");
 	await hide.hover();
 	await t.screenshot(session, "background");
+	// The model row: the button is the last part, right of the model menu.
+	const row = await hide.evaluate((button) => [button.textContent, button.closest("div")?.parentElement?.lastElementChild?.contains(button)]);
+	t.check("an icon at the end of the model row", JSON.stringify(row) === JSON.stringify(["", true]), JSON.stringify(row));
 	await hide.click();
 	await session.frame.getByRole("button", { name: /Make a card/ }).first().click();
 	for (let i = 0; i < 50 && requests.length < 2; i++) await session.page.waitForTimeout(100);
