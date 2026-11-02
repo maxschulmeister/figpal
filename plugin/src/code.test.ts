@@ -12,7 +12,10 @@ async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: obj
 		postMessage: (message: unknown) => posted.push(message),
 		onmessage: undefined as OnMessage | undefined,
 		resize: vi.fn(),
+		hide: vi.fn(),
+		show: vi.fn(),
 	};
+	const notices: { message: string; options: NotificationOptions; cancel: ReturnType<typeof vi.fn> }[] = [];
 	vi.stubGlobal("figma", {
 		clientStorage: { getAsync, setAsync: async (key: string, value: unknown) => void saved.set(key, value) },
 		showUI: (html: string, option: ShowUIOptions) => {
@@ -21,6 +24,11 @@ async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: obj
 		},
 		ui,
 		on() {},
+		notify: (message: string, options: NotificationOptions) => {
+			const notice = { message, options, cancel: vi.fn() };
+			notices.push(notice);
+			return notice;
+		},
 		...api,
 		// The visible canvas: 1600 × 900 px. A test can add to the viewport, for example scrollAndZoomIntoView.
 		viewport: { bounds: { width: 800, height: 450 }, zoom: 2, ...(api as { viewport?: object }).viewport },
@@ -28,7 +36,7 @@ async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: obj
 	vi.resetModules();
 	await import("./code");
 	await new Promise((resolve) => setTimeout(resolve, 0));
-	return { shown, options, posted, saved, ui, send: (message: unknown, origin: string) => ui.onmessage?.(message, { origin }) };
+	return { shown, options, posted, saved, ui, notices, send: (message: unknown, origin: string) => ui.onmessage?.(message, { origin }) };
 }
 
 const start = async (getAsync: () => Promise<unknown>) => (await startPlugin(getAsync)).shown;
@@ -68,6 +76,54 @@ describe("code.ts start", () => {
 		expect(ui.resize).toHaveBeenCalledWith(320, 600);
 		expect(posted[0]).toMatchObject({ ok: true, result: { width: 320, height: 600 } });
 		await vi.waitFor(() => expect(saved.get("figpal.size")).toEqual({ width: 320, height: 600 }));
+	});
+
+	// The agent goes on in the hidden panel. A notice that stays brings it back.
+	it("runs in the background: hides the panel, and a notice shows it again", async () => {
+		const { posted, ui, notices, send } = await startPlugin(async () => "remote");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		expect(ui.hide).toHaveBeenCalled();
+		expect(notices[0]).toMatchObject({ message: "FigPal works in the background.", options: { timeout: Number.POSITIVE_INFINITY, button: { text: "Show" } } });
+		// A new message replaces the notice.
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done." } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(2));
+		expect(notices[0]!.cancel).toHaveBeenCalled();
+		notices[1]!.options.button!.action();
+		expect(ui.show).toHaveBeenCalled();
+	});
+
+	// A run can end after the user clicked Show: its notice must not hide the panel again.
+	it("changes only a notice that is still there", async () => {
+		const { posted, ui, notices, send } = await startPlugin(async () => "remote");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(notices).toHaveLength(1));
+		notices[0]!.options.button!.action();
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(2));
+		expect(ui.hide).toHaveBeenCalledTimes(1);
+		expect(notices).toHaveLength(1);
+	});
+
+	it("keeps the panel when Figma cannot show the notice", async () => {
+		const { posted, ui, send } = await startPlugin(async () => "remote", {
+			notify() {
+				throw new Error("no notices");
+			},
+		});
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		expect(posted[0]).toMatchObject({ ok: false });
+		expect(ui.hide).not.toHaveBeenCalled();
+	});
+
+	// Without the notice, the user could not get the panel back.
+	it("shows the panel when the user closes the notice", async () => {
+		const { ui, notices, send } = await startPlugin(async () => "remote");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(notices).toHaveLength(1));
+		notices[0]!.options.onDequeue!("dismiss");
+		expect(ui.show).toHaveBeenCalled();
 	});
 
 	it("opens the remote UI when the setting cannot be read", async () => {

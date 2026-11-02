@@ -24,7 +24,7 @@ export type Options = {
 	/** The code.js requests of the check. Storage and open-external have defaults. */
 	requests?: Record<string, Handler>;
 	/** Gives the answer of the model, as server-sent events. Default: the text "Done.". */
-	model?: (request: ModelRequest) => string;
+	model?: (request: ModelRequest) => string | Promise<string>;
 	/** A strip under the panel: a click there takes the focus from the panel, as a click on Figma's canvas does. */
 	canvas?: boolean;
 	/** Before the page loads, for example more routes. */
@@ -264,7 +264,7 @@ export class Context {
 		await page.route(`${this.ui}/api/anthropic/**`, async (route) => {
 			const request = JSON.parse(route.request().postData() ?? "{}") as ModelRequest;
 			session.model.push(request);
-			await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: model(request) });
+			await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: await model(request) });
 		});
 		await page.route(PARENT_URL, (route) => route.fulfill({ contentType: "text/html", body: parent(this.ui, this.dark, options.canvas ?? false) }));
 		await options.setup?.(page);

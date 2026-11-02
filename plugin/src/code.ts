@@ -65,6 +65,17 @@ const isSize = (value: unknown): value is { width: number; height: number } =>
 
 let saveTimer = 0;
 
+/** The notice while the panel is hidden. */
+let notice: NotificationHandler | undefined;
+
+/** Shows the hidden panel and ends its notice. */
+function showPanel(): void {
+	const previous = notice;
+	notice = undefined;
+	previous?.cancel();
+	figma.ui.show();
+}
+
 let loadTimer = 0;
 
 function offlineHtml(): string {
@@ -388,6 +399,25 @@ const handlers: Handlers = {
 			attachments.push({ name: `${node.name.replaceAll("/", "-")}.${format.toLowerCase()}`, mime: EXPORT_MIME[format], bytes });
 		}
 		return { result: { count: attachments.length }, attachments };
+	},
+
+	async background({ message, update }) {
+		if (typeof message !== "string" || (update !== undefined && typeof update !== "boolean"))
+			throw new Error("The message must be text.");
+		// The user clicked Show before the run ended.
+		if (update && !notice) return { result: null };
+		// The new notice first: without a notice, the user could not get the panel back.
+		const previous = notice;
+		const current = figma.notify(message, {
+			timeout: Number.POSITIVE_INFINITY,
+			button: { text: "Show", action: () => (notice === current ? showPanel() : undefined) },
+			// When the user closes the notice, show the panel.
+			onDequeue: (reason) => (reason === "dismiss" && notice === current ? showPanel() : undefined),
+		});
+		notice = current;
+		previous?.cancel();
+		figma.ui.hide();
+		return { result: null };
 	},
 
 	async resize(wanted) {

@@ -10,6 +10,7 @@ import {
 	ChevronLeftIcon,
 	Dialog,
 	IconButton,
+	MinusIcon,
 	Paragraph,
 	PlusIcon,
 	SlidersIcon,
@@ -85,6 +86,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [models, settings, connected]);
 
 	const fail = useCallback((error: unknown) => setPhase({ kind: "failed", message: errorText(error) }), []);
+
 	const openExternal = useCallback(
 		(url: string) => bridge.request("open-external", { url }).catch((error) => console.error("FigPal:", error)),
 		[bridge],
@@ -210,6 +212,16 @@ export function App({ bridge }: { bridge: Bridge }) {
 			});
 	};
 	const current = list?.threads.find((info) => info.id === thread?.id);
+	/**
+	 * Hides the panel. When no chat and no subagent works, the notice says so; code.js changes the notice only while the
+	 * panel is hidden.
+	 */
+	const hide = () =>
+		bridge
+			.request("background", { message: "FigPal works in the background." })
+			.then(() => harness.waitForIdle(context))
+			.then(() => bridge.request("background", { message: "FigPal is done.", update: true }))
+			.catch(report);
 	const otherUi: UiSource = uiSource === "local" ? "remote" : "local";
 
 	return (
@@ -232,6 +244,11 @@ export function App({ bridge }: { bridge: Bridge }) {
 					</Button>
 				)}
 				<div className="ml-auto flex shrink-0 gap-1">
+					<Tooltip content="Run in the background">
+						<IconButton aria-label="Run in the background" onClick={() => void hide()}>
+							<MinusIcon />
+						</IconButton>
+					</Tooltip>
 					<Tooltip content="New chat">
 						<IconButton aria-label="New chat" onClick={() => run(() => newThread(harness, agent))}>
 							<PlusIcon />
