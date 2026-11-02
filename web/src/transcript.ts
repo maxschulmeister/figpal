@@ -8,6 +8,8 @@ import {
 	type AgentState,
 	type ConversationView,
 	defineEntry,
+	InboxDoc,
+	type InboxState,
 	LiveDoc,
 	type LiveState,
 } from "@earendil-works/pi-durable";
@@ -26,7 +28,12 @@ export type Thread = {
 	agent?: AgentState;
 	/** The size of the newest request, as its provider reported it. Undefined before the first answer. */
 	contextTokens?: number;
+	/** The messages that wait in the inbox: steers join the running work, follow-ups start the next run. */
+	queue: { steer: QueuedMessage[]; followUp: QueuedMessage[] };
 };
+
+/** A waiting message: its submission ID and the typed text. */
+export type QueuedMessage = { id: string; text: string };
 
 /**
  * One user message for each user entry, and one assistant message for each answer to it: all model responses and
@@ -76,7 +83,19 @@ export function toThread(view: ConversationView): Thread {
 	const last = messages.at(-1);
 	if (isRunning && last?.role === "assistant") messages[messages.length - 1] = { ...last, status: { type: "running" } };
 	const agent = view.docs[AgentDoc.definition.kind] as AgentState | undefined;
-	return { messages, isRunning, retry: live?.generation?.retry, agent, contextTokens };
+	const inbox = (view.docs[InboxDoc.definition.kind] as InboxState | undefined)?.items ?? [];
+	// The entry of a waiting input is a draft, not an entry record: its kind and text, checked here.
+	const textOf = (entry: { kind: string; data?: unknown } | undefined) => {
+		const text = entry?.kind === UserText.kind && (entry.data as { text?: unknown } | undefined)?.text;
+		return typeof text === "string" ? text : undefined;
+	};
+	const queued = (mode: "steer" | "followUp") =>
+		inbox.flatMap((item) => {
+			const text = item.mode === mode ? textOf(item.entry) : undefined;
+			return text === undefined ? [] : [{ id: String(item.id), text }];
+		});
+	const queue = { steer: queued("steer"), followUp: queued("followUp") };
+	return { messages, isRunning, retry: live?.generation?.retry, agent, contextTokens, queue };
 }
 
 function assistantParts(

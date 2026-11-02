@@ -9,10 +9,12 @@ import {
 	MessageNotSentError,
 	MessagePrimitive,
 	type ReasoningMessagePartComponent,
+	QueueItemPrimitive,
 	ThreadPrimitive,
 	type ThreadMessageLike,
 	type ToolCallMessagePartComponent,
 	type ToolCallMessagePartProps,
+	useAui,
 	useAuiState,
 	useExternalStoreRuntime,
 } from "@assistant-ui/react";
@@ -28,6 +30,7 @@ import {
 	Button,
 	CheckmarkIcon,
 	ChevronDownIcon,
+	CloseIcon,
 	Collapsible,
 	createIcon,
 	DropdownMenu,
@@ -38,6 +41,7 @@ import {
 import { type ComponentProps, createContext, Fragment, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
+import { inboxQueue, textOf } from "./queue";
 import { type AuditDetails, STATUS_LABELS } from "./audit";
 import type { Bridge } from "./bridge";
 import { errorText } from "./accounts";
@@ -133,6 +137,8 @@ type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 	enabledModels: string[];
 	/** A message was sent. */
 	onSend(text: string): void;
+	/** Withdraws a waiting message of this chat. The ID is pi-durable's submission ID as text (assistant-ui's IDs). */
+	abortSubmission(id: string): Promise<string>;
 	textSize: TextSize;
 	/** The user picked a model or thinking level. New threads use it too. */
 	onModelChange(choice: ModelChoice): void;
@@ -144,13 +150,37 @@ export function Chat(props: ChatProps) {
 	const { thread: conversation, file } = props;
 	const [failure, setFailure] = useState<string>();
 	const thread = useThread(conversation, setFailure);
+	const [sendError, setSendError] = useState<string>();
+	const { abortSubmission, onSend } = props;
+	// While the agent works, or while messages wait: without a queue, assistant-ui sends with onNew, which puts the text
+	// back when the message cannot be sent.
+	const busy = thread !== undefined && (thread.isRunning || thread.queue.steer.length + thread.queue.followUp.length > 0);
+	const queue = useMemo(
+		() =>
+			thread && busy
+				? inboxQueue({
+						queue: thread.queue,
+						send: (text, mode) =>
+							void conversation.submit({ ...userInput(text, file), whenBusy: mode }, context).then(
+								() => {
+									setSendError(undefined);
+									onSend(text);
+								},
+								(error) => setSendError(`FigPal could not send "${text}": ${errorText(error)}`),
+							),
+						abort: abortSubmission,
+					})
+				: undefined,
+		[thread, busy, conversation, file, onSend, abortSubmission],
+	);
 	const runtime = useExternalStoreRuntime<ThreadMessageLike>({
+		queue,
 		messages: thread?.messages ?? [],
 		convertMessage: asIs,
 		isRunning: thread?.isRunning,
 		isLoading: thread === undefined,
 		onNew: async (message) => {
-			const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+			const text = textOf(message);
 			try {
 				await conversation.submit(userInput(text, file), context);
 				props.onSend(text);
@@ -194,7 +224,9 @@ export function Chat(props: ChatProps) {
 						<ThreadPrimitive.Messages>{renderMessage}</ThreadPrimitive.Messages>
 						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-1 bg-default pb-2">
 							{retry && <p className="text-secondary">The model call failed and runs again soon: {retry.error}</p>}
-							<ComposerPrimitive.Root className="flex items-end gap-1 rounded-md border border-default p-1 focus-within:border-selected">
+							{sendError && <p className="text-danger">{sendError}</p>}
+							{thread && <WaitingMessages queue={thread.queue} />}
+							<Composer>
 								<LexicalComposerInput
 									autoFocus
 									placeholder="Ask FigPal"
@@ -203,7 +235,8 @@ export function Chat(props: ChatProps) {
 								>
 									<SelectionChips bridge={props.bridge} initial={file} />
 								</LexicalComposerInput>
-								<AuiIf condition={(state) => !state.thread.isRunning}>
+								{/* While the agent works: Send for a typed message (it steers), and Stop. */}
+								<AuiIf condition={(state) => !state.thread.isRunning || !state.composer.isEmpty}>
 									<ComposerPrimitive.Send asChild>
 										<IconButton aria-label="Send">
 											<SendIcon />
@@ -217,7 +250,7 @@ export function Chat(props: ChatProps) {
 										</IconButton>
 									</ComposerPrimitive.Cancel>
 								</AuiIf>
-							</ComposerPrimitive.Root>
+							</Composer>
 							<div className="flex items-center gap-1">
 								<ModelPicker
 									conversation={conversation}
@@ -238,6 +271,57 @@ export function Chat(props: ChatProps) {
 				</ThreadPrimitive.Root>
 			</AssistantRuntimeProvider>
 		</ChatActions.Provider>
+	);
+}
+
+/** The composer. Enter sends; while the agent works it steers (assistant-ui). Cmd+Enter sends after the answer. */
+function Composer({ children }: { children: ReactNode }) {
+	const aui = useAui();
+	return (
+		<ComposerPrimitive.Root
+			className="flex items-end gap-1 rounded-md border border-default p-1 focus-within:border-selected"
+			// Before Lexical, which would add a line.
+			onKeyDownCapture={(event) => {
+				if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.nativeEvent.isComposing) return;
+				event.preventDefault();
+				event.stopPropagation();
+				if (aui.composer.getState().canSend) aui.composer.send({ steer: false });
+			}}
+		>
+			{children}
+		</ComposerPrimitive.Root>
+	);
+}
+
+/** The messages that wait while the agent works: a steer goes in after the current tool step, a follow-up after the answer. */
+function WaitingMessages({ queue }: { queue: Thread["queue"] }) {
+	if (queue.steer.length + queue.followUp.length === 0) return null;
+	const steer = new Set(queue.steer.map((message) => message.id));
+	return (
+		<ul aria-label="Waiting messages" className="flex flex-col gap-1">
+			<ComposerPrimitive.Queue>
+				{({ queueItem }) => (
+					<li className="flex items-center gap-2 rounded-md bg-secondary py-0.5 pr-0.5 pl-2">
+						<Text className="min-w-0 flex-1 truncate">
+							<QueueItemPrimitive.Text />
+						</Text>
+						<Text className="shrink-0 text-secondary">{steer.has(queueItem.id) ? "Next" : "After the answer"}</Text>
+						{!steer.has(queueItem.id) && (
+							<QueueItemPrimitive.Steer asChild>
+								<Button variant="text">Send now</Button>
+							</QueueItemPrimitive.Steer>
+						)}
+						<Tooltip content="Remove">
+							<QueueItemPrimitive.Remove asChild>
+								<IconButton aria-label="Remove">
+									<CloseIcon />
+								</IconButton>
+							</QueueItemPrimitive.Remove>
+						</Tooltip>
+					</li>
+				)}
+			</ComposerPrimitive.Queue>
+		</ul>
 	);
 }
 

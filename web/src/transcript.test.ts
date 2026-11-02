@@ -25,11 +25,28 @@ const toolResult = (id: number, toolCallId: string, content: unknown[], isError 
 });
 const system = { id: 2, conversationId: 1, kind: "pi.system", model: [{ role: "system", content: "", toolsAdded: [], timestamp: 1 }] };
 
-function view(entries: unknown[], live: object = {}, agent?: object): ConversationView {
-	return { conversation: { id: 1 }, entries, docs: { "pi.live": live, "pi.agent": agent } } as unknown as ConversationView;
+function view(entries: unknown[], live: object = {}, agent?: object, inbox?: object): ConversationView {
+	return { conversation: { id: 1 }, entries, docs: { "pi.live": live, "pi.agent": agent, "pi.inbox": inbox } } as unknown as ConversationView;
 }
 
 describe("toThread", () => {
+	// Messages that the user sent while the agent works wait in pi-durable's inbox: steers join the running work,
+	// follow-ups start the next run. The chat shows the typed text, without the <figma> block.
+	it("gives the waiting messages by lane, with the typed text", () => {
+		const queued = (id: string, mode: string, text: string) => ({
+			id,
+			mode,
+			content: `<figma>\nFile: F\n</figma>\n\n${text}`,
+			entry: { kind: "figpal.user", data: { text } },
+		});
+		const inbox = { items: [queued("s1", "steer", "Use 8 px"), queued("f1", "followUp", "Then check it"), { id: "w1", mode: "write", entry: {} }] };
+		expect(toThread(view([userEntry(1, "Hi")], {}, undefined, inbox)).queue).toEqual({
+			steer: [{ id: "s1", text: "Use 8 px" }],
+			followUp: [{ id: "f1", text: "Then check it" }],
+		});
+		expect(toThread(view([userEntry(1, "Hi")])).queue).toEqual({ steer: [], followUp: [] });
+	});
+
 	// The size of the last request, as the provider reports it: what the conversation fills of the context window.
 	it("gives the context size of the newest answer with usage", () => {
 		const sized = (id: number, totalTokens: number) => {

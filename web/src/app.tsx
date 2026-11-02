@@ -2,7 +2,7 @@
 
 import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { AgentChange, Conversation, ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
+import type { AgentChange, Conversation, ConversationId, EntryId, Harness, SubmissionId } from "@earendil-works/pi-durable";
 import { type FileInfo, UI_ORIGINS, type UiSource } from "@figpal/shared";
 import {
 	Button,
@@ -333,6 +333,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
 							openConversation={openConversation}
 							onSend={(text) => noteMessage(harness, thread.id, chipLabels(text)).catch(report)}
+							abortSubmission={(id) => harness.abortSubmission(Number(id) as SubmissionId, context, thread.id)}
 							textSize={settings.textSize}
 							onModelChange={updateSettings}
 							onEditModels={() => {
