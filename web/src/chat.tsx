@@ -188,7 +188,8 @@ export function Chat(props: ChatProps) {
 		<ChatActions.Provider value={actions}>
 			<AssistantRuntimeProvider runtime={runtime}>
 				<ThreadPrimitive.Root className="flex h-full flex-col">
-					<ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4">
+					{/* relative: the scroll area clips the absolute screen-reader texts of its chips; else the page grows. */}
+					<ThreadPrimitive.Viewport className="relative flex flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4">
 						<AuiIf condition={(state) => state.thread.isEmpty}>
 							<p className="m-auto text-lg text-secondary">Ask FigPal to read or change this file.</p>
 						</AuiIf>
