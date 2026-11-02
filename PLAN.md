@@ -647,7 +647,8 @@ Checks:
 
 - Thinking for the text generation model (user request after the test of AI names): a select next to the model, `textThinking`, Off by default (names stay fast). It offers the levels of the chosen model; for Automatic, the levels of the cheapest model of each connected provider. It shows the level that the model uses (pi-ai `clampThinkingLevel`: Claude Sonnet 5.5 cannot think Off, so Off shows as Low), and hides when the model has one level only. Each request fits the level to the model; with thinking, no 40-token cap (thinking needs more). The thinking labels moved to `settings.ts` (the chat menu uses them too). Note: for Claude 5.5 models pi-ai sends the level as a last message with `output_config.effort`; the top-level `output_config` always says "high". No reviews (a change that the user asked for).
 
-- The window title is "FigPal" with the deployed UI (user request: no "(remote)"); the local UI keeps "FigPal (local)", so the two stay apart.
+- The window title is "FigPal" (user request: no "(remote)").
+- No local UI (user choice A): FigPal always loads the deployed UI. Gone: the Settings row "Use the local UI", the button on the offline page, the clientStorage key `figpal.ui` (an old value does nothing), the `switch-ui` message, `devAllowedDomains` in the manifest, and the local origin of the helper (`LOCAL_ORIGINS` is the deployed origin; the e2e checks pass `--origin`). A UI change reaches Figma with `pnpm deploy:web`. Vite stays for the e2e checks (Chrome with a fake Figma). `pnpm dev` still starts Vite and the plugin build in watch mode.
 
 ## Open questions
 

@@ -4,9 +4,9 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 
 ## Run
 
-1. `pnpm install`, then `pnpm dev`. This starts the local UI (Vite on `http://localhost:5173`) and builds `plugin/dist/code.js`.
+1. `pnpm install`, then `pnpm --filter ./plugin build`. This builds `plugin/dist/code.js`. FigPal loads its UI from `https://figpal.maxschulmeister.dev` (Tailscale only); a UI change reaches Figma with `pnpm deploy:web`.
 2. In Figma Desktop: **Plugins → Development → Import plugin from manifest…**, then select `plugin/manifest.json`.
-3. Open a test file (not a work file). Run **FigPal**. The window title is "FigPal" with the deployed UI, and "FigPal (local)" with the local UI. To change the UI, use **Settings**.
+3. Open a test file (not a work file). Run **FigPal**. Without Tailscale, FigPal says so after 10 s, with **Try again**.
 4. At the first start, connect a model: paste a Claude token (in Terminal, `claude setup-token` makes one), or sign in with ChatGPT. **Settings** (top right) has both.
 5. Skills: at the first start, FigPal installs Figma's skills. To add more, open **Settings → Skills**: search skills.sh, paste `npx skills add owner/repo@skill`, or upload a zip.
 6. Models: below the prompt, the model and thinking level have separate menus on the left. **Edit Models** at the end of the model menu opens **Settings → Models**, where you select the models for the chat. FigPal can also give them to subagents, which run tasks at the same time. With no selection, it uses all models.
