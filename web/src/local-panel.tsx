@@ -2,11 +2,45 @@
 // is a section with the header of the accounts: the name, and its status on the right.
 
 import type { FolderChange } from "@figpal/shared/local";
-import { Button, CloseIcon, Dialog, IconButton, Label, Switch, Text, Tooltip } from "figma-kit";
+import {
+	Button,
+	CheckmarkIcon,
+	ChevronDownIcon,
+	ChevronUpIcon,
+	CloseIcon,
+	Dialog,
+	IconButton,
+	Label,
+	Select,
+	Switch,
+	Text,
+	Tooltip,
+} from "figma-kit";
 import { type ReactNode, useId, useState } from "react";
 import { Account, errorText } from "./accounts";
 import type { LocalState } from "./local";
 import type { Settings } from "./settings";
+
+const json = (value: object) => JSON.stringify(value, null, 2);
+const MCP_SERVERS = json({ mcpServers: { figpal: { command: "figpal-mcp" } } });
+
+/**
+ * How each agent adds FigPal's MCP server, the figpal-mcp command of `pnpm local:install`. From their docs (2026-11);
+ * the commands of OpenCode and Droid were tried. `file`: the agent has no command, the user adds the JSON there.
+ */
+const AGENTS: { value: string; label: string; setup: string; file?: string }[] = [
+	{ value: "claude", label: "Claude Code", setup: "claude mcp add --scope user figpal -- figpal-mcp" },
+	{ value: "codex", label: "Codex", setup: "codex mcp add figpal -- figpal-mcp" },
+	{ value: "opencode", label: "OpenCode", setup: "opencode mcp add figpal -- figpal-mcp" },
+	{ value: "cursor", label: "Cursor", setup: MCP_SERVERS, file: "~/.cursor/mcp.json" },
+	{ value: "devin", label: "Devin", setup: "devin mcp add --scope user figpal -- figpal-mcp" },
+	{ value: "pi", label: "pi", setup: "pi mcp add figpal -- figpal-mcp" },
+	{ value: "copilot", label: "Copilot CLI", setup: "copilot mcp add figpal -- figpal-mcp" },
+	{ value: "zed", label: "Zed", setup: json({ context_servers: { figpal: { command: "figpal-mcp", args: [] } } }), file: "the settings.json of Zed" },
+	{ value: "droid", label: "Droid", setup: "droid mcp add figpal figpal-mcp" },
+	{ value: "cline", label: "Cline", setup: "cline mcp add figpal -- figpal-mcp" },
+	{ value: "manual", label: "Manual", setup: MCP_SERVERS, file: "the MCP config of your agent" },
+];
 
 export function LocalHelperSettings(props: {
 	settings: Settings;
@@ -70,34 +104,73 @@ export function LocalHelperSettings(props: {
 			</Dialog.Section>
 			<Dialog.Section>
 				<Account name="MCP" status={local.agent ? "Connected" : "Not connected"}>
-					<SwitchRow label="Enable" checked={settings.outsideAgents} onChange={(outsideAgents) => props.onChange({ outsideAgents })}>
-						Let agents on this Mac, such as Claude Code, use this file.
-					</SwitchRow>
-					<CopyCommand command="claude mcp add figpal -- figpal-mcp" />
-					<Text className="text-secondary">
-						The install adds FigPal to Claude Code. For Codex, write <code>codex</code> instead of <code>claude</code>.
-					</Text>
+					<SwitchRow label="Enable" checked={settings.outsideAgents} onChange={(outsideAgents) => props.onChange({ outsideAgents })} />
+					<AgentSetup />
 				</Account>
 			</Dialog.Section>
 		</>
 	);
 }
 
+/** The setup of FigPal's MCP server for the agent that the user picks. */
+function AgentSetup() {
+	const [agent, setAgent] = useState<string | null>("claude");
+	const chosen = AGENTS.find((item) => item.value === agent) ?? AGENTS[0]!;
+	return (
+		<>
+			<Select.Root items={AGENTS} value={agent} onValueChange={setAgent}>
+				<Select.Trigger aria-label="Agent" className="self-start">
+					<Select.Value />
+					<Select.Icon>
+						<ChevronDownIcon />
+					</Select.Icon>
+				</Select.Trigger>
+				<Select.Portal>
+					<Select.Positioner>
+						<Select.Popup>
+							<Select.ScrollUpArrow>
+								<ChevronUpIcon />
+							</Select.ScrollUpArrow>
+							<Select.List>
+								{AGENTS.map((item) => (
+									<Select.Item key={item.value} value={item.value}>
+										<Select.ItemIndicator>
+											<CheckmarkIcon size="4" />
+										</Select.ItemIndicator>
+										<Select.ItemText>{item.label}</Select.ItemText>
+									</Select.Item>
+								))}
+							</Select.List>
+							<Select.ScrollDownArrow>
+								<ChevronDownIcon />
+							</Select.ScrollDownArrow>
+						</Select.Popup>
+					</Select.Positioner>
+				</Select.Portal>
+			</Select.Root>
+			{chosen.file && <Text className="text-secondary">Add this to {chosen.file}:</Text>}
+			<CopyCommand command={chosen.setup} />
+		</>
+	);
+}
+
 /** A switch on the right of its label, with a hint under the label. */
-function SwitchRow(props: { label: string; checked: boolean; disabled?: boolean; onChange(checked: boolean): void; children: ReactNode }) {
+function SwitchRow(props: { label: string; checked: boolean; disabled?: boolean; onChange(checked: boolean): void; children?: ReactNode }) {
 	const id = useId();
 	return (
 		<div className="flex items-start gap-2">
 			<span className="flex min-w-0 flex-1 flex-col">
 				<Label htmlFor={`${id}-switch`}>{props.label}</Label>
-				<Text id={id} className="text-secondary">
-					{props.children}
-				</Text>
+				{props.children && (
+					<Text id={id} className="text-secondary">
+						{props.children}
+					</Text>
+				)}
 			</span>
 			<Switch
 				id={`${id}-switch`}
 				className="mt-0.5 shrink-0"
-				aria-describedby={id}
+				aria-describedby={props.children ? id : undefined}
 				checked={props.checked}
 				disabled={props.disabled}
 				onCheckedChange={props.onChange}
@@ -106,7 +179,7 @@ function SwitchRow(props: { label: string; checked: boolean; disabled?: boolean;
 	);
 }
 
-/** A command for Terminal, with a Copy button. */
+/** A command for Terminal or a piece of JSON, with a Copy button. */
 function CopyCommand({ command }: { command: string }) {
 	const [copied, setCopied] = useState(false);
 	const copy = async () => {
@@ -122,9 +195,9 @@ function CopyCommand({ command }: { command: string }) {
 		setTimeout(() => setCopied(false), 2000);
 	};
 	return (
-		<div className="flex items-center gap-2">
+		<div className="flex items-start gap-2">
 			<Text className="min-w-0 flex-1">
-				<code className="block break-all px-2 py-1">{command}</code>
+				<code className="block whitespace-pre-wrap break-all px-2 py-1">{command}</code>
 			</Text>
 			<Button variant="secondary" className="shrink-0" onClick={() => void copy()}>
 				{copied ? "Copied" : "Copy"}
