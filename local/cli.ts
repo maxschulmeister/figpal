@@ -6,7 +6,8 @@
 //   node local/cli.ts --mcp   an MCP server on stdin and stdout: an outside agent acts on the open Figma file through
 //                             FigPal. The install makes the command figpal-mcp for it: `<agent> mcp add figpal -- figpal-mcp`.
 //   --config <path>           another config file (tests)
-//   --origin <url>            accept one more UI origin (development, tests)
+//   --origin <url>            accept only this UI origin, not FigPal's (tests): the user's FigPal must not use a
+//                             test helper
 
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
@@ -42,7 +43,7 @@ const pick = () =>
 	);
 
 const helper = await startHelper({
-	origins: [...LOCAL_ORIGINS, ...values.origin],
+	origins: values.origin.length ? values.origin : LOCAL_ORIGINS,
 	ports: LOCAL_PORTS,
 	agent: values.mcp,
 	...(!values.mcp && { folders: { config: values.config, home: homedir(), pick } }),
