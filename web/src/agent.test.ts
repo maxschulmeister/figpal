@@ -183,7 +183,7 @@ async function run(
 
 // The rules and the tools go with each request: they fill the context window (PLAN: Phase 7). The list of the skills
 // that the user installs is not in this budget, but FigPal's rules for skills are: one short skill shows them. Now about
-// 3,130: a new rule must take the place of an old one.
+// 3,160: a new rule must take the place of an old one.
 describe("token budget", () => {
 	afterEach(() => removeSkill("tiny"));
 

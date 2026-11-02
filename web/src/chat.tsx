@@ -35,7 +35,7 @@ import {
 	Text,
 	Tooltip,
 } from "figma-kit";
-import { type ComponentProps, createContext, Fragment, useContext, useEffect, useMemo, useState } from "react";
+import { type ComponentProps, createContext, Fragment, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
 import { type AuditDetails, STATUS_LABELS } from "./audit";
@@ -45,6 +45,7 @@ import { exportNodes, type NODE_EXPORT } from "./extensions/figma";
 import type { SubagentDetails } from "./extensions/subagent";
 import { downloadFile, type FileDetails, type FileRef, fileById, fileSize, keepFiles } from "./files";
 import type { PillDetails } from "./lint";
+import { nodeIdsOfLink } from "./node-chips";
 import { ChipText, NodeChip, SelectionChips } from "./selection-chips";
 import { enabledModelGroups, type Settings } from "./settings";
 import { exportTokens, type TokenExport } from "./tokens";
@@ -415,6 +416,8 @@ function Working({ status }: EmptyMessagePartProps) {
 
 function ExternalLink({ href, children }: ComponentProps<"a">) {
 	const { openExternal } = useContext(ChatActions);
+	const nodeIds = nodeIdsOfLink(href);
+	if (nodeIds) return <LayerLink nodeIds={nodeIds}>{children}</LayerLink>;
 	return (
 		<a
 			href={href}
@@ -537,7 +540,8 @@ function AuditScores({ audit }: AuditDetails) {
 }
 
 /** A pill for each rule or finding: a click selects its layers, so that the user can check them. */
-function ToolPills({ pills }: PillDetails) {
+/** Selects layers on the canvas, for the pills and the layer chips. `note` says what went wrong. */
+function useLayerSelect() {
 	const { selectNodes } = useContext(ChatActions);
 	const [running, setRunning] = useState(false);
 	const [note, setNote] = useState<{ text: string; failed: boolean }>();
@@ -555,13 +559,38 @@ function ToolPills({ pills }: PillDetails) {
 			setRunning(false);
 		}
 	};
+	return { select, running, note };
+}
+
+/** The start of the name of a select button: "Select 2 layers:". */
+const selectPrefix = (count: number) => `Select ${count} ${count === 1 ? "layer" : "layers"}:`;
+
+/** A layer chip in an answer of the agent, `[Card](#node=1:2)`: a click selects its layers. */
+function LayerLink({ nodeIds, children }: { nodeIds: string[]; children: ReactNode }) {
+	const { select, running, note } = useLayerSelect();
+	return (
+		<>
+			<button type="button" className="node-chip" disabled={running} onClick={() => void select(nodeIds)}>
+				{/* The name: "Select 1 layer: Card", also when the link text has formatting. */}
+				<span className="sr-only">{selectPrefix(nodeIds.length)} </span>
+				{children}
+			</button>
+			<span role="status" className={`ml-1 ${note?.failed ? "text-danger" : "text-secondary"}`}>
+				{note && `(${note.text})`}
+			</span>
+		</>
+	);
+}
+
+function ToolPills({ pills }: PillDetails) {
+	const { select, running, note } = useLayerSelect();
 	return (
 		<div className="flex flex-col gap-1 pl-4">
 			<div className="flex flex-wrap gap-1">
 				{pills.map(({ label, nodeIds }) => (
 					<Button
 						key={label}
-						aria-label={`Select ${nodeIds.length} ${nodeIds.length === 1 ? "layer" : "layers"}: ${label}`}
+						aria-label={`${selectPrefix(nodeIds.length)} ${label}`}
 						disabled={running}
 						onClick={() => void select(nodeIds)}
 					>

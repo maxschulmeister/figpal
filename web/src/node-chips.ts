@@ -3,6 +3,7 @@
 
 import { defaultDirectiveFormatter, type TriggerItem } from "@assistant-ui/react";
 import type { NodeSummary } from "@figpal/shared";
+import { nodeIdOf } from "./schema";
 
 export const CHIP_TYPE = "node";
 
@@ -65,6 +66,23 @@ export function chipSegments(text: string): ChipSegment[] {
 		const chip = segment.type === CHIP_TYPE ? readChip(segment.id) : undefined;
 		return chip ? { kind: "chip", label: segment.label, ...chip } : { kind: "text", text: defaultDirectiveFormatter.serialize(segment) };
 	});
+}
+
+/** "1:2", "1-2" from a Figma link, or "I1:5;3:4" for a layer in an instance. */
+const NODE_ID = /^I?\d+[:-]\d+(;\d+[:-]\d+)*$/;
+const LINK = "#node=";
+/** A model links a few layers. Longer lists are not layer links: code.js looks up each ID. */
+const MAX_LINK_IDS = 200;
+
+/**
+ * The node IDs of a layer link in an answer of the agent, `[Card](#node=1:2,1:3)`. Undefined for other links. A
+ * fragment, because the Markdown renderer removes links with an unknown scheme.
+ */
+export function nodeIdsOfLink(href: string | undefined): string[] | undefined {
+	if (!href?.startsWith(LINK)) return undefined;
+	const ids = href.slice(LINK.length).split(",", MAX_LINK_IDS + 1);
+	if (ids.length > MAX_LINK_IDS || !ids.every((id) => NODE_ID.test(id))) return undefined;
+	return [...new Set(ids.map(nodeIdOf))];
 }
 
 /** A name without < and >, so it cannot close a tag. */

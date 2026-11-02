@@ -52,6 +52,15 @@ body {
 	cursor: default;
 	box-decoration-break: clone;
 }
+/* A layer chip in an answer: a click selects its layers. */
+button.node-chip {
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+button.node-chip:hover {
+	border-color: var(--figma-color-border-strong);
+}
 /* The chip that the next selection replaces. */
 [data-active] > .node-chip {
 	border-color: var(--figma-color-border-selected);

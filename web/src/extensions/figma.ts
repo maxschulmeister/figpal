@@ -20,6 +20,8 @@ Each user message starts with a <figma> block (the file and the current page). I
 
 Check your work: after a visual change with figma_screenshot, after an animation change with figma_animation_frames (a screenshot shows a frame at rest).
 
+Link the layers that you name, so that a click selects them: [Card](#node=1:2), [2 icons](#node=1:3,1:4).
+
 Plugin API rules:
 - Pages load on demand. Use the async API: getNodeByIdAsync, setCurrentPageAsync, getMainComponentAsync. Call \`await page.loadAsync()\` before you read another page.
 - Before you change text, load all its fonts with figma.loadFontAsync (figma.getRangeAllFontNames gives them). New text uses Inter Regular.

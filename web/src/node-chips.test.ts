@@ -1,6 +1,6 @@
 import { defaultDirectiveFormatter } from "@assistant-ui/react";
 import { describe, expect, it } from "vitest";
-import { chipItem, chipLabels, chipSegments, chipsForModel } from "./node-chips";
+import { chipItem, chipLabels, chipSegments, chipsForModel, nodeIdsOfLink } from "./node-chips";
 
 const home = { id: "0:1", name: "Home", type: "PAGE" };
 const parts = { id: "0:2", name: "Parts", type: "PAGE" };
@@ -72,5 +72,16 @@ describe("node chips", () => {
 	it("give the labels for a thread title", () => {
 		// The composer keeps one space next to each chip.
 		expect(chipLabels(`${chip([card])} make it red`)).toBe("Card make it red");
+	});
+
+	// The agent links the layers that it names: [Card](#node=1:2). IDs in Figma links have dashes.
+	it("read the node IDs of a layer link in an answer", () => {
+		expect(nodeIdsOfLink("#node=1:2")).toEqual(["1:2"]);
+		expect(nodeIdsOfLink("#node=1-3,I1:5;3:4")).toEqual(["1:3", "I1:5;3:4"]);
+		for (const href of ["https://figma.com", "#node=", "#node=card", "#node=1:2,", "#node=1:2 1:3", undefined])
+			expect(nodeIdsOfLink(href)).toBeUndefined();
+		// A model writes a few IDs: a long list in a link is not a layer link (code.js would look up each ID).
+		expect(nodeIdsOfLink("#node=1:2,1-2,1:3")).toEqual(["1:2", "1:3"]);
+		expect(nodeIdsOfLink(`#node=${Array.from({ length: 201 }, (_, i) => `1:${i}`).join(",")}`)).toBeUndefined();
 	});
 });
