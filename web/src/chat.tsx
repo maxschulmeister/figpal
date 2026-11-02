@@ -195,6 +195,13 @@ export function Chat(props: ChatProps) {
 						<ThreadPrimitive.Messages>{renderMessage}</ThreadPrimitive.Messages>
 						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-1 bg-default pb-2">
 							{retry && <p className="text-secondary">The model call failed and runs again soon: {retry.error}</p>}
+							{/* Above the box, on the left: far from Stop, so that the user does not click Stop by mistake. */}
+							<AuiIf condition={(state) => state.thread.isRunning}>
+								<Button variant="text" className="gap-1 self-start" onClick={props.onHide}>
+									<EyeClosedIcon />
+									Run in the background
+								</Button>
+							</AuiIf>
 							<ComposerPrimitive.Root className="flex items-end gap-1 rounded-md border border-default p-1 focus-within:border-selected">
 								<LexicalComposerInput
 									autoFocus
@@ -212,11 +219,6 @@ export function Chat(props: ChatProps) {
 									</ComposerPrimitive.Send>
 								</AuiIf>
 								<AuiIf condition={(state) => state.thread.isRunning}>
-									<Tooltip content="Run in the background">
-										<IconButton aria-label="Run in the background" onClick={props.onHide}>
-											<EyeClosedIcon />
-										</IconButton>
-									</Tooltip>
 									<ComposerPrimitive.Cancel asChild>
 										<IconButton aria-label="Stop">
 											<StopIcon />
