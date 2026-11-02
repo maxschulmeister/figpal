@@ -3,7 +3,7 @@ import type { Bridge } from "./bridge";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { chatgptProvider } from "./providers/chatgpt";
-import { DEFAULT_SETTINGS, enabledModelGroups, loadSettings, saveSettings } from "./settings";
+import { DEFAULT_SETTINGS, enabledModelGroups, loadSettings, saveSettings, textModel } from "./settings";
 
 function storage(value?: unknown) {
 	const data = new Map<string, unknown>(value === undefined ? [] : [["figpal.settings", value]]);
@@ -26,6 +26,13 @@ describe("settings", () => {
 		expect((await loadSettings(storage(settings("huge")).bridge)).textSize).toBe("medium");
 	});
 
+	it("keeps a text generation model that is a model name, and uses Automatic (empty) for any other value", async () => {
+		const settings = (textModel: unknown) => ({ model: DEFAULT_SETTINGS.model, thinkingLevel: "high", enabledModels: [], textModel });
+		expect((await loadSettings(storage(settings("anthropic/claude-haiku-5-5")).bridge)).textModel).toBe("anthropic/claude-haiku-5-5");
+		expect((await loadSettings(storage(settings("haiku")).bridge)).textModel).toBe("");
+		expect((await loadSettings(storage(settings(3)).bridge)).textModel).toBe("");
+	});
+
 	it("saves and loads the model and thinking level for new threads", async () => {
 		const { bridge } = storage();
 		expect(await loadSettings(bridge)).toEqual(DEFAULT_SETTINGS);
@@ -35,6 +42,7 @@ describe("settings", () => {
 			enabledModels: ["anthropic/claude-haiku-5"],
 			outsideAgents: true,
 			textSize: "large",
+			textModel: "anthropic/claude-haiku-5-5",
 		} as const;
 		await saveSettings(bridge, { ...settings, enabledModels: [...settings.enabledModels] });
 		expect(await loadSettings(bridge)).toEqual(settings);
@@ -43,7 +51,7 @@ describe("settings", () => {
 	it("loads the settings of Phase 2 without enabled models, and leaves out values that are not model names", async () => {
 		const phase2 = { model: { provider: "anthropic", modelId: "claude-sonnet-5-5" }, thinkingLevel: "low" };
 		// Older settings have no MCP setting: it stays off.
-		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false, textSize: "medium" });
+		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false, textSize: "medium", textModel: "" });
 		const mixed = { ...phase2, enabledModels: ["anthropic/claude-haiku-5", 3, "no-slash"] };
 		expect((await loadSettings(storage(mixed).bridge)).enabledModels).toEqual(["anthropic/claude-haiku-5"]);
 	});
@@ -82,6 +90,34 @@ describe("settings", () => {
 		it("are all models when no chosen model is of a connected provider: the menu is never empty", () => {
 			const onlyClaude = new Set(["anthropic"]);
 			expect(names(["openai-codex/gpt-6.1-sol"], onlyClaude)).toEqual(names([], onlyClaude));
+		});
+	});
+
+	describe("text generation model", () => {
+		const models = createModels();
+		models.setProvider(anthropicProvider());
+		models.setProvider(chatgptProvider());
+		const both = new Set(["anthropic", "openai-codex"]);
+		const claude = { provider: "anthropic", modelId: "claude-opus-5-5" };
+		const chatgpt = { provider: "openai-codex", modelId: "gpt-6.1-sol" };
+		const id = (setting: string, chat = claude, connected = both) => textModel(models, connected, setting, chat)?.id;
+
+		it("is the cheapest model of the chat's provider when the setting is Automatic", () => {
+			expect(id("")).toBe("claude-haiku-5-5");
+			expect(id("", chatgpt)).toBe("gpt-6-luna");
+		});
+
+		it("is the chosen model, of any connected provider", () => {
+			expect(id("openai-codex/gpt-6-luna")).toBe("gpt-6-luna");
+		});
+
+		it("is Automatic when the chosen model is gone or its provider is not connected", () => {
+			expect(id("anthropic/claude-gone")).toBe("claude-haiku-5-5");
+			expect(id("openai-codex/gpt-6-luna", claude, new Set(["anthropic"]))).toBe("claude-haiku-5-5");
+		});
+
+		it("is none when the chat's provider is not connected either", () => {
+			expect(id("", chatgpt, new Set(["anthropic"]))).toBeUndefined();
 		});
 	});
 });

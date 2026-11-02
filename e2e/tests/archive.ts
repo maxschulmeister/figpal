@@ -8,9 +8,9 @@ export default async function archive(t: Context) {
 	await session.login();
 	await session.ask("Make a card", "Done.");
 	const { frame } = session;
-	await frame.getByRole("button", { name: /Make a card/ }).first().click();
-	// The title has the selected layer too: "Card Make a card".
-	await frame.getByRole("button", { name: "More for Card Make a card" }).click();
+	// After the first answer, the chat gets its AI name: the harness gives "Test chat".
+	await frame.getByRole("button", { name: "Test chat" }).click();
+	await frame.getByRole("button", { name: "More for Test chat" }).click();
 	await frame.getByRole("menuitem").first().waitFor();
 	const items = await frame.getByRole("menuitem").allTextContents();
 	t.check("the menu of a chat has Rename and Archive", JSON.stringify(items) === JSON.stringify(["Rename…", "Archive…"]), JSON.stringify(items));
@@ -18,9 +18,9 @@ export default async function archive(t: Context) {
 	const dialog = frame.getByRole("alertdialog");
 	const shown = (await dialog.textContent()) ?? "";
 	await t.screenshot(session, "archive");
-	t.check("the dialog says Archive, not Delete", shown.includes("Archive “Card Make a card”?") && !/delete/i.test(shown), shown);
+	t.check("the dialog says Archive, not Delete", shown.includes("Archive “Test chat”?") && !/delete/i.test(shown), shown);
 	await dialog.getByRole("button", { name: "Archive" }).click();
 	await dialog.waitFor({ state: "detached" });
-	const left = await frame.getByRole("button", { name: /Make a card/ }).count();
+	const left = await frame.getByRole("button", { name: /Test chat/ }).count();
 	t.check("the archived chat leaves the list", left === 0, String(left));
 }

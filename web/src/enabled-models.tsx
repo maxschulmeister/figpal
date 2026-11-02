@@ -1,9 +1,9 @@
 // The enabled models in the settings, like pi's scoped models: the chat's model menu shows them, and the main agent can
 // give them to subagents. A combobox with a search field adds them (the catalog is long), and the list below it shows
-// them, each with a remove button.
+// them, each with a remove button. Below: the text generation model, which names chats.
 
 import type { Models } from "@earendil-works/pi-ai/models";
-import { CheckmarkIcon, ChevronDownIcon, CloseIcon, Combobox, IconButton, Text, Tooltip } from "figma-kit";
+import { CheckmarkIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, Combobox, IconButton, Select, Text, Tooltip } from "figma-kit";
 import { useMemo } from "react";
 import { modelGroups } from "./settings";
 
@@ -18,8 +18,9 @@ type Props = {
 	onChange(value: string[]): void;
 };
 
-export function EnabledModels({ models, connected, value, onChange }: Props) {
-	const groups = useMemo(
+/** The models of the connected providers, by provider, as options. */
+function useOptions(models: Models, connected: ReadonlySet<string>) {
+	return useMemo(
 		() =>
 			modelGroups(models, connected).map(({ provider, models: list }) => ({
 				label: provider.label,
@@ -27,6 +28,10 @@ export function EnabledModels({ models, connected, value, onChange }: Props) {
 			})),
 		[models, connected],
 	);
+}
+
+export function EnabledModels({ models, connected, value, onChange }: Props) {
+	const groups = useOptions(models, connected);
 	const all = groups.flatMap((group) => group.items);
 	const selected = all.filter((option) => value.includes(option.value));
 	// The choices for a provider that is not connected stay.
@@ -100,5 +105,65 @@ export function EnabledModels({ models, connected, value, onChange }: Props) {
 				</ul>
 			)}
 		</section>
+	);
+}
+
+// The Select needs a value: "auto" stands for the empty setting.
+const AUTOMATIC: Option = { value: "auto", label: "Automatic" };
+
+/** The model that names chats. Empty: Automatic. A chosen model of a provider that is not connected shows as Automatic. */
+export function TextModel({ models, connected, value, onChange }: Omit<Props, "value" | "onChange"> & { value: string; onChange(value: string): void }) {
+	const groups = useOptions(models, connected);
+	const items = [AUTOMATIC, ...groups.flatMap((group) => group.items)];
+	const current = items.some((item) => item.value === value) ? value : AUTOMATIC.value;
+	return (
+		<section className="flex flex-col gap-2">
+			<Text weight="strong" id="text-model">
+				Text generation model
+			</Text>
+			<Text className="text-secondary">Names new chats. Automatic uses the cheapest model of the chat's provider.</Text>
+			<Select.Root items={items} value={current} onValueChange={(next) => next && onChange(next === AUTOMATIC.value ? "" : next)}>
+					<Select.Trigger aria-labelledby="text-model">
+						<Select.Value />
+						<Select.Icon>
+							<ChevronDownIcon />
+						</Select.Icon>
+					</Select.Trigger>
+					<Select.Portal>
+						<Select.Positioner>
+							<Select.Popup>
+								<Select.ScrollUpArrow>
+									<ChevronUpIcon />
+								</Select.ScrollUpArrow>
+								<Select.List>
+									<Option option={AUTOMATIC} />
+									{groups.map((group) => (
+										<Select.Group key={group.label}>
+											<Select.GroupLabel>{group.label}</Select.GroupLabel>
+											{group.items.map((option) => (
+												<Option key={option.value} option={option} />
+											))}
+										</Select.Group>
+									))}
+								</Select.List>
+								<Select.ScrollDownArrow>
+									<ChevronDownIcon />
+								</Select.ScrollDownArrow>
+							</Select.Popup>
+						</Select.Positioner>
+					</Select.Portal>
+			</Select.Root>
+		</section>
+	);
+}
+
+function Option({ option }: { option: Option }) {
+	return (
+		<Select.Item value={option.value}>
+			<Select.ItemIndicator>
+				<CheckmarkIcon size="4" />
+			</Select.ItemIndicator>
+			<Select.ItemText>{option.label}</Select.ItemText>
+		</Select.Item>
 	);
 }

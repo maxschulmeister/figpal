@@ -25,18 +25,19 @@ import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
-import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings, TEXT_SIZES, type TextSize } from "./settings";
+import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings, TEXT_SIZES, type TextSize, textModel } from "./settings";
 import { chipLabels } from "./node-chips";
 import { SkillsPanel } from "./skills-panel";
 import { connectLocal, type LocalFiles, type LocalState } from "./local";
 import { LocalHelperSettings } from "./local-panel";
 import { installDefaultSkills } from "./skills/defaults";
-import { EnabledModels } from "./enabled-models";
+import { EnabledModels, TextModel } from "./enabled-models";
 import { ThreadList, threadTitle } from "./thread-list";
 import {
 	currentThread,
 	archiveThread,
 	forkThread,
+	nameThread,
 	newThread,
 	noteMessage,
 	renameThread,
@@ -332,7 +333,18 @@ export function App({ bridge }: { bridge: Bridge }) {
 							openExternal={openExternal}
 							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
 							openConversation={openConversation}
-							onSend={(text) => noteMessage(harness, thread.id, chipLabels(text)).catch(report)}
+							onSend={(text, submission) => {
+								const label = chipLabels(text);
+								// After the first answer, the text generation model names the chat.
+								noteMessage(harness, thread.id, label)
+									.then(async (first) => {
+										if (!first) return;
+										const chat = (await thread.agent(context)).model ?? settings.model;
+										const model = textModel(models, connected, settings.textModel, chat);
+										if (model) await nameThread(harness, submission, label, models, model);
+									})
+									.catch(report);
+							}}
 							abortSubmission={(id) => harness.abortSubmission(Number(id) as SubmissionId, context, thread.id)}
 							textSize={settings.textSize}
 							onModelChange={updateSettings}
@@ -371,6 +383,14 @@ export function App({ bridge }: { bridge: Bridge }) {
 										connected={connected}
 										value={settings.enabledModels}
 										onChange={(enabledModels) => updateSettings({ enabledModels })}
+									/>
+								</Dialog.Section>
+								<Dialog.Section>
+									<TextModel
+										models={models}
+										connected={connected}
+										value={settings.textModel}
+										onChange={(textModel) => updateSettings({ textModel })}
 									/>
 								</Dialog.Section>
 								<Dialog.Section>

@@ -90,7 +90,8 @@ export default async function exports(t: Context) {
 	const card = await download(session, "Card.svg");
 	t.check("Download after a restart exports the layer again", card?.name === "Card.svg" && card.text === '<svg id="card"/>' && count("export") === exported + 1, card?.name);
 	// The thread list replaces the chat: the step mounts again when the user comes back.
-	await session.frame.getByRole("button", { name: /Export the tokens/ }).first().click();
+	// The title in the header: the first line, or the AI name after the first answer.
+	await session.frame.locator("header button").first().click();
 	await session.page.waitForTimeout(400);
 	await session.frame.getByRole("button", { name: "Back to the chat" }).click();
 	await session.page.waitForTimeout(800);

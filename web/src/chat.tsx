@@ -28,7 +28,7 @@ import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { ImageContent, ModelThinkingLevel, Static, TextContent } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
-import type { AgentState, Conversation, ConversationId, ConversationView, EntryId } from "@earendil-works/pi-durable";
+import type { AgentState, Conversation, ConversationId, ConversationView, EntryId, Submission } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
 import {
 	Button,
@@ -143,8 +143,8 @@ type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 	connected: ReadonlySet<string>;
 	/** The enabled models in the settings: the model picker shows only these. */
 	enabledModels: string[];
-	/** A message was sent. */
-	onSend(text: string): void;
+	/** A message was sent. `submission` gives its answer. */
+	onSend(text: string, submission: Submission): void;
 	/** Withdraws a waiting message of this chat. The ID is pi-durable's submission ID as text (assistant-ui's IDs). */
 	abortSubmission(id: string): Promise<string>;
 	textSize: TextSize;
@@ -179,9 +179,9 @@ export function Chat(props: ChatProps) {
 						submit: (input, mode) => {
 							const text = (input.entry?.data as { text?: string } | undefined)?.text ?? "";
 							void conversation.submit({ type: "input", ...input, whenBusy: mode }, context).then(
-								() => {
+								(submission) => {
 									setSendError(undefined);
-									onSend(text);
+									onSend(text, submission);
 								},
 								(error) => setSendError(`FigPal could not send "${text}": ${errorText(error)}`),
 							);
@@ -201,8 +201,7 @@ export function Chat(props: ChatProps) {
 		onNew: async (message) => {
 			const text = textOf(message);
 			try {
-				await conversation.submit(userInput(text, file, message.attachments), context);
-				props.onSend(text);
+				props.onSend(text, await conversation.submit(userInput(text, file, message.attachments), context));
 			} catch (error) {
 				console.error("FigPal could not send the message:", error);
 				// assistant-ui puts the text back into the message field.

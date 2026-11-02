@@ -1,10 +1,10 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
+import { type FauxResponseStep, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it } from "vitest";
-import { currentThread, archiveThread, forkThread, newThread, noteMessage, renameThread, selectThread, Threads } from "./threads";
+import { currentThread, archiveThread, forkThread, nameThread, newThread, noteMessage, renameThread, selectThread, Threads } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -15,7 +15,7 @@ async function open() {
 	models.setProvider(faux.provider);
 	const harness = await Harness.open(new MemoryStorage(), { models, registry: createRegistry() }, context);
 	const list = async () => (await harness.snapshot(Threads, context))!;
-	return { harness, list };
+	return { harness, list, faux, models };
 }
 
 async function say(conversation: Conversation, text: string) {
@@ -51,11 +51,97 @@ describe("threads", () => {
 		const { harness, list } = await open();
 		const first = await currentThread(harness, AGENT);
 		await newThread(harness, AGENT);
-		await noteMessage(harness, first.id, "Make a card with auto layout\nand a title");
-		await noteMessage(harness, first.id, "Now make it blue");
+		expect(await noteMessage(harness, first.id, "Make a card with auto layout\nand a title")).toBe(true);
+		expect(await noteMessage(harness, first.id, "Now make it blue")).toBe(false);
 		expect((await list()).threads[0]).toMatchObject({ id: first.id, title: "Make a card with auto layout" });
 		await renameThread(harness, first.id, "Card");
 		expect((await list()).threads[0]!.title).toBe("Card");
+	});
+
+	describe("AI names", () => {
+		const QUESTION = "can you check this [Card]";
+		const ANSWER = "The padding of the card is 12 px, not 16 px.";
+		/**
+		 * The first message is sent, and its answer runs. `steps` answer the next requests: the name, or a follow-up.
+		 * `requests` has the user content of each request after the first answer.
+		 */
+		async function answered(steps: FauxResponseStep[], text = QUESTION) {
+			const opened = await open();
+			const thread = await currentThread(opened.harness, AGENT);
+			const requests: string[] = [];
+			const record = (step: FauxResponseStep): FauxResponseStep => (request, ...rest) => {
+				requests.push(JSON.stringify(request.messages));
+				return typeof step === "function" ? step(request, ...rest) : step;
+			};
+			opened.faux.setResponses([fauxAssistantMessage(fauxText(ANSWER)), ...steps.map(record)]);
+			await noteMessage(opened.harness, thread.id, text);
+			const submission = await thread.submit({ type: "input", content: text || "(image)" }, context);
+			const model = opened.models.getModel("faux", "script")!;
+			const name = () => nameThread(opened.harness, submission, text, opened.models, model);
+			return { ...opened, thread, submission, requests, name };
+		}
+
+		it("after the first answer, a short name from the question and the answer replaces the first line", async () => {
+			const { list, requests, name } = await answered([fauxAssistantMessage(fauxText('"Card padding check."\nMore text'))]);
+			await name();
+			expect(requests[0]).toContain(QUESTION);
+			expect(requests[0]).toContain(ANSWER);
+			// The first line, without quotes and the full stop.
+			expect((await list()).threads[0]!.title).toBe("Card padding check");
+		});
+
+		it("uses the answer of the first message, also when a follow-up waits", async () => {
+			const { thread, requests, name } = await answered([fauxAssistantMessage(fauxText("Second answer")), fauxAssistantMessage(fauxText("Name"))]);
+			await thread.submit({ type: "input", content: "And the title?", whenBusy: "followUp" }, context);
+			await name();
+			const naming = requests.find((request) => request.includes("Message: "))!;
+			expect(naming).toContain(ANSWER);
+			expect(naming).not.toContain("Second answer");
+		});
+
+		it("cuts a long message", async () => {
+			const { requests, name } = await answered([fauxAssistantMessage(fauxText("Name"))], `Check ${"x".repeat(5000)}`);
+			await name();
+			expect(requests[0]!.length).toBeLessThan(2000);
+		});
+
+		it("names a chat whose first message has only attachments, once", async () => {
+			const { harness, list, thread, name } = await answered([fauxAssistantMessage(fauxText("Image check"))], "");
+			expect((await list()).threads[0]!.title).toBe("New chat");
+			await name();
+			expect((await list()).threads[0]!.title).toBe("Image check");
+			expect(await noteMessage(harness, thread.id, "")).toBe(false);
+		});
+
+		it("keeps a name that the user gave, without a request when the user gave it during the answer", async () => {
+			const { harness, list, thread, requests, name } = await answered([fauxAssistantMessage(fauxText("Card padding check"))]);
+			await renameThread(harness, thread.id, "Mine");
+			await name();
+			expect(requests).toEqual([]);
+			expect((await list()).threads[0]!.title).toBe("Mine");
+		});
+
+		it("keeps a name that the user gave while the name was made", async () => {
+			const { harness, list, thread, name } = await answered([fauxAssistantMessage(fauxText("Card padding check"))]);
+			const naming = name();
+			await renameThread(harness, thread.id, "Mine");
+			await naming;
+			expect((await list()).threads[0]!.title).toBe("Mine");
+		});
+
+		it("keeps the first line when the answer stopped", async () => {
+			const { list, thread, requests, name } = await answered([fauxAssistantMessage(fauxText("Name"))]);
+			await thread.abort(context);
+			await name();
+			expect(requests).toEqual([]);
+			expect((await list()).threads[0]!.title).toBe(QUESTION);
+		});
+
+		it("keeps the first line when the model fails", async () => {
+			const { list, name } = await answered([fauxAssistantMessage([], { stopReason: "error", errorMessage: "Overloaded" })]);
+			await name();
+			expect((await list()).threads[0]!.title).toBe(QUESTION);
+		});
 	});
 
 	it("forks a thread: the fork has the history up to the entry, and becomes current", async () => {

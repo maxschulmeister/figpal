@@ -18,6 +18,8 @@ export type Settings = {
 	outsideAgents: boolean;
 	/** The size of the text in the chat. */
 	textSize: TextSize;
+	/** "provider/modelId" of the model that names chats. Empty: Automatic, see `textModel`. */
+	textModel: string;
 };
 
 export const TEXT_SIZES = ["small", "medium", "large"] as const;
@@ -44,6 +46,18 @@ export const modelGroups = (models: Models, connected: ReadonlySet<string>): Mod
 		models: models.getModels(provider.id).filter((model) => !/-\d{8}$/.test(model.id)),
 	}));
 
+/**
+ * The model that names chats: the chosen model if its provider is connected, else the cheapest model of the chat's
+ * provider (by price, so that it stays right when the catalog changes). None if that provider is not connected either.
+ */
+export function textModel(models: Models, connected: ReadonlySet<string>, setting: string, chat: ModelRef): Model<Api> | undefined {
+	const chosen = parseModelRef(setting);
+	const model = chosen && connected.has(chosen.provider) ? models.getModel(chosen.provider, chosen.modelId) : undefined;
+	if (model) return model;
+	const group = modelGroups(models, connected).find(({ provider }) => provider.id === chat.provider);
+	return group && [...group.models].sort((a, b) => a.cost.input - b.cost.input)[0];
+}
+
 /** The enabled models of the connected providers. If none of them is enabled, all: the model menu is never empty. */
 export function enabledModelGroups(models: Models, connected: ReadonlySet<string>, enabled: string[]): ModelGroup[] {
 	const all = modelGroups(models, connected);
@@ -59,12 +73,13 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledModels: [],
 	outsideAgents: false,
 	textSize: "medium",
+	textModel: "",
 };
 
 /** The model and thinking level. The other settings came later: loadSettings checks them alone. */
 function isSettings(
 	value: unknown,
-): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "outsideAgents" | "textSize", unknown>> {
+): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "outsideAgents" | "textSize" | "textModel", unknown>> {
 	if (typeof value !== "object" || value === null) return false;
 	const { model, thinkingLevel } = value as Partial<Record<keyof Settings, unknown>>;
 	const ref = model as Partial<Record<keyof ModelRef, unknown>> | null | undefined;
@@ -79,7 +94,7 @@ function isSettings(
 export async function loadSettings(bridge: Pick<Bridge, "request">): Promise<Settings> {
 	const { result } = await bridge.request("storage-get", { key: KEY });
 	if (!isSettings(result)) return DEFAULT_SETTINGS;
-	const { model, thinkingLevel, enabledModels, outsideAgents, textSize } = result;
+	const { model, thinkingLevel, enabledModels, outsideAgents, textSize, textModel } = result;
 	const list = Array.isArray(enabledModels) ? enabledModels : [];
 	return {
 		model,
@@ -87,6 +102,7 @@ export async function loadSettings(bridge: Pick<Bridge, "request">): Promise<Set
 		enabledModels: list.filter((item): item is string => typeof item === "string" && parseModelRef(item) !== undefined),
 		outsideAgents: outsideAgents === true,
 		textSize: TEXT_SIZES.find((size) => size === textSize) ?? "medium",
+		textModel: typeof textModel === "string" && parseModelRef(textModel) ? textModel : "",
 	};
 }
 

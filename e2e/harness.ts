@@ -25,6 +25,11 @@ export type Options = {
 	requests?: Record<string, Handler>;
 	/** Gives the answer of the model, as server-sent events. Default: the text "Done.". */
 	model?: (request: ModelRequest) => string | Promise<string>;
+	/**
+	 * Gives the name of a chat (the request of the text generation model after the first answer). These requests are
+	 * not in `session.model`. Default: the text "Test chat".
+	 */
+	naming?: (request: ModelRequest) => string;
 	/** A strip under the panel: a click there takes the focus from the panel, as a click on Figma's canvas does. */
 	canvas?: boolean;
 	/** Before the page loads, for example more routes. */
@@ -263,6 +268,12 @@ export class Context {
 		const model = options.model ?? (() => text("Done."));
 		await page.route(`${this.ui}/api/anthropic/**`, async (route) => {
 			const request = JSON.parse(route.request().postData() ?? "{}") as ModelRequest;
+			const system = (request as { system?: { text: string }[] }).system;
+			if (system?.some((block) => block.text.startsWith("Name this chat"))) {
+				const body = (options.naming ?? (() => text("Test chat")))(request);
+				await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body });
+				return;
+			}
 			session.model.push(request);
 			await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: await model(request) });
 		});
