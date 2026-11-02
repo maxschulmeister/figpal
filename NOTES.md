@@ -42,9 +42,9 @@ Profiles with their own instructions, model, thinking level and skills, for the 
 
 ## Archive and delete threads (from PLAN.md, not in Phase 7)
 
-Now "Delete" only hides a thread: pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`). The user suggested two actions (2026-10-31).
+Now "Archive" hides a thread (it said "Delete" until 2026-11-02, user request): pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`). The user suggested two actions (2026-10-31).
 
-- Archive: hide the thread, as "Delete" does now, with a way to show archived threads again.
+- Archive: done, but there is no way yet to show archived threads again.
 - Delete: remove the entries, so that they do not fill the browser storage. This needs pi-durable support, or a "Delete all threads of this file" action.
 
 ## Thread names (from PLAN.md, not in Phase 7)

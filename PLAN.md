@@ -641,6 +641,8 @@ Checks:
 
 - After the user's test of group A: (1) Reply showed a raw `>`: a quote is now a chip, `:quote{name="{\"quote\":…}"}` (JSON, so the name may have line breaks), on its own line in the composer and a block in the sent message; the model still gets Markdown quote lines; a quote over 900 characters stays Markdown text. (2) A pasted image showed a broken image: the page policy allows `img-src 'self' data:`, so previews are data URLs, not blob: URLs; the e2e check decodes the preview, which catches it against the deployed page. (3) "Clumsy, pills too big, spacing not consistent": chips are 20 px with an 18 px Remove, waiting rows 24 px, steps of an answer 24 px rows close together (figma-kit's Collapsible has 8 px padding), text blocks 8 px apart, 8 px between the parts under the chat, and the hidden "Fork from here" row no longer adds space after an answer. The e2e check of the bridge waits as the user does (focus, then the folders in Access) before it asks the agent: it failed sometimes when the agent asked before FigPal was connected.
 
+- "Delete" is "Archive" (user: "if delete is not possible currently the label should be Archive"): the menu item, the dialog and `archiveThread`; the dialog button is primary, not red, because the entries stay in the storage. A real delete and showing archived chats again stay in `NOTES.md` (group B). New e2e check `archive`.
+
 ## Open questions
 
 None at the moment.
