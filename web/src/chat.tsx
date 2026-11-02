@@ -31,6 +31,7 @@ import {
 	Collapsible,
 	createIcon,
 	DropdownMenu,
+	EyeClosedIcon,
 	IconButton,
 	Text,
 	Tooltip,
@@ -133,6 +134,8 @@ type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 	enabledModels: string[];
 	/** A message was sent. */
 	onSend(text: string): void;
+	/** Hides the panel while the agent works. */
+	onHide(): void;
 	/** The user picked a model or thinking level. New threads use it too. */
 	onModelChange(choice: ModelChoice): void;
 	/** Opens Settings → Models. */
@@ -209,6 +212,11 @@ export function Chat(props: ChatProps) {
 									</ComposerPrimitive.Send>
 								</AuiIf>
 								<AuiIf condition={(state) => state.thread.isRunning}>
+									<Tooltip content="Run in the background">
+										<IconButton aria-label="Run in the background" onClick={props.onHide}>
+											<EyeClosedIcon />
+										</IconButton>
+									</Tooltip>
 									<ComposerPrimitive.Cancel asChild>
 										<IconButton aria-label="Stop">
 											<StopIcon />
@@ -252,27 +260,22 @@ function tokenCount(tokens: number): string {
 	return `${value >= 10 || !unit ? Math.round(value) : Number(value.toFixed(1))}${unit}`;
 }
 
-/** How much of the context window the conversation fills: the size of its newest request. A ring and the percent; the
- * numbers in the tooltip. A used context never shows 0 %. */
+/** How much of the context window the conversation fills: the size of its newest request. A short bar; the numbers in
+ * the tooltip. A used context never shows 0 %. */
 function ContextUsage(props: { tokens: number | undefined; model: AgentState["model"] | undefined; models: Models }) {
 	const window = props.model && props.models.getModel(props.model.provider, props.model.modelId)?.contextWindow;
 	if (props.tokens === undefined || !window) return null;
-	const used = Math.min(1, props.tokens / window);
-	const percent = Math.ceil(used * 100);
-	// A circle with a radius of 6 has a length of about 37.7: the ring draws that part of it.
-	const length = 2 * Math.PI * 6;
+	const percent = Math.min(100, Math.ceil((props.tokens / window) * 100));
 	return (
-		<Tooltip content={`${tokenCount(props.tokens)} / ${tokenCount(window)} tokens`}>
-			<Text className="ml-auto flex shrink-0 items-center gap-1 pr-2 text-secondary tabular-nums">
-				<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className="-rotate-90">
-					<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
-					<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={`${used * length} ${length}`} />
-				</svg>
-				<span aria-hidden="true">{percent}%</span>
+		<Tooltip content={`${tokenCount(props.tokens)} / ${tokenCount(window)} tokens (${percent}%)`}>
+			<span data-testid="context-usage" className="mr-3 ml-auto flex h-6 shrink-0 items-center">
+				<span aria-hidden="true" className="h-1 w-8 overflow-hidden rounded-full bg-tertiary">
+					<span className="block h-full rounded-full bg-[var(--color-icon-secondary)]" style={{ width: `${percent}%` }} />
+				</span>
 				<span className="sr-only">
 					Context: {props.tokens.toLocaleString("en-US")} of {window.toLocaleString("en-US")} tokens
 				</span>
-			</Text>
+			</span>
 		</Tooltip>
 	);
 }

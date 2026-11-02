@@ -26,8 +26,6 @@ import { lintDesign } from "./vendor/figma-console-mcp/checks";
 const UI_OPTIONS: ShowUIOptions = { themeColors: true };
 const DEFAULT_WIDTH = 420;
 const MIN_SIZE = { width: 320, height: 400 };
-/** Figma's smallest panel. */
-const FIGMA_MIN_SIZE = { width: 70, height: 0 };
 /** The title bar of the panel and a gap: the panel fits in the visible canvas. */
 const CANVAS_MARGIN = 64;
 const SIZE_KEY = "figpal.size";
@@ -50,10 +48,13 @@ const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, ...fit(size), title: `F
  */
 function fit(wanted?: { width: number; height: number }): { width: number; height: number } {
 	const { bounds, zoom } = figma.viewport;
-	const max = { width: Math.round(bounds.width * zoom) - CANVAS_MARGIN, height: Math.round(bounds.height * zoom) - CANVAS_MARGIN };
-	// The canvas wins over MIN_SIZE: the corner of the panel must stay on the screen.
-	const clamp = (value: number, key: "width" | "height") =>
-		Math.round(Math.max(FIGMA_MIN_SIZE[key], Math.min(max[key], Math.max(MIN_SIZE[key], value))));
+	// The canvas can read too small, for example while the file loads: it never makes the panel smaller than the
+	// default width and the minimum height (the panel opened very narrow once).
+	const max = {
+		width: Math.max(DEFAULT_WIDTH, Math.round(bounds.width * zoom) - CANVAS_MARGIN),
+		height: Math.max(MIN_SIZE.height, Math.round(bounds.height * zoom) - CANVAS_MARGIN),
+	};
+	const clamp = (value: number, key: "width" | "height") => Math.round(Math.max(MIN_SIZE[key], Math.min(max[key], value)));
 	return { width: clamp(wanted?.width ?? DEFAULT_WIDTH, "width"), height: clamp(wanted?.height ?? max.height, "height") };
 }
 

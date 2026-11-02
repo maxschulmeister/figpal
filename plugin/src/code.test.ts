@@ -63,10 +63,14 @@ describe("code.ts start", () => {
 		expect(broken.options[0]).toMatchObject({ width: 420, height: 836 });
 	});
 
-	// The corner of the panel must stay on the screen: the canvas wins over the minimum size.
-	it("fits a small canvas", async () => {
-		const { options } = await startPlugin(async () => undefined, { viewport: { bounds: { width: 300, height: 350 }, zoom: 1 } });
-		expect(options[0]).toMatchObject({ width: 236, height: 286 });
+	// The canvas can read too small, for example while the file loads: the panel opened very narrow once (user report).
+	it("never opens smaller than the default width and the minimum height", async () => {
+		const empty = await startPlugin(async () => undefined, { viewport: { bounds: { width: 0, height: 0 }, zoom: 1 } });
+		expect(empty.options[0]).toMatchObject({ width: 420, height: 400 });
+		const saved = await startPlugin(async (key) => (key === "figpal.size" ? { width: 900, height: 900 } : undefined), {
+			viewport: { bounds: { width: 300, height: 350 }, zoom: 1 },
+		});
+		expect(saved.options[0]).toMatchObject({ width: 420, height: 400 });
 	});
 
 	it("resizes the panel within the limits, and saves the size", async () => {

@@ -10,7 +10,6 @@ import {
 	ChevronLeftIcon,
 	Dialog,
 	IconButton,
-	MinusIcon,
 	Paragraph,
 	PlusIcon,
 	SlidersIcon,
@@ -281,11 +280,6 @@ export function App({ bridge }: { bridge: Bridge }) {
 					</Button>
 				)}
 				<div className="ml-auto flex shrink-0 gap-1">
-					<Tooltip content="Run in the background">
-						<IconButton aria-label="Run in the background" onClick={() => void hide()}>
-							<MinusIcon />
-						</IconButton>
-					</Tooltip>
 					<Tooltip content="New chat">
 						<IconButton aria-label="New chat" onClick={() => run(() => newThread(harness, agent))}>
 							<PlusIcon />
@@ -328,6 +322,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
 							openConversation={openConversation}
 							onSend={(text) => noteMessage(harness, thread.id, chipLabels(text)).catch(report)}
+							onHide={() => void hide()}
 							onModelChange={updateSettings}
 							onEditModels={() => {
 								setSettingsTab("models");
