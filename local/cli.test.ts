@@ -22,7 +22,10 @@ async function start(args: string[]): Promise<number> {
 const opens = (port: number, origin: string) =>
 	new Promise<boolean>((resolve) => {
 		const socket = new WebSocket(`ws://127.0.0.1:${port}`, { origin });
-		socket.once("open", () => resolve(true) || socket.close());
+		socket.once("open", () => {
+			resolve(true);
+			socket.close();
+		});
 		socket.once("error", () => resolve(false));
 	});
 
