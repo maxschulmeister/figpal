@@ -11,6 +11,7 @@ The pi packages (`@earendil-works/pi-ai`, `pi-durable`, `chord`) are pinned to 1
 Done (Phase 7): the local helper `local/cli.ts` gives local files (`--folder`) and access from outside (`--mcp`). Open:
 
 - **Remote threads:** a pi instance on another machine can start a thread in the plugin and follow it.
+- **Publish on npm (user, 2026-11-02):** then `npx` starts the helper, without a clone of the repo, for example `claude mcp add figpal -- npx -y <package> --mcp`.
 
 ### Optional Node host (from PLAN.md)
 
@@ -19,6 +20,10 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 - The same extensions run in Node with SQLite storage. Only the transport changes (WebSocket instead of `postMessage`).
 - It adds pi-durable `createCodingTools` with a `NodeExecutionEnv` for each repo, and the figma-console-mcp codebase extraction (`src/core/extraction`).
 - A LaunchAgent (`RunAtLoad`, `KeepAlive`) starts it at login.
+
+## Reply to a part of an answer (user, 2026-11-02)
+
+The user selects text in an answer, and a "Reply" button shows next to it, as "Cite" in T3 Code. Reply puts the text in the composer as a quote; the user writes a comment for it. Several quotes in one message are possible.
 
 ## Size of the version diff answers (2026-11-01)
 
