@@ -12,6 +12,7 @@ import {
 	IconButton,
 	Paragraph,
 	PlusIcon,
+	SegmentedControl,
 	SlidersIcon,
 	Tabs,
 	Text,
@@ -23,7 +24,7 @@ import { createAgentModels, openAgent } from "./agent";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
-import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
+import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings, TEXT_SIZES, type TextSize } from "./settings";
 import { chipLabels } from "./node-chips";
 import { SkillsPanel } from "./skills-panel";
 import { connectLocal, type LocalFiles, type LocalState } from "./local";
@@ -327,6 +328,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 							openConversation={openConversation}
 							onSend={(text) => noteMessage(harness, thread.id, chipLabels(text)).catch(report)}
 							onHide={() => void hide()}
+							textSize={settings.textSize}
 							onModelChange={updateSettings}
 							onEditModels={() => {
 								setSettingsTab("models");
@@ -364,6 +366,24 @@ export function App({ bridge }: { bridge: Bridge }) {
 										value={settings.enabledModels}
 										onChange={(enabledModels) => updateSettings({ enabledModels })}
 									/>
+								</Dialog.Section>
+								<Dialog.Section>
+									<div className="flex items-center justify-between gap-2">
+										<Text weight="strong" id="text-size">
+											Text size
+										</Text>
+										<SegmentedControl.Root
+											aria-labelledby="text-size"
+											value={settings.textSize}
+											onValueChange={(textSize) => updateSettings({ textSize: textSize as TextSize })}
+										>
+											{TEXT_SIZES.map((size) => (
+												<SegmentedControl.Item key={size} value={size}>
+													<SegmentedControl.Text>{size[0]!.toUpperCase() + size.slice(1)}</SegmentedControl.Text>
+												</SegmentedControl.Item>
+											))}
+										</SegmentedControl.Root>
+									</div>
 								</Dialog.Section>
 								<Dialog.Section>
 									<div className="flex items-center justify-between gap-2">

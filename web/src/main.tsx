@@ -1,5 +1,7 @@
 // The hosted UI. code.js shows it in the plugin window and gives it Figma's theme class in the URL hash.
 
+// Inter, Figma's font: the plugin window does not get Figma's fonts, and most Macs do not have Inter.
+import "@fontsource-variable/inter";
 import "./style.css";
 import { THEME_HASH_KEY } from "@figpal/shared";
 import { createRoot } from "react-dom/client";

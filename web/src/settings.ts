@@ -16,7 +16,12 @@ export type Settings = {
 	enabledModels: string[];
 	/** An outside agent can run code in the file through the local helper. */
 	outsideAgents: boolean;
+	/** The size of the text in the chat. */
+	textSize: TextSize;
 };
+
+export const TEXT_SIZES = ["small", "medium", "large"] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];
 
 /** The providers of FigPal, in this order, with the model of new threads until the user picks one. */
 export const PROVIDERS = [
@@ -53,12 +58,13 @@ export const DEFAULT_SETTINGS: Settings = {
 	thinkingLevel: "medium",
 	enabledModels: [],
 	outsideAgents: false,
+	textSize: "medium",
 };
 
 /** The model and thinking level. The other settings came later: loadSettings checks them alone. */
 function isSettings(
 	value: unknown,
-): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "outsideAgents", unknown>> {
+): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "outsideAgents" | "textSize", unknown>> {
 	if (typeof value !== "object" || value === null) return false;
 	const { model, thinkingLevel } = value as Partial<Record<keyof Settings, unknown>>;
 	const ref = model as Partial<Record<keyof ModelRef, unknown>> | null | undefined;
@@ -73,13 +79,14 @@ function isSettings(
 export async function loadSettings(bridge: Pick<Bridge, "request">): Promise<Settings> {
 	const { result } = await bridge.request("storage-get", { key: KEY });
 	if (!isSettings(result)) return DEFAULT_SETTINGS;
-	const { model, thinkingLevel, enabledModels, outsideAgents } = result;
+	const { model, thinkingLevel, enabledModels, outsideAgents, textSize } = result;
 	const list = Array.isArray(enabledModels) ? enabledModels : [];
 	return {
 		model,
 		thinkingLevel,
 		enabledModels: list.filter((item): item is string => typeof item === "string" && parseModelRef(item) !== undefined),
 		outsideAgents: outsideAgents === true,
+		textSize: TEXT_SIZES.find((size) => size === textSize) ?? "medium",
 	};
 }
 

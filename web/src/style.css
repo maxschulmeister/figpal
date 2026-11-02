@@ -4,6 +4,10 @@
    code.js gives in the URL hash. */
 @import "figma-kit/figma-development-theme.css";
 
+:root {
+	--font-family-default: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
 html,
 body,
 #app {
@@ -17,15 +21,30 @@ body {
 	font-family: var(--font-sans);
 }
 
+/* The text of the chat: Settings → Models → Text size. Figma's 12 px on 16 px is for labels, not paragraphs. */
+.chat-text {
+	font-size: var(--chat-text, 13px);
+	line-height: var(--chat-leading, 20px);
+}
+[data-text-size="small"] {
+	--chat-text: 12px;
+	--chat-leading: 18px;
+}
+[data-text-size="large"] {
+	--chat-text: 14px;
+	--chat-leading: 22px;
+}
+
 /* Markdown in answers. */
 .markdown {
 	> :first-child { margin-top: 0; }
 	> :last-child { margin-bottom: 0; }
-	p, ul, ol, pre, table, blockquote { margin: 0 0 0.5rem; }
+	p, ul, ol, pre, table, blockquote { margin: 0 0 0.75em; }
+	li + li { margin-top: 0.25em; }
 	ul, ol { padding-left: 1.25rem; }
 	ul { list-style: disc; }
 	ol { list-style: decimal; }
-	h1, h2, h3, h4 { font-weight: 550; margin: 0.75rem 0 0.25rem; }
+	h1, h2, h3, h4 { font-weight: 600; margin: 1.25em 0 0.375em; }
 	a { color: var(--figma-color-text-brand); cursor: pointer; }
 	code { font-family: var(--font-mono); font-size: 0.92em; }
 	:not(pre) > code { background: var(--figma-color-bg-secondary); border-radius: 0.125rem; padding: 0 0.2em; }

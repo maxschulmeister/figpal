@@ -48,7 +48,7 @@ import { downloadFile, type FileDetails, type FileRef, fileById, fileSize, keepF
 import type { PillDetails } from "./lint";
 import { nodeIdsOfLink } from "./node-chips";
 import { ChipText, NodeChip, SelectionChips } from "./selection-chips";
-import { enabledModelGroups, type Settings } from "./settings";
+import { enabledModelGroups, type Settings, type TextSize } from "./settings";
 import { exportTokens, type TokenExport } from "./tokens";
 import { type Thread, toThread } from "./transcript";
 
@@ -136,6 +136,7 @@ type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 	onSend(text: string): void;
 	/** Hides the panel while the agent works. */
 	onHide(): void;
+	textSize: TextSize;
 	/** The user picked a model or thinking level. New threads use it too. */
 	onModelChange(choice: ModelChoice): void;
 	/** Opens Settings → Models. */
@@ -187,7 +188,7 @@ export function Chat(props: ChatProps) {
 	return (
 		<ChatActions.Provider value={actions}>
 			<AssistantRuntimeProvider runtime={runtime}>
-				<ThreadPrimitive.Root className="flex h-full flex-col">
+				<ThreadPrimitive.Root className="flex h-full flex-col" data-text-size={props.textSize}>
 					{/* relative: the scroll area clips the absolute screen-reader texts of its chips; else the page grows. */}
 					<ThreadPrimitive.Viewport className="relative flex flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4">
 						<AuiIf condition={(state) => state.thread.isEmpty}>
@@ -201,7 +202,7 @@ export function Chat(props: ChatProps) {
 									autoFocus
 									placeholder="Ask FigPal"
 									directiveChip={NodeChip}
-									className="max-h-40 min-w-0 flex-1 px-2 py-1 text-lg"
+									className="chat-text max-h-40 min-w-0 flex-1 px-2 py-1"
 								>
 									<SelectionChips bridge={props.bridge} initial={file} />
 								</LexicalComposerInput>
@@ -391,7 +392,7 @@ const renderMessage = ({ message }: { message: { role: string } }) =>
 
 function UserMessage() {
 	return (
-		<MessagePrimitive.Root className="ml-10 self-end rounded-lg bg-secondary px-3 py-2 text-lg whitespace-pre-wrap break-words">
+		<MessagePrimitive.Root className="chat-text ml-10 self-end rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap break-words">
 			<MessagePrimitive.Parts components={{ Text: ChipText }} />
 		</MessagePrimitive.Root>
 	);
@@ -399,7 +400,7 @@ function UserMessage() {
 
 function AssistantMessage() {
 	return (
-		<MessagePrimitive.Root className="group/message flex flex-col gap-2 text-lg break-words">
+		<MessagePrimitive.Root className="chat-text group/message flex flex-col gap-3 break-words">
 			<MessagePrimitive.Parts components={PARTS} />
 			<MessagePrimitive.Error>
 				<ErrorPrimitive.Root className="rounded-md bg-danger-tertiary px-3 py-2 text-danger">

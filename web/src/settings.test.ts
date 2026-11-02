@@ -20,6 +20,12 @@ function storage(value?: unknown) {
 }
 
 describe("settings", () => {
+	it("keeps a known text size, and uses medium for any other value", async () => {
+		const settings = (textSize: unknown) => ({ model: DEFAULT_SETTINGS.model, thinkingLevel: "high", enabledModels: [], textSize });
+		expect((await loadSettings(storage(settings("small")).bridge)).textSize).toBe("small");
+		expect((await loadSettings(storage(settings("huge")).bridge)).textSize).toBe("medium");
+	});
+
 	it("saves and loads the model and thinking level for new threads", async () => {
 		const { bridge } = storage();
 		expect(await loadSettings(bridge)).toEqual(DEFAULT_SETTINGS);
@@ -28,6 +34,7 @@ describe("settings", () => {
 			thinkingLevel: "high",
 			enabledModels: ["anthropic/claude-haiku-5"],
 			outsideAgents: true,
+			textSize: "large",
 		} as const;
 		await saveSettings(bridge, { ...settings, enabledModels: [...settings.enabledModels] });
 		expect(await loadSettings(bridge)).toEqual(settings);
@@ -36,7 +43,7 @@ describe("settings", () => {
 	it("loads the settings of Phase 2 without enabled models, and leaves out values that are not model names", async () => {
 		const phase2 = { model: { provider: "anthropic", modelId: "claude-sonnet-5-5" }, thinkingLevel: "low" };
 		// Older settings have no MCP setting: it stays off.
-		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false });
+		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false, textSize: "medium" });
 		const mixed = { ...phase2, enabledModels: ["anthropic/claude-haiku-5", 3, "no-slash"] };
 		expect((await loadSettings(storage(mixed).bridge)).enabledModels).toEqual(["anthropic/claude-haiku-5"]);
 	});
