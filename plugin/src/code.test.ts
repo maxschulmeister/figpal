@@ -117,13 +117,26 @@ describe("code.ts start", () => {
 		expect(ui.hide).not.toHaveBeenCalled();
 	});
 
-	// Without the notice, the user could not get the panel back.
-	it("shows the panel when the user closes the notice", async () => {
-		const { ui, notices, send } = await startPlugin(async () => "remote");
+	// The notice has Show: closing it closes FigPal (user request).
+	it("closes FigPal when the user closes the notice", async () => {
+		const closePlugin = vi.fn();
+		const { ui, notices, send } = await startPlugin(async () => "remote", { closePlugin });
 		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
 		await vi.waitFor(() => expect(notices).toHaveLength(1));
 		notices[0]!.options.onDequeue!("dismiss");
-		expect(ui.show).toHaveBeenCalled();
+		expect(closePlugin).toHaveBeenCalled();
+		expect(ui.show).not.toHaveBeenCalled();
+	});
+
+	// A new notice takes the place of the old one: the old one goes, FigPal stays.
+	it("does not close FigPal when a new notice takes the place of the old one", async () => {
+		const closePlugin = vi.fn();
+		const { notices, send } = await startPlugin(async () => "remote", { closePlugin });
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(notices).toHaveLength(2));
+		notices[0]!.options.onDequeue!("dismiss");
+		expect(closePlugin).not.toHaveBeenCalled();
 	});
 
 	it("opens the remote UI when the setting cannot be read", async () => {

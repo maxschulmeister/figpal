@@ -58,8 +58,8 @@ describe("MCP server of the helper", () => {
 	});
 
 	it("gives the error of FigPal to the agent", async () => {
-		const { mcp } = await connect(new Error("Outside agents are off."));
+		const { mcp } = await connect(new Error("MCP is off in FigPal."));
 		const result = await mcp.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
-		expect(result).toMatchObject({ isError: true, content: [{ type: "text", text: "Outside agents are off." }] });
+		expect(result).toMatchObject({ isError: true, content: [{ type: "text", text: "MCP is off in FigPal." }] });
 	});
 });

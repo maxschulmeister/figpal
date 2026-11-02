@@ -45,7 +45,7 @@ export function connectLocal(options: {
 	/** A request of an outside agent: code.js runs it, as for FigPal's own agent. */
 	const run = async (socket: WebSocket, message: Extract<HelperToUi, { kind: "request" }>) => {
 		if (!options.allowAgents()) {
-			send(socket, { kind: "response", id: message.id, ok: false, error: "Outside agents are off. The user can turn them on in FigPal: Settings → Access." });
+			send(socket, { kind: "response", id: message.id, ok: false, error: "MCP is off in FigPal. The user can turn it on: Settings → Access → Enable MCP." });
 			return;
 		}
 		try {

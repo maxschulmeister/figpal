@@ -15,7 +15,7 @@ const files = (attachments: WireAttachment[]) =>
 			: { type: "resource" as const, resource: { uri: `figpal:attachment/${file.name}`, mimeType: file.mime, blob: file.data } },
 	);
 
-/** The error of FigPal, for the agent: for example "Outside agents are off". */
+/** The error of FigPal, for the agent: for example "MCP is off in FigPal". */
 async function answer(run: () => Promise<CallToolResult["content"]>): Promise<CallToolResult> {
 	try {
 		return { content: await run() };

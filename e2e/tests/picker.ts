@@ -77,6 +77,10 @@ export default async function picker(t: Context) {
 	// The mocked answer reports 10 input and 5 output tokens; Claude Opus 5.5 has 1,000,000.
 	same("no context usage before the first answer", await frame.getByText(/^Context:/).count(), 0);
 	await session.ask("Hi", "Done.");
-	same("the context usage after an answer", [await frame.getByText("15 / 1M").isVisible(), await frame.getByText("Context: 15 of 1,000,000 tokens").count()], [true, 1]);
+	// A ring and the percent; the numbers in the tooltip. A used context never shows 0 %.
+	same("the context usage after an answer", [await frame.getByText("1%", { exact: true }).isVisible(), await frame.getByText("Context: 15 of 1,000,000 tokens").count()], [true, 1]);
+	await frame.getByText("1%", { exact: true }).hover();
+	await frame.getByText("15 / 1M tokens", { exact: true }).waitFor();
+	t.check("its tooltip has the numbers", true);
 	await t.screenshot(session, "picker-context");
 }

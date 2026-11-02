@@ -411,8 +411,8 @@ const handlers: Handlers = {
 		const current = figma.notify(message, {
 			timeout: Number.POSITIVE_INFINITY,
 			button: { text: "Show", action: () => (notice === current ? showPanel() : undefined) },
-			// When the user closes the notice, show the panel.
-			onDequeue: (reason) => (reason === "dismiss" && notice === current ? showPanel() : undefined),
+			// The notice has Show: when the user closes it, FigPal closes.
+			onDequeue: (reason) => (reason === "dismiss" && notice === current ? figma.closePlugin() : undefined),
 		});
 		notice = current;
 		previous?.cancel();

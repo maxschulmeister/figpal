@@ -35,8 +35,8 @@ export default async function local(t: Context) {
 		await frame.getByText(`Connected. Shared folders: ${name}.`).waitFor({ timeout: 15_000 });
 		t.check("the Access tab shows the shared folders", true);
 		const off = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
-		t.check("an outside agent is refused until the user allows it", off.isError === true && JSON.stringify(off.content).includes("Outside agents are off"), JSON.stringify(off));
-		await frame.getByRole("switch", { name: "Allow outside agents", exact: true }).click();
+		t.check("an outside agent is refused until the user allows it", off.isError === true && JSON.stringify(off.content).includes("MCP is off in FigPal"), JSON.stringify(off));
+		await frame.getByRole("switch", { name: "Enable MCP", exact: true }).click();
 		await t.screenshot(session, "local-access");
 		const on = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
 		t.check("then its code runs in code.js", JSON.stringify(on.content) === JSON.stringify([{ type: "text", text: '"ran return 1"' }]), JSON.stringify(on));

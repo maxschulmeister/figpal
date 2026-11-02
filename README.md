@@ -22,7 +22,7 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 16. Run in the background: the – button in the header hides FigPal while the agent works. A Figma notice with a Show button brings it back, and says when FigPal is done.
 17. Layers in answers: when FigPal names layers, they show as chips; click one to select those layers.
 18. Local helper (optional): `node local/cli.ts --folder ~/project` in this repo shares folders of your Mac with FigPal: the agent can read and write files there. Turn on Settings → Access → "Connect to a local helper".
-19. Outside agents (optional): `claude mcp add figpal -- node /path/to/figpal/local/cli.ts --mcp` lets Claude Code (or another MCP client) run code in the open file through FigPal. Turn on "Allow outside agents" in Settings → Access too; FigPal must be open in Figma.
+19. Outside agents (optional): `claude mcp add figpal -- node /path/to/figpal/local/cli.ts --mcp` lets Claude Code (or another MCP client) run code in the open file through FigPal. Turn on "Enable MCP" in Settings → Access too; FigPal must be open in Figma.
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 

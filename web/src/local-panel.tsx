@@ -49,7 +49,7 @@ export function LocalHelperSettings(props: {
 					onCheckedChange={(outsideAgents) => props.onChange({ outsideAgents })}
 				/>
 				<span className="flex min-w-0 flex-col">
-					<Label htmlFor={`${agentHint}-switch`}>Allow outside agents</Label>
+					<Label htmlFor={`${agentHint}-switch`}>Enable MCP</Label>
 					<Text id={agentHint} className="text-secondary">
 						An agent on this machine, such as Claude Code, can run code in this file through FigPal. Add it with{" "}
 						<code>claude mcp add figpal -- node &lt;FigPal repo&gt;/local/cli.ts --mcp</code>.
