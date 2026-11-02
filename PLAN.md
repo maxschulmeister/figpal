@@ -647,6 +647,8 @@ Checks:
 
 - Thinking for the text generation model (user request after the test of AI names): a select next to the model, `textThinking`, Off by default (names stay fast). It offers the levels of the chosen model; for Automatic, the levels of the cheapest model of each connected provider. It shows the level that the model uses (pi-ai `clampThinkingLevel`: Claude Sonnet 5.5 cannot think Off, so Off shows as Low), and hides when the model has one level only. Each request fits the level to the model; with thinking, no 40-token cap (thinking needs more). The thinking labels moved to `settings.ts` (the chat menu uses them too). Note: for Claude 5.5 models pi-ai sends the level as a last message with `output_config.effort`; the top-level `output_config` always says "high". No reviews (a change that the user asked for).
 
+- The window title is "FigPal" with the deployed UI (user request: no "(remote)"); the local UI keeps "FigPal (local)", so the two stay apart.
+
 ## Open questions
 
 None at the moment.
