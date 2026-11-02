@@ -3,3 +3,4 @@ packages:
   - plugin
   - web
   - e2e
+  - local

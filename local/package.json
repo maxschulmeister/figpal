@@ -1,0 +1,22 @@
+{
+	"name": "@figpal/local",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"figpal-local": "./cli.ts"
+	},
+	"scripts": {
+		"start": "node cli.ts",
+		"typecheck": "tsc -p ."
+	},
+	"dependencies": {
+		"@figpal/shared": "workspace:*",
+		"@modelcontextprotocol/sdk": "^1.32.2",
+		"ws": "^8.22.1",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"@types/node": "26.6.6",
+		"@types/ws": "^8.18.2"
+	}
+}

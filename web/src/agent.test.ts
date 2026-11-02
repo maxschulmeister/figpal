@@ -209,6 +209,34 @@ describe("token budget", () => {
 	});
 });
 
+// The local helper shares folders: FigPal's agent gets the file tools only while a helper with folders is connected.
+describe("local files", () => {
+	it("adds the file tools and the folders while a helper shares folders", async () => {
+		const faux = fauxProvider({ provider: "faux", models: [{ id: "script", input: ["text", "image"] }] });
+		const systems: SystemMessage[] = [];
+		const step: FauxResponseFactory = (request) => {
+			systems.push(request.messages[0] as SystemMessage);
+			const last = request.messages.at(-1);
+			if (last?.role === "toolResult") return fauxAssistantMessage(fauxText("Done."));
+			return fauxAssistantMessage(fauxToolCall("local_read", { path: "project/a.txt" }), { stopReason: "toolUse" });
+		};
+		faux.setResponses([step, step]);
+		const models = createModels();
+		models.setProvider(faux.provider);
+		const listeners: ((folders: string[]) => void)[] = [];
+		const files = vi.fn(async () => "hello");
+		const local = { files, subscribe: (listener: (folders: string[]) => void) => listeners.push(listener) };
+		const harness = await startAgent(new MemoryStorage(), { models, bridge: fakeBridge(() => ({ result: null })).bridge, credentials: FIGMA_TOKEN, fileKey: "KEY1", subagentModels: () => [], local });
+		for (const listener of listeners) listener(["project"]);
+		const root = await currentThread(harness, SCRIPT);
+		await (await root.submit(userInput("Read a.txt", FILE), context)).wait(context);
+		await harness.close(context);
+		expect(files).toHaveBeenCalledWith({ op: "read", path: "project/a.txt" });
+		expect(systems[0]!.toolsAdded?.map((tool) => tool.name)).toEqual(expect.arrayContaining(["local_list", "local_read", "local_write"]));
+		expect(systems[0]!.sections?.local).toContain("project");
+	});
+});
+
 describe("figma tools", () => {
 	it("figma_screenshot gives the model the PNG of the node", async () => {
 		const { models, requests } = scriptedModels("figma_screenshot", { node_id: "1:2" });

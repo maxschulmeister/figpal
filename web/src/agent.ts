@@ -11,7 +11,9 @@ import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
 import { skillsExtension } from "./extensions/skills";
 import { subagentExtension } from "./extensions/subagent";
+import { localExtension } from "./extensions/local";
 import { webExtension } from "./extensions/web";
+import type { LocalFiles } from "./local";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { chipsForModel, clean, describeNode } from "./node-chips";
@@ -71,6 +73,8 @@ type AgentOptions = {
 	fileKey: string | null;
 	/** The models that the main agent can give to subagents: from the settings. */
 	subagentModels(): string[];
+	/** The folders that local helpers share, and their files. `subscribe` gives each change of the folders. */
+	local?: { files: LocalFiles; subscribe(listener: (folders: string[]) => void): void };
 };
 
 /** Opens the Harness on `storage` and continues the runs that a restart stopped. `threads.ts` opens the threads. */
@@ -80,6 +84,12 @@ export async function startAgent(storage: Storage, options: AgentOptions): Promi
 	registry.install(skillsExtension());
 	registry.install(webExtension());
 	registry.install(subagentExtension({ subagentModels: options.subagentModels }));
+	// The file tools only while a helper shares folders.
+	options.local?.subscribe((folders) => {
+		const extension = localExtension(options.local!.files, folders);
+		if (folders.length) registry.install(extension);
+		else registry.uninstall(extension);
+	});
 	// pi-durable reports failures of the storage, tasks and extensions here, and nowhere else.
 	const onReport = (error: unknown, info: unknown) => console.error("FigPal agent:", info, error);
 	const harness = await Harness.open(storage, { models: options.models, registry, onReport }, context);

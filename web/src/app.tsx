@@ -27,6 +27,8 @@ import { uiCredentials } from "./credentials";
 import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings } from "./settings";
 import { chipLabels } from "./node-chips";
 import { SkillsPanel } from "./skills-panel";
+import { connectLocal, type LocalFiles, type LocalState } from "./local";
+import { LocalHelperSettings } from "./local-panel";
 import { installDefaultSkills } from "./skills/defaults";
 import { EnabledModels } from "./enabled-models";
 import { ThreadList, threadTitle } from "./thread-list";
@@ -61,6 +63,7 @@ function newThreadAgent({ model, thinkingLevel }: Settings, connected: ReadonlyS
 
 /** Errors of actions after the start: the chat stays open. */
 const report = (error: unknown) => console.error("FigPal:", error);
+const NO_HELPER: LocalFiles = () => Promise.reject(new Error("FigPal is not connected to a local helper."));
 
 export function App({ bridge }: { bridge: Bridge }) {
 	const [phase, setPhase] = useState<Phase>({ kind: "starting" });
@@ -86,6 +89,33 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [models, settings, connected]);
 
 	const fail = useCallback((error: unknown) => setPhase({ kind: "failed", message: errorText(error) }), []);
+	const [local, setLocal] = useState<LocalState & { connected: boolean }>({ folders: [], agent: false, connected: false });
+	const outsideAgents = useRef(false);
+	outsideAgents.current = settings?.outsideAgents ?? false;
+	/** The file requests and folder listeners of the agent: the connection to the helper changes, the agent stays. */
+	const [localLink] = useState(() => ({
+		files: NO_HELPER as LocalFiles,
+		folders: [] as string[],
+		listeners: new Set<(folders: string[]) => void>(),
+	}));
+	// The connection to the local helper, while the setting is on.
+	const localHelper = settings?.localHelper ?? false;
+	useEffect(() => {
+		if (!localHelper) return;
+		const update = (state: LocalState) => {
+			setLocal({ ...state, connected: state.folders.length > 0 || state.agent || false });
+			localLink.folders = state.folders;
+			for (const listener of localLink.listeners) listener(state.folders);
+		};
+		const connection = connectLocal({ bridge, allowAgents: () => outsideAgents.current, onChange: update });
+		localLink.files = connection.files;
+		return () => {
+			connection.stop();
+			localLink.files = NO_HELPER;
+			update({ folders: [], agent: false });
+		};
+	}, [bridge, localHelper, localLink]);
+
 
 	const openExternal = useCallback(
 		(url: string) => bridge.request("open-external", { url }).catch((error) => console.error("FigPal:", error)),
@@ -131,7 +161,14 @@ export function App({ bridge }: { bridge: Bridge }) {
 		installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
-		openAgent(fileId, { models, bridge, credentials, fileKey, subagentModels: () => allowedModels.current }).then(
+		const local = {
+			files: (request: Parameters<LocalFiles>[0]) => localLink.files(request),
+			subscribe: (listener: (folders: string[]) => void) => {
+				localLink.listeners.add(listener);
+				listener(localLink.folders);
+			},
+		};
+		openAgent(fileId, { models, bridge, credentials, fileKey, subagentModels: () => allowedModels.current, local }).then(
 			// The first failure stays: a later result must not hide it.
 			(harness) =>
 				setPhase((current) =>
@@ -139,7 +176,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 				),
 			fail,
 		);
-	}, [fileId, fileKey, models, bridge, credentials, refreshConnected, fail]);
+	}, [fileId, fileKey, models, bridge, credentials, refreshConnected, fail, localLink]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
 
@@ -344,6 +381,9 @@ export function App({ bridge }: { bridge: Bridge }) {
 							<Tabs.Panel value="figma" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
 								<Dialog.Section>
 									<TokenAccount kind={FIGMA} connected={connected} credentials={credentials} onChange={refreshConnected} />
+								</Dialog.Section>
+								<Dialog.Section>
+									<LocalHelperSettings settings={settings} local={local} onChange={updateSettings} />
 								</Dialog.Section>
 							</Tabs.Panel>
 						</Tabs.Root>

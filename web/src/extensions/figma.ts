@@ -3,7 +3,7 @@
 import { awaitWithContext } from "@earendil-works/chord/context";
 import { type CredentialStore, type ImageContent, type Static, type TextContent, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
-import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, MODEL_IMAGE_MAX_PX } from "@figpal/shared";
+import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, MODEL_IMAGE_MAX_PX, MODEL_IMAGES } from "@figpal/shared";
 import { AUDIT, auditDesignSystem } from "../audit";
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
@@ -33,14 +33,11 @@ Plugin API rules:
 - Never call figma.closePlugin, figma.showUI or figma.ui: they stop FigPal.
 - A failed call can have changed part of the file: check it before you run the code again.`;
 
-function toBase64(bytes: Uint8Array): string {
+export function toBase64(bytes: Uint8Array): string {
 	let binary = "";
 	for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
 	return btoa(binary);
 }
-
-/** The image types that models read. Other files, such as SVG, go to the user. */
-const MODEL_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /** Image attachments go to the model as images. */
 function images(attachments: Attachment[]): ImageContent[] {

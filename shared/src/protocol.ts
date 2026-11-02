@@ -12,6 +12,12 @@ export const UI_ORIGINS = {
 } as const;
 export type UiSource = keyof typeof UI_ORIGINS;
 
+/** The image types that models read. Other files go to the user, or to an outside agent as resources. */
+export const MODEL_IMAGES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** IDs in Figma links have dashes: "1-2" is the node "1:2". Real node IDs have no dashes. */
+export const nodeIdOf = (id: string) => id.replaceAll("-", ":");
+
 /** Limits that code.js applies. The tool descriptions tell the model. */
 export const EXECUTE_TIMEOUT_MS = { default: 30_000, max: 300_000 } as const;
 export const EXECUTE_OUTPUT_LIMIT = 20_000;
@@ -174,7 +180,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	background: true,
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 

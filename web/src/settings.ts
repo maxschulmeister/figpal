@@ -14,6 +14,10 @@ export type Settings = {
 	thinkingLevel: ModelThinkingLevel;
 	/** "provider/modelId". Empty: all models. */
 	enabledModels: string[];
+	/** FigPal looks for the local helper (local/cli.ts): off, because each failed try writes an error in the console. */
+	localHelper: boolean;
+	/** An outside agent can run code in the file through the local helper. */
+	outsideAgents: boolean;
 };
 
 /** The providers of FigPal, in this order, with the model of new threads until the user picks one. */
@@ -50,10 +54,14 @@ export const DEFAULT_SETTINGS: Settings = {
 	model: { provider: PROVIDERS[0].id, modelId: PROVIDERS[0].defaultModel },
 	thinkingLevel: "medium",
 	enabledModels: [],
+	localHelper: false,
+	outsideAgents: false,
 };
 
-/** The model and thinking level. The enabled models came later: loadSettings checks them alone. */
-function isSettings(value: unknown): value is Omit<Settings, "enabledModels"> & { enabledModels?: unknown } {
+/** The model and thinking level. The other settings came later: loadSettings checks them alone. */
+function isSettings(
+	value: unknown,
+): value is Pick<Settings, "model" | "thinkingLevel"> & Partial<Record<"enabledModels" | "localHelper" | "outsideAgents", unknown>> {
 	if (typeof value !== "object" || value === null) return false;
 	const { model, thinkingLevel } = value as Partial<Record<keyof Settings, unknown>>;
 	const ref = model as Partial<Record<keyof ModelRef, unknown>> | null | undefined;
@@ -68,12 +76,14 @@ function isSettings(value: unknown): value is Omit<Settings, "enabledModels"> & 
 export async function loadSettings(bridge: Pick<Bridge, "request">): Promise<Settings> {
 	const { result } = await bridge.request("storage-get", { key: KEY });
 	if (!isSettings(result)) return DEFAULT_SETTINGS;
-	const { model, thinkingLevel, enabledModels } = result;
+	const { model, thinkingLevel, enabledModels, localHelper, outsideAgents } = result;
 	const list = Array.isArray(enabledModels) ? enabledModels : [];
 	return {
 		model,
 		thinkingLevel,
 		enabledModels: list.filter((item): item is string => typeof item === "string" && parseModelRef(item) !== undefined),
+		localHelper: localHelper === true,
+		outsideAgents: outsideAgents === true,
 	};
 }
 

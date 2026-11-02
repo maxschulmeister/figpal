@@ -1,0 +1,51 @@
+// The local helper (local/cli.ts), started as an outside agent starts it: FigPal reads a shared folder, and the agent
+// runs code in the file through FigPal once the user allows it.
+
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { type Context, resultText, text, toolResults, toolUse } from "../harness.ts";
+
+export default async function local(t: Context) {
+	const folder = mkdtempSync(join(tmpdir(), "figpal-shared-"));
+	writeFileSync(join(folder, "notes.txt"), "Hello from disk");
+	const name = basename(folder);
+	const session = await t.open({
+		requests: { execute: ({ code }: { code: string }) => ({ result: { value: JSON.stringify(`ran ${code}`) } }) },
+		model: (request) =>
+			toolResults(request).length === 0 ? toolUse("t1", "local_read", { path: `${name}/notes.txt` }) : text("Done: I read the notes."),
+	});
+	const agent = new Client({ name: "e2e", version: "1" });
+	await agent.connect(
+		new StdioClientTransport({
+			command: "node",
+			args: [fileURLToPath(new URL("../../local/cli.ts", import.meta.url)), "--mcp", "--folder", folder, "--origin", session.ui],
+			stderr: "ignore",
+		}),
+	);
+	try {
+		await session.login();
+		const { frame, page } = session;
+		await frame.getByLabel("Settings").click();
+		await frame.getByRole("tab", { name: "Access" }).click();
+		await frame.getByRole("switch", { name: "Connect to a local helper", exact: true }).click();
+		await frame.getByText(`Connected. Shared folders: ${name}.`).waitFor({ timeout: 15_000 });
+		t.check("the Access tab shows the shared folders", true);
+		const off = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
+		t.check("an outside agent is refused until the user allows it", off.isError === true && JSON.stringify(off.content).includes("Outside agents are off"), JSON.stringify(off));
+		await frame.getByRole("switch", { name: "Allow outside agents", exact: true }).click();
+		await t.screenshot(session, "local-access");
+		const on = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
+		t.check("then its code runs in code.js", JSON.stringify(on.content) === JSON.stringify([{ type: "text", text: '"ran return 1"' }]), JSON.stringify(on));
+		await frame.getByRole("button", { name: "Back to the chat" }).click();
+		await page.waitForTimeout(300);
+		await session.ask("Read my notes", "Done: I read the notes.");
+		const read = resultText(toolResults(session.model.at(-1)!)[0]!);
+		t.check("FigPal's agent reads a file of the shared folder", read === "Hello from disk", read);
+	} finally {
+		await agent.close();
+	}
+}

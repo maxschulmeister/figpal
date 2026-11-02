@@ -2,6 +2,6 @@
 	"name": "@figpal/shared",
 	"private": true,
 	"type": "module",
-	"exports": { ".": "./src/protocol.ts" },
+	"exports": { ".": "./src/protocol.ts", "./local": "./src/local.ts" },
 	"scripts": { "typecheck": "tsc -p ." }
 }
