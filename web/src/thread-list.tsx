@@ -1,4 +1,4 @@
-// The threads of the file: open, rename, delete.
+// The threads of the file: open, rename, archive.
 
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { AlertDialog, Button, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Text } from "figma-kit";
@@ -21,12 +21,12 @@ type Props = {
 	list: List;
 	onOpen(id: ConversationId): void;
 	onRename(id: ConversationId, title: string): void;
-	onDelete(id: ConversationId): void;
+	onArchive(id: ConversationId): void;
 };
 
-export function ThreadList({ list, onOpen, onRename, onDelete }: Props) {
+export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 	const [renaming, setRenaming] = useState<ThreadInfo>();
-	const [deleting, setDeleting] = useState<ThreadInfo>();
+	const [archiving, setArchiving] = useState<ThreadInfo>();
 
 	return (
 		<>
@@ -54,7 +54,7 @@ export function ThreadList({ list, onOpen, onRename, onDelete }: Props) {
 								<DropdownMenu.Positioner sideOffset={4} align="end">
 									<DropdownMenu.Popup style={{ minWidth: 140 }}>
 										<DropdownMenu.Item onClick={() => setRenaming(thread)}>Rename…</DropdownMenu.Item>
-										<DropdownMenu.Item onClick={() => setDeleting(thread)}>Delete…</DropdownMenu.Item>
+										<DropdownMenu.Item onClick={() => setArchiving(thread)}>Archive…</DropdownMenu.Item>
 									</DropdownMenu.Popup>
 								</DropdownMenu.Positioner>
 							</DropdownMenu.Portal>
@@ -69,16 +69,16 @@ export function ThreadList({ list, onOpen, onRename, onDelete }: Props) {
 					onRename={(title) => onRename(renaming.id, title)}
 				/>
 			)}
-			<AlertDialog.Root open={deleting !== undefined} onOpenChange={(open) => open || setDeleting(undefined)}>
+			<AlertDialog.Root open={archiving !== undefined} onOpenChange={(open) => open || setArchiving(undefined)}>
 				<AlertDialog.Portal>
 					<AlertDialog.Backdrop />
 					<AlertDialog.Popup placement="center">
-						<AlertDialog.Title>Delete “{threadTitle(deleting)}”?</AlertDialog.Title>
-						<AlertDialog.Description>The chat goes away from this file. A running answer stops.</AlertDialog.Description>
+						<AlertDialog.Title>Archive “{threadTitle(archiving)}”?</AlertDialog.Title>
+						<AlertDialog.Description>The chat leaves the list of this file. A running answer stops.</AlertDialog.Description>
 						<AlertDialog.Actions>
 							<AlertDialog.Close render={<Button />}>Cancel</AlertDialog.Close>
-							<AlertDialog.Close render={<Button variant="destructive" />} onClick={() => deleting && onDelete(deleting.id)}>
-								Delete
+							<AlertDialog.Close render={<Button variant="primary" />} onClick={() => archiving && onArchive(archiving.id)}>
+								Archive
 							</AlertDialog.Close>
 						</AlertDialog.Actions>
 					</AlertDialog.Popup>

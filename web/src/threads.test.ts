@@ -4,7 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it } from "vitest";
-import { currentThread, deleteThread, forkThread, newThread, noteMessage, renameThread, selectThread, Threads } from "./threads";
+import { currentThread, archiveThread, forkThread, newThread, noteMessage, renameThread, selectThread, Threads } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -73,27 +73,27 @@ describe("threads", () => {
 		expect((await list()).current).toBe(fork.id);
 	});
 
-	it("deletes a thread from the list and opens the newest other thread", async () => {
+	it("archives a thread: it leaves the list, and opens the newest other thread", async () => {
 		const { harness, list } = await open();
 		const first = await currentThread(harness, AGENT);
 		const second = await newThread(harness, AGENT);
-		const next = await deleteThread(harness, second.id, AGENT);
+		const next = await archiveThread(harness, second.id, AGENT);
 		expect(next.id).toBe(first.id);
 		expect(await list()).toMatchObject({ threads: [{ id: first.id }], current: first.id });
 		// Without a thread, a new one opens.
-		const last = await deleteThread(harness, first.id, AGENT);
+		const last = await archiveThread(harness, first.id, AGENT);
 		expect((await list()).threads.map((info) => info.id)).toEqual([last.id]);
 		expect((await selectThread(harness, last.id)).id).toBe(last.id);
 	});
 
-	it("keeps the open thread when another thread is deleted", async () => {
+	it("keeps the open thread when another thread is archived", async () => {
 		const { harness, list } = await open();
 		const first = await currentThread(harness, AGENT);
 		const second = await newThread(harness, AGENT);
 		const third = await newThread(harness, AGENT);
 		await selectThread(harness, second.id);
 		// The open thread (second) is not the first in the list (third).
-		const opened = await deleteThread(harness, first.id, AGENT);
+		const opened = await archiveThread(harness, first.id, AGENT);
 		expect(opened.id).toBe(second.id);
 		expect(await list()).toMatchObject({ threads: [{ id: third.id }, { id: second.id }], current: second.id });
 	});

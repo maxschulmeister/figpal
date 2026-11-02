@@ -91,10 +91,10 @@ export async function noteMessage(harness: Harness, id: ConversationId, text: st
 }
 
 /**
- * Removes a thread from the list and returns the open thread. If the deleted thread was open, the newest other one
+ * Archives a thread: removes it from the list and returns the open thread. If the archived thread was open, the newest other one
  * opens, or a new one. pi-durable cannot delete a conversation, so its entries stay in the storage.
  */
-export async function deleteThread(harness: Harness, id: ConversationId, agent: AgentChange): Promise<Conversation> {
+export async function archiveThread(harness: Harness, id: ConversationId, agent: AgentChange): Promise<Conversation> {
 	await (await conversation(harness, id)).abort(context);
 	const next = await harness.commit(async (tx) => {
 		const list = await tx.doc(Threads);

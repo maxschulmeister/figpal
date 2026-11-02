@@ -35,7 +35,7 @@ import { EnabledModels } from "./enabled-models";
 import { ThreadList, threadTitle } from "./thread-list";
 import {
 	currentThread,
-	deleteThread,
+	archiveThread,
 	forkThread,
 	newThread,
 	noteMessage,
@@ -312,9 +312,9 @@ export function App({ bridge }: { bridge: Bridge }) {
 						}
 						onRename={(id, title) => renameThread(harness, id, title).catch(report)}
 						// Keep the handle of the open thread, so that its chat does not load again.
-						onDelete={(id) =>
+						onArchive={(id) =>
 							run(async () => {
-								const next = await deleteThread(harness, id, agent);
+								const next = await archiveThread(harness, id, agent);
 								return next.id === thread?.id ? thread : next;
 							}, false)
 						}
