@@ -8,10 +8,10 @@ The pi packages (`@earendil-works/pi-ai`, `pi-durable`, `chord`) are pinned to 1
 
 ## Local files and outside agents (user, 2026-11-01)
 
-Done (Phase 7): the local helper `local/cli.ts` gives local files (`--folder`) and access from outside (`--mcp`). Open:
+Done (Phase 7): the local helper `local/cli.ts` gives local files (`--folder`) and access from outside (`figpal mcp`). Open:
 
 - **Remote threads:** a pi instance on another machine can start a thread in the plugin and follow it.
-- **Publish on npm (user, 2026-11-02):** then `npx` starts the helper, without a clone of the repo, for example `claude mcp add figpal -- npx -y <package> --mcp`.
+- **Publish on npm (user, 2026-11-02):** then `npx` starts the helper, without a clone of the repo, for example `claude mcp add figpal -- npx -y <package> mcp`.
 
 ### Optional Node host (from PLAN.md)
 
