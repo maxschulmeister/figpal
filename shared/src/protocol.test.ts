@@ -2,13 +2,10 @@ import { describe, expect, it } from "vitest";
 import { isUiToPlugin } from "./protocol";
 
 describe("isUiToPlugin", () => {
-	it("accepts a switch to the remote or the local UI", () => {
-		expect(isUiToPlugin({ kind: "switch-ui", ui: "remote" })).toBe(true);
-		expect(isUiToPlugin({ kind: "switch-ui", ui: "local" })).toBe(true);
-	});
-
-	it("rejects a switch to an unknown UI", () => {
-		expect(isUiToPlugin({ kind: "switch-ui", ui: "https://evil.example" })).toBe(false);
+	// FigPal has one UI, the deployed one (user choice): no switch to the local UI.
+	it("rejects a switch of the UI", () => {
+		expect(isUiToPlugin({ kind: "switch-ui", ui: "remote" })).toBe(false);
+		expect(isUiToPlugin({ kind: "switch-ui", ui: "local" })).toBe(false);
 	});
 
 	it("rejects request types from the Object prototype", () => {

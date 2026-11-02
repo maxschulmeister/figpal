@@ -3,7 +3,7 @@
 import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { AgentChange, Conversation, ConversationId, EntryId, Harness, SubmissionId } from "@earendil-works/pi-durable";
-import { type FileInfo, UI_ORIGINS, type UiSource } from "@figpal/shared";
+import type { FileInfo } from "@figpal/shared";
 import {
 	Button,
 	ChevronDownIcon,
@@ -54,8 +54,6 @@ type Phase =
 	| { kind: "ready"; harness: Harness };
 
 const INIT_TIMEOUT_MS = 5000;
-/** The UI source of this page: the remote UI (VPS) or the local UI (Vite dev server). */
-const uiSource = (Object.keys(UI_ORIGINS) as UiSource[]).find((source) => UI_ORIGINS[source] === location.origin);
 
 /** The agent of a new thread: the saved model, or the default model of the first connected provider. */
 function newThreadAgent({ model, thinkingLevel }: Settings, connected: ReadonlySet<string>): AgentChange | undefined {
@@ -266,7 +264,6 @@ export function App({ bridge }: { bridge: Bridge }) {
 			.then(() => harness.waitForIdle(context))
 			.then(() => bridge.request("background", { message: "FigPal is done.", update: true }))
 			.catch(report);
-	const otherUi: UiSource = uiSource === "local" ? "remote" : "local";
 
 	return (
 		<div className="flex h-full flex-col">
@@ -411,12 +408,6 @@ export function App({ bridge }: { bridge: Bridge }) {
 												</SegmentedControl.Item>
 											))}
 										</SegmentedControl.Root>
-									</div>
-								</Dialog.Section>
-								<Dialog.Section>
-									<div className="flex items-center justify-between gap-2">
-										<Text className="text-secondary">This window uses the {uiSource} UI.</Text>
-										<Button onClick={() => bridge.switchUi(otherUi)}>Use the {otherUi} UI</Button>
 									</div>
 								</Dialog.Section>
 							</Tabs.Panel>

@@ -1,4 +1,4 @@
-// Plugin main thread. Shows the UI (remote or local) and runs its requests against the Plugin API.
+// Plugin main thread. Shows the UI (from the VPS) and runs its requests against the Plugin API.
 
 import {
 	type Attachment,
@@ -16,8 +16,7 @@ import {
 	type Result,
 	STORAGE_PREFIX,
 	THEME_HASH_KEY,
-	UI_ORIGINS,
-	type UiSource,
+	UI_ORIGIN,
 	type UiToPlugin,
 } from "@figpal/shared";
 import { ExecuteTimeout, execute } from "./execute";
@@ -30,17 +29,14 @@ const MIN_SIZE = { width: 320, height: 400 };
 const CANVAS_MARGIN = 64;
 const SIZE_KEY = "figpal.size";
 const LOAD_TIMEOUT_MS = 10_000;
-const UI_KEY = "figpal.ui";
 const FILE_ID_KEY = "figpal.fileId";
 const MAX_SELECTION = 50;
 
-/** A setting in clientStorage. Only the origin of this UI can send requests, and only it gets the replies. */
-let source: UiSource = "remote";
-const uiOrigin = () => UI_ORIGINS[source];
-const uiUrl = () => `${uiOrigin()}/`;
+/** Only the origin of the UI can send requests, and only it gets the replies. */
+const UI_URL = `${UI_ORIGIN}/`;
 /** The size of the panel: the saved size, or the full height. */
 let size: { width: number; height: number } | undefined;
-const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, ...fit(size), title: source === "local" ? "FigPal (local)" : "FigPal" });
+const uiOptions = (): ShowUIOptions => ({ ...UI_OPTIONS, ...fit(size), title: "FigPal" });
 
 /**
  * The size within the visible canvas, which is as large as the panel can be: code.js cannot read the size of the
@@ -80,8 +76,6 @@ function showPanel(): void {
 let loadTimer = 0;
 
 function offlineHtml(): string {
-	const other: UiSource = source === "remote" ? "local" : "remote";
-	const hint = source === "remote" ? "Connect Tailscale" : "Start the dev server (pnpm dev)";
 	// JSON has no single quotes, so the attributes use them.
 	const send = (message: UiToPlugin) => `parent.postMessage({ pluginMessage: ${JSON.stringify(message)} }, "*")`;
 	return `<!doctype html>
@@ -89,9 +83,8 @@ function offlineHtml(): string {
 body { font: 12px/1.5 Inter, system-ui, sans-serif; margin: 16px; color: var(--figma-color-text); background: var(--figma-color-bg); }
 button { font: inherit; padding: 6px 12px; }
 </style>
-<p>Cannot reach FigPal at ${uiUrl()}. ${hint} and try again.</p>
-<button onclick='${send({ kind: "retry" })}'>Try again</button>
-<button onclick='${send({ kind: "switch-ui", ui: other })}'>Use the ${other} UI</button>`;
+<p>Cannot reach FigPal at ${UI_URL}. Connect Tailscale and try again.</p>
+<button onclick='${send({ kind: "retry" })}'>Try again</button>`;
 }
 
 /**
@@ -104,7 +97,7 @@ let done = false;
 const go = () => {
 	if (done) return;
 	done = true;
-	location.href = ${JSON.stringify(`${uiUrl()}#${THEME_HASH_KEY}=`)} + encodeURIComponent(document.documentElement.className);
+	location.href = ${JSON.stringify(`${UI_URL}#${THEME_HASH_KEY}=`)} + encodeURIComponent(document.documentElement.className);
 };
 if (document.documentElement.className) go();
 new MutationObserver(go).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
@@ -118,15 +111,8 @@ function showUi(): void {
 	loadTimer = setTimeout(() => figma.showUI(offlineHtml(), uiOptions()), LOAD_TIMEOUT_MS);
 }
 
-async function switchUi(next: UiSource): Promise<void> {
-	source = next;
-	// First the UI: if the setting cannot be saved, only the next start uses the old UI.
-	showUi();
-	await figma.clientStorage.setAsync(UI_KEY, next);
-}
-
 function post(message: PluginToUi): void {
-	figma.ui.postMessage(message, { origin: uiOrigin() });
+	figma.ui.postMessage(message, { origin: UI_ORIGIN });
 }
 
 /** The scales of Figma's export panel: the only scales for a video. */
@@ -469,22 +455,18 @@ figma.ui.onmessage = (message: unknown, { origin }) => {
 	if (!isUiToPlugin(message)) {
 		// A newer remote UI can send a request type that this code.js does not know. Without a reply, it waits forever.
 		const request = message as { kind?: unknown; id?: unknown; type?: unknown } | null;
-		if (origin === uiOrigin() && request?.kind === "request" && typeof request.id === "string") {
+		if (origin === UI_ORIGIN && request?.kind === "request" && typeof request.id === "string") {
 			const error = `This FigPal plugin does not know the request "${String(request.type)}". Update the plugin.`;
 			post({ kind: "response", id: request.id, ok: false, error });
 		}
 		return;
 	}
-	// The offline page has a null origin. Its messages only open one of the two UIs.
+	// The offline page has a null origin. Its message only opens the UI again.
 	if (message.kind === "retry") {
 		showUi();
 		return;
 	}
-	if (message.kind === "switch-ui") {
-		void switchUi(message.ui);
-		return;
-	}
-	if (origin !== uiOrigin()) {
+	if (origin !== UI_ORIGIN) {
 		console.warn(`FigPal ignored a message from ${origin}`);
 		return;
 	}
@@ -508,10 +490,11 @@ figma.on("currentpagechange", () => {
 	post({ kind: "event", type: "page", page: summarize(figma.currentPage) });
 });
 
-// Without a setting, the remote UI and the full height.
-const setting = (key: string) => figma.clientStorage.getAsync(key).catch(() => undefined);
-void Promise.all([setting(UI_KEY), setting(SIZE_KEY)]).then(([ui, saved]) => {
-	if (ui === "local") source = "local";
-	if (isSize(saved)) size = saved;
-	showUi();
-});
+// Without a saved size, the full height.
+void figma.clientStorage
+	.getAsync(SIZE_KEY)
+	.catch(() => undefined)
+	.then((saved) => {
+		if (isSize(saved)) size = saved;
+		showUi();
+	});

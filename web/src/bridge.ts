@@ -9,7 +9,6 @@ import {
 	PLUGIN_ID,
 	type RequestType,
 	type Result,
-	type UiSource,
 	type UiToPlugin,
 } from "@figpal/shared";
 
@@ -21,7 +20,6 @@ export type Bridge = {
 	/** Tells code.js that the UI loaded. code.js answers with an `init` event. */
 	ready(): void;
 	/** Saves the UI source in code.js, which then opens that UI. */
-	switchUi(ui: UiSource): void;
 };
 
 export function createBridge(host: Window = window, parent: Window = window.parent): Bridge {
@@ -69,6 +67,5 @@ export function createBridge(host: Window = window, parent: Window = window.pare
 			return () => listeners.delete(listener);
 		},
 		ready: () => post({ kind: "ready" }),
-		switchUi: (ui) => post({ kind: "switch-ui", ui }),
 	};
 }

@@ -24,12 +24,6 @@ describe("bridge", () => {
 		await expect(promise).resolves.toEqual({ result: { value: "1" }, attachments: [] });
 	});
 
-	it("asks code.js to switch the UI", () => {
-		const { bridge, posted } = setup();
-		bridge.switchUi("local");
-		expect(posted[0]!.message).toEqual({ pluginMessage: { kind: "switch-ui", ui: "local" }, pluginId: "figpal" });
-	});
-
 	it("rejects with the error from code.js", async () => {
 		const { bridge, posted, reply } = setup();
 		const promise = bridge.request("storage-get", { key: "figpal.x" });

@@ -44,16 +44,16 @@ const start = async (getAsync: () => Promise<unknown>) => (await startPlugin(get
 afterEach(() => vi.unstubAllGlobals());
 
 describe("code.ts start", () => {
-	it("opens the saved UI", async () => {
+	// FigPal has one UI, the deployed one (user choice). An old saved choice of the local UI does nothing.
+	it("opens the deployed UI, also with an old saved choice of the local UI", async () => {
 		const shown = await start(async () => "local");
 		expect(shown).toHaveLength(1);
-		expect(shown[0]).toContain("http://localhost:5173/");
+		expect(shown[0]).toContain("https://figpal.maxschulmeister.dev/");
 	});
 
 	// User request: the deployed UI is the normal case, so its title has no "(remote)".
-	it("is titled FigPal, and FigPal (local) with the local UI", async () => {
-		expect((await startPlugin(async () => "remote")).options[0]?.title).toBe("FigPal");
-		expect((await startPlugin(async () => "local")).options[0]?.title).toBe("FigPal (local)");
+	it("is titled FigPal", async () => {
+		expect((await startPlugin(async () => "local")).options[0]?.title).toBe("FigPal");
 	});
 
 	// The canvas is 1600 × 900 px: the panel and its title bar fit in it.

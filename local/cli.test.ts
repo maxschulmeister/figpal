@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { UI_ORIGINS } from "@figpal/shared";
+import { UI_ORIGIN } from "@figpal/shared";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -75,7 +75,7 @@ describe("the helper command", () => {
 	// A test helper must not answer the user's real FigPal: its folders and its picker are not the user's.
 	it("accepts only the origins of --origin, when it has them", async () => {
 		const port = await start(["--origin", "http://localhost:5199"]);
-		expect([await opens(port, "http://localhost:5199"), await opens(port, UI_ORIGINS.remote)]).toEqual([true, false]);
+		expect([await opens(port, "http://localhost:5199"), await opens(port, UI_ORIGIN)]).toEqual([true, false]);
 	});
 
 	// One bridge for all agents: `figpal mcp` uses the bridge of `figpal`, and is no bridge itself.

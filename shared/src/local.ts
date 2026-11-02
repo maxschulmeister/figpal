@@ -1,13 +1,13 @@
 // The local helper (local/cli.ts) runs on the user's machine. FigPal's UI connects to it with a WebSocket: the helper
 // gives FigPal's agent the files of some folders, and gives outside agents (MCP) the requests of code.js.
 
-import { type Attachment, isRecord, UI_ORIGINS } from "./protocol.ts";
+import { type Attachment, isRecord, UI_ORIGIN } from "./protocol.ts";
 
 /** The helper takes the first free port, and the UI tries all. figma-console-mcp's bridge uses 9223 to 9232. */
 export const LOCAL_PORTS = Array.from({ length: 10 }, (_, index) => 9300 + index);
 
 /** The UI origins that the helper accepts. A web page can connect to localhost, but it cannot fake its origin. */
-export const LOCAL_ORIGINS: readonly string[] = Object.values(UI_ORIGINS);
+export const LOCAL_ORIGINS: readonly string[] = [UI_ORIGIN];
 
 /** The requests of code.js that an outside agent can send through FigPal, when the user allows it. */
 export const AGENT_REQUESTS = ["execute", "screenshot"] as const;
