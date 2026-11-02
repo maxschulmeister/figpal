@@ -629,6 +629,8 @@ Checks:
 - Chat text (user: hard to read; user chose A plus a setting): answers, the user's messages and the composer use 13 px on 20 px (Figma's 12 px on 16 px is for labels), with more space between paragraphs, list items and headings. Settings → Models → Text size: Small (12/18), Medium (13/20, the default), Large (14/22). FigPal loads Inter (`@fontsource-variable/inter`, split by alphabet) from its own server: the plugin window does not get Figma's fonts, and without Inter on the Mac the UI used the system font.
 - Only the chat scrolls (user report: a second scroll bar, with white space below the composer): the screen-reader text of layer chips has `position: absolute`, and the scroll area had no position, so these texts made the page taller. The scroll area is `relative`; the e2e check `scroll` measures the page.
 
+- Statuses in the settings (user request): green when on (Connected, Signed in, Running); grey when off and nothing is wrong (the Figma token, the local helper and MCP are optional, and one model account is enough); red when FigPal cannot work: no model account, so Claude and ChatGPT both say "Not connected" / "Not signed in". Every account now shows its status, also when it is off.
+
 ## Open questions
 
 None at the moment.
