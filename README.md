@@ -21,9 +21,9 @@ A Figma Desktop plugin with an AI agent. See [PLAN.md](PLAN.md) for the design a
 15. The panel: drag the grip in the bottom-right corner to resize FigPal (or focus it and use the arrow keys); FigPal keeps the size. Under the message box, on the right, FigPal shows how much of the model's context window the chat uses, for example "45k / 1M".
 16. Run in the background: while the agent works, "Run in the background" above the message box hides FigPal. A Figma notice with a Show button brings it back, and says when FigPal is done. Closing the notice closes FigPal.
 17. Layers in answers: when FigPal names layers, they show as chips; click one to select those layers.
-18. Local helper (optional, macOS): `pnpm local:install` in this repo starts a helper at login, and adds FigPal's MCP server to Claude Code. Run it again after you move the repo or remove the Node version; `pnpm local:uninstall` removes both. Then, in Settings → Access:
+18. Local helper (optional, macOS): `pnpm local:install` in this repo starts a helper at login, adds the command `figpal-mcp` next to `node`, and adds FigPal's MCP server to Claude Code. Run it again after you move the repo or remove the Node version; `pnpm local:uninstall` removes all three. Then, in Settings → Access:
     - Shared folders: "Add folders" opens the folder picker; the agent can read and write these folders, with their subfolders. "Share the home folder" gives it all your files.
-    - Enable MCP: Claude Code (or another MCP client, with the command and Copy button there) can run code in the open file through FigPal. FigPal must be open in Figma; with several files, the agent names the file.
+    - MCP → Enable: agents on this Mac can run code in the open file through FigPal. For another agent than Claude Code: `<agent> mcp add figpal -- figpal-mcp`. FigPal must be open in Figma; with several files, the agent names the file.
 
 The remote UI is on `https://figpal.maxschulmeister.dev` (Tailscale only). `pnpm deploy:web` builds and uploads it.
 
