@@ -22,10 +22,6 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 - It adds pi-durable `createCodingTools` with a `NodeExecutionEnv` for each repo, and the figma-console-mcp codebase extraction (`src/core/extraction`).
 - A LaunchAgent (`RunAtLoad`, `KeepAlive`) starts it at login.
 
-## Layer chips in the agent's answers (user, 2026-11-01, Phase 7)
-
-The agent could write clickable layer chips in its answers, like the chips in the user's messages: a click selects the layers. It works for every tool, but it depends on the model writing the chips. Deferred: first the lint tool with pills under its step.
-
 ## TypeScript only (user, 2026-11-01)
 
 Rewrite all JavaScript in TypeScript. Now two files are JavaScript:
