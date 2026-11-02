@@ -26,9 +26,9 @@ export type FolderChange = { op: "add" } | { op: "remove"; name: string } | { op
 
 export type HelperToUi =
 	/**
-	 * After the connection and after each change of the folders: the names of the shared folders; whether an outside
-	 * agent uses this helper; whether it keeps the folders (the helper that starts at login); whether the home folder is
-	 * shared.
+	 * After the connection, after each change of the folders, and when an agent connects or disconnects: the names of
+	 * the shared folders; whether an outside agent is connected through this helper; whether it keeps the folders (the
+	 * bridge of `figpal`, not of `figpal mcp`); whether the home folder is shared.
 	 */
 	| { kind: "hello"; folders: string[]; agent: boolean; manage: boolean; home: boolean }
 	/** A request of an outside agent. */

@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { saveConfig } from "./files.ts";
-import { type Helper, startHelper } from "./server.ts";
+import { AGENT_PATH, type Helper, startHelper } from "./server.ts";
 
 const UI = "https://figpal.example";
 let helper: Helper | undefined;
@@ -18,8 +18,8 @@ afterEach(async () => {
 });
 
 /** A fake FigPal UI: it connects with an origin, and keeps the messages that it gets. */
-async function connect(port: number, origin = UI) {
-	const socket = new WebSocket(`ws://127.0.0.1:${port}`, { origin });
+async function connect(port: number, { origin = UI, path = "" }: { origin?: string | null; path?: string } = {}) {
+	const socket = new WebSocket(`ws://127.0.0.1:${port}${path}`, origin === null ? {} : { origin });
 	sockets.push(socket);
 	const messages: Record<string, unknown>[] = [];
 	socket.on("message", (data) => messages.push(JSON.parse(String(data))));
@@ -34,6 +34,9 @@ async function connect(port: number, origin = UI) {
 	return { socket, next, send: (message: object) => socket.send(JSON.stringify(message)) };
 }
 
+/** A fake MCP process of an outside agent: Node sends no origin. */
+const AGENT = { origin: null, path: AGENT_PATH };
+
 const ports = [9390, 9391, 9392];
 
 /** The helper that starts at login, with a config file in a new folder, and a folder picker that gives `picked`. */
@@ -43,7 +46,7 @@ async function folderHelper(paths: string[] = [], picked: string[] = []) {
 	mkdirSync(home);
 	const config = join(root, "local.json");
 	await saveConfig(config, { folders: paths, home: false });
-	helper = await startHelper({ origins: [UI], ports, agent: false, folders: { config, home, pick: async () => picked } });
+	helper = await startHelper({ origins: [UI], ports, folders: { config, home, pick: async () => picked } });
 	return { root, home, config, helper };
 }
 
@@ -57,7 +60,7 @@ describe("local helper", () => {
 	it("accepts only FigPal's origins, and says hello with the shared folders", async () => {
 		const project = folder("project");
 		const { helper } = await folderHelper([project]);
-		await expect(connect(helper.port, "https://evil.example")).rejects.toThrow();
+		await expect(connect(helper.port, { origin: "https://evil.example" })).rejects.toThrow();
 		const ui = await connect(helper.port);
 		expect(await ui.next()).toEqual({ kind: "hello", folders: ["project"], agent: false, manage: true, home: false });
 	});
@@ -109,31 +112,10 @@ describe("local helper", () => {
 		expect(JSON.parse(readFileSync(config, "utf8")).folders).toHaveLength(1);
 	});
 
-	it("an MCP helper keeps no folders", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true });
-		const ui = await connect(helper.port);
-		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: true, manage: false, home: false });
-		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
-		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: false });
-	});
-
-	it("sends the requests of an outside agent to FigPal, and gives its answer", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true });
-		await expect(helper.request("execute", { code: "return 1" })).rejects.toThrow("FigPal is not open");
-		const ui = await connect(helper.port);
-		await ui.next();
-		ui.send({ kind: "window", file: "Cards" });
-		await expect.poll(() => helper!.request("execute", { code: "return 0" }, "Logos").catch((error: Error) => error.message)).toContain('"Cards"');
-		const answer = helper.request("execute", { code: "return 1" });
-		const request = await ui.next();
-		expect(request).toMatchObject({ kind: "request", type: "execute", params: { code: "return 1" } });
-		ui.send({ kind: "response", id: request.id, ok: true, result: { value: "1" }, attachments: [] });
-		expect(await answer).toEqual({ result: { value: "1" }, attachments: [] });
-	});
-
 	// FigPal opens once for each file: with several files, the agent must name one.
 	it("sends a request to the window of the file that the agent names", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true });
+		const { helper } = await folderHelper();
+		await expect(helper.request("execute", { code: "1" })).rejects.toThrow("FigPal is not open");
 		const [cards, icons] = [await connect(helper.port), await connect(helper.port)];
 		await cards.next();
 		await icons.next();
@@ -151,10 +133,54 @@ describe("local helper", () => {
 		expect(await icons.next()).toMatchObject({ kind: "request", params: { code: "1" } });
 	});
 
+	// One helper for all agents: each agent's MCP process connects to it, without an origin.
+	it("sends the requests of an agent's MCP process to FigPal, and gives the answer back", async () => {
+		const { helper } = await folderHelper();
+		const ui = await connect(helper.port);
+		await ui.next();
+		ui.send({ kind: "window", file: "Cards" });
+		const agent = await connect(helper.port, AGENT);
+		await ui.next(); // The hello: an agent is connected.
+		agent.send({ kind: "request", id: "a1", type: "execute", params: { code: "return 1" } });
+		const request = await ui.next();
+		expect(request).toMatchObject({ kind: "request", type: "execute", params: { code: "return 1" } });
+		ui.send({ kind: "response", id: request.id, ok: true, result: { value: "1" }, attachments: [] });
+		expect(await agent.next()).toEqual({ kind: "response", id: "a1", ok: true, result: { value: "1" }, attachments: [] });
+		agent.send({ kind: "request", id: "a2", type: "execute", params: { code: "return 1" }, file: "Logos" });
+		expect(await agent.next()).toMatchObject({ kind: "response", id: "a2", ok: false, error: expect.stringContaining('Open files: "Cards"') });
+	});
+
+	it("tells FigPal whether an agent is connected; a web page cannot connect as an agent", async () => {
+		const { helper } = await folderHelper();
+		const ui = await connect(helper.port);
+		expect(await ui.next()).toMatchObject({ kind: "hello", agent: false });
+		await expect(connect(helper.port, { path: AGENT_PATH })).rejects.toThrow("401");
+		const agent = await connect(helper.port, AGENT);
+		expect(await ui.next()).toMatchObject({ kind: "hello", agent: true });
+		agent.socket.close();
+		expect(await ui.next()).toMatchObject({ kind: "hello", agent: false });
+	});
+
+	// Two bridges can run: FigPal must not show the folders twice.
+	it("the bridge of an agent's MCP process keeps no folders, and its agent counts as connected", async () => {
+		helper = await startHelper({ origins: [UI], ports, agent: true });
+		const ui = await connect(helper.port);
+		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: true, manage: false, home: false });
+		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
+		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: false });
+	});
+
+	it("answers an agent's request that it does not know: the agent must not wait forever", async () => {
+		const { helper } = await folderHelper();
+		const agent = await connect(helper.port, AGENT);
+		agent.send({ kind: "request", id: "a1", type: "teleport", params: {} });
+		expect(await agent.next()).toMatchObject({ kind: "response", id: "a1", ok: false, error: expect.stringContaining("does not know") });
+	});
+
 	it("takes the next port when one is in use", async () => {
 		const busy = createServer().listen(ports[0], "127.0.0.1");
 		await new Promise((resolve) => busy.once("listening", resolve));
-		helper = await startHelper({ origins: [UI], ports, agent: false });
+		const { helper } = await folderHelper();
 		expect(helper.port).toBe(ports[1]);
 		busy.close();
 	});

@@ -1,6 +1,6 @@
 // The local helpers (local/cli.ts) on the user's machine: FigPal connects to them to read and write the shared folders,
 // to change the folders, and to run the requests of an outside agent (MCP) in code.js, when the user allows it. One
-// helper starts at login and keeps the folders; each outside agent starts its own helper.
+// helper, the bridge, serves all outside agents. Older installs have a helper for each agent.
 
 import {
 	type FileRequest,

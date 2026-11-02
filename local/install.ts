@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Sets up the local helper on macOS: it starts at login (a LaunchAgent); the command figpal-mcp starts an MCP helper
-// (next to node, so it is on the PATH where this node is); and Claude Code gets FigPal's MCP server.
+// Sets up FigPal on macOS: the bridge starts at login (a LaunchAgent); the command figpal (next to node, so it is on the
+// PATH where this node is), with `figpal mcp` for agents; and Claude Code gets FigPal's MCP server.
 //
 //   pnpm local:install     (again after a move of the repo or a new Node version: the paths are fixed)
 //   pnpm local:uninstall
@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const LABEL = "dev.figpal.local";
 
-/** The first line of figpal-mcp after #!: the uninstall removes only this file. */
+/** The first line of figpal after #!: the uninstall removes only this file. Older installs had figpal-mcp. */
 const MARK = "# FigPal's MCP helper (pnpm local:install).";
 
 const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -34,9 +34,9 @@ export function launchAgent(paths: { node: string; cli: string; log: string }): 
 
 const shell = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
 
-/** The figpal-mcp command: a shell script that starts the helper for an outside agent. */
-export function mcpCommand(paths: { node: string; cli: string }): string {
-	return `#!/bin/sh\n${MARK}\nexec ${shell(paths.node)} ${shell(paths.cli)} --mcp "$@"\n`;
+/** The figpal command: a shell script that runs local/cli.ts. */
+export function command(paths: { node: string; cli: string }): string {
+	return `#!/bin/sh\n${MARK}\nexec ${shell(paths.node)} ${shell(paths.cli)} "$@"\n`;
 }
 
 /** Runs a command, and gives false when it fails: for example `claude` is not installed, or nothing was loaded. */
@@ -54,11 +54,11 @@ if (import.meta.main) {
 	const plist = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 	const service = `gui/${userInfo().uid}`;
 	const cli = fileURLToPath(new URL("cli.ts", import.meta.url));
-	const command = join(dirname(process.execPath), "figpal-mcp");
+	const bin = join(dirname(process.execPath), "figpal");
 	// Stop the helper of an earlier install.
 	run("launchctl", ["bootout", `${service}/${LABEL}`]);
 	run("claude", ["mcp", "remove", "--scope", "user", "figpal"]);
-	if (existsSync(command) && readFileSync(command, "utf8").includes(MARK)) rmSync(command);
+	for (const file of [bin, join(dirname(bin), "figpal-mcp")]) if (existsSync(file) && readFileSync(file, "utf8").includes(MARK)) rmSync(file);
 	if (uninstall) {
 		rmSync(plist, { force: true });
 		console.log("FigPal's local helper is removed. Your shared folders stay in ~/.config/figpal/local.json.");
@@ -69,10 +69,10 @@ if (import.meta.main) {
 			console.error(`macOS did not start the helper. See: launchctl bootstrap ${service} ${plist}`);
 			process.exit(1);
 		}
-		writeFileSync(command, mcpCommand({ node: process.execPath, cli }), { mode: 0o755 });
+		writeFileSync(bin, command({ node: process.execPath, cli }), { mode: 0o755 });
 		// The full path: Claude Code can start it also without this node on its PATH.
-		const claude = run("claude", ["mcp", "add", "--scope", "user", "figpal", "--", command]);
+		const claude = run("claude", ["mcp", "add", "--scope", "user", "figpal", "--", bin, "mcp"]);
 		console.log("FigPal's local helper starts at login. Add folders in FigPal: Settings → Access.");
-		console.log(`${claude ? "Claude Code has FigPal's MCP server. " : ""}For another agent: <agent> mcp add figpal -- figpal-mcp`);
+		console.log(`${claude ? "Claude Code has FigPal's MCP server. " : ""}For another agent: <agent> mcp add figpal -- figpal mcp`);
 	}
 }

@@ -1,4 +1,4 @@
-// The local helpers (local/cli.ts), started as macOS starts them at login and as an outside agent starts them: FigPal
+// The local helper (local/cli.ts), started as macOS starts it at login, and the MCP command of an outside agent: FigPal
 // connects without a setting, shows and changes the shared folders, its agent reads a file in them, and the outside
 // agent runs code in the file through FigPal once the user enables MCP.
 
@@ -30,10 +30,21 @@ export default async function local(t: Context) {
 		model: (request) => (toolResults(request).length === 0 ? toolUse("t1", "local_read", { path: "notes/notes.txt" }) : text("Done: I read the notes.")),
 	});
 	// The helper that starts at login, with the config of this test.
-	const service = spawn("node", [CLI, "--config", join(root, "local.json"), "--origin", session.ui], { stdio: "ignore" });
+	const service = spawn("node", [CLI, "--config", join(root, "local.json"), "--origin", session.ui], { stdio: ["ignore", "ignore", "pipe"] });
 	const agent = new Client({ name: "e2e", version: "1" });
-	await agent.connect(new StdioClientTransport({ command: "node", args: [CLI, "--mcp", "--origin", session.ui], stderr: "ignore" }));
 	try {
+		// The agent's MCP command uses this bridge, not the user's. If the bridge stops, the agent's own bridge must
+		// not accept the user's FigPal either: --origin.
+		const port = await new Promise<string>((resolve, reject) => {
+			let log = "";
+			service.once("exit", () => reject(new Error(`The helper stopped: ${log}`)));
+			service.stderr.on("data", (data) => {
+				log += String(data);
+				const found = /port (\d+)/.exec(log);
+				if (found) resolve(found[1]!);
+			});
+		});
+		await agent.connect(new StdioClientTransport({ command: "node", args: [CLI, "mcp", "--port", port, "--origin", session.ui], stderr: "ignore" }));
 		await session.login();
 		const { frame } = session;
 		await session.ask("Read my notes", "Done: I read the notes.");
@@ -71,7 +82,9 @@ export default async function local(t: Context) {
 		const manual = JSON.parse((await setup()) ?? "");
 		t.check(
 			"the user picks the agent: its command, or the JSON",
-			claude === "claude mcp add --scope user figpal -- figpal-mcp" && codex === "codex mcp add figpal -- figpal-mcp" && manual.mcpServers.figpal.command === "figpal-mcp",
+			claude === "claude mcp add --scope user figpal -- figpal mcp" &&
+				codex === "codex mcp add figpal -- figpal mcp" &&
+				JSON.stringify(manual.mcpServers.figpal) === JSON.stringify({ command: "figpal", args: ["mcp"] }),
 			JSON.stringify([claude, codex, manual]),
 		);
 		await t.screenshot(session, "local-mcp");

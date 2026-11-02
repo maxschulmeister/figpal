@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { launchAgent, mcpCommand } from "./install.ts";
+import { command, launchAgent } from "./install.ts";
 
 describe("install", () => {
 	it("starts the helper at login, and again when it stops", () => {
@@ -12,10 +12,10 @@ describe("install", () => {
 		expect(plist).toContain("<key>StandardErrorPath</key><string>/Users/a/Library/Logs/figpal-local.log</string>");
 	});
 
-	// figpal-mcp: a short command for the agent config, next to node (on the PATH where this node is).
-	it("makes the figpal-mcp command, which starts an MCP helper", () => {
-		expect(mcpCommand({ node: "/opt/node", cli: "/Users/a b/figpal/local/cli.ts" })).toBe(
-			`#!/bin/sh\n# FigPal's MCP helper (pnpm local:install).\nexec '/opt/node' '/Users/a b/figpal/local/cli.ts' --mcp "$@"\n`,
+	// figpal: a short command, next to node (on the PATH where this node is). Agents run `figpal mcp`.
+	it("makes the figpal command", () => {
+		expect(command({ node: "/opt/node", cli: "/Users/a b/figpal/local/cli.ts" })).toBe(
+			`#!/bin/sh\n# FigPal's MCP helper (pnpm local:install).\nexec '/opt/node' '/Users/a b/figpal/local/cli.ts' "$@"\n`,
 		);
 	});
 });

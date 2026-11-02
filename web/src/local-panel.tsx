@@ -22,23 +22,23 @@ import type { LocalState } from "./local";
 import type { Settings } from "./settings";
 
 const json = (value: object) => JSON.stringify(value, null, 2);
-const MCP_SERVERS = json({ mcpServers: { figpal: { command: "figpal-mcp" } } });
+const MCP_SERVERS = json({ mcpServers: { figpal: { command: "figpal", args: ["mcp"] } } });
 
 /**
- * How each agent adds FigPal's MCP server, the figpal-mcp command of `pnpm local:install`. From their docs (2026-11);
+ * How each agent adds FigPal's MCP server, `figpal mcp`, a command of `pnpm local:install`. From their docs (2026-11);
  * the commands of OpenCode and Droid were tried. `file`: the agent has no command, the user adds the JSON there.
  */
 const AGENTS: { value: string; label: string; setup: string; file?: string }[] = [
-	{ value: "claude", label: "Claude Code", setup: "claude mcp add --scope user figpal -- figpal-mcp" },
-	{ value: "codex", label: "Codex", setup: "codex mcp add figpal -- figpal-mcp" },
-	{ value: "opencode", label: "OpenCode", setup: "opencode mcp add figpal -- figpal-mcp" },
+	{ value: "claude", label: "Claude Code", setup: "claude mcp add --scope user figpal -- figpal mcp" },
+	{ value: "codex", label: "Codex", setup: "codex mcp add figpal -- figpal mcp" },
+	{ value: "opencode", label: "OpenCode", setup: "opencode mcp add figpal -- figpal mcp" },
 	{ value: "cursor", label: "Cursor", setup: MCP_SERVERS, file: "~/.cursor/mcp.json" },
-	{ value: "devin", label: "Devin", setup: "devin mcp add --scope user figpal -- figpal-mcp" },
-	{ value: "pi", label: "pi", setup: "pi mcp add figpal -- figpal-mcp" },
-	{ value: "copilot", label: "Copilot CLI", setup: "copilot mcp add figpal -- figpal-mcp" },
-	{ value: "zed", label: "Zed", setup: json({ context_servers: { figpal: { command: "figpal-mcp", args: [] } } }), file: "the settings.json of Zed" },
-	{ value: "droid", label: "Droid", setup: "droid mcp add figpal figpal-mcp" },
-	{ value: "cline", label: "Cline", setup: "cline mcp add figpal -- figpal-mcp" },
+	{ value: "devin", label: "Devin", setup: "devin mcp add --scope user figpal -- figpal mcp" },
+	{ value: "pi", label: "pi", setup: "pi mcp add figpal -- figpal mcp" },
+	{ value: "copilot", label: "Copilot CLI", setup: "copilot mcp add figpal -- figpal mcp" },
+	{ value: "zed", label: "Zed", setup: json({ context_servers: { figpal: { command: "figpal", args: ["mcp"] } } }), file: "the settings.json of Zed" },
+	{ value: "droid", label: "Droid", setup: 'droid mcp add figpal "figpal mcp"' },
+	{ value: "cline", label: "Cline", setup: "cline mcp add figpal -- figpal mcp" },
 	{ value: "manual", label: "Manual", setup: MCP_SERVERS, file: "the MCP config of your agent" },
 ];
 
@@ -58,7 +58,7 @@ export function LocalHelperSettings(props: {
 
 	return (
 		<>
-			{/* FigPal cannot pick or keep a folder of the Mac, or start an agent's helper: the local helper does it. */}
+			{/* FigPal cannot pick or keep a folder of the Mac: the local helper does it. */}
 			<Dialog.Section>
 				<Account name="Local helper" status={status(local.manage, ["Running", "Not running"])}>
 					<Text className="text-secondary">Shares folders of this Mac with the agent, and connects agents such as Claude Code.</Text>
