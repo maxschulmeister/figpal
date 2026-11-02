@@ -26,7 +26,7 @@ export function Accounts(props: AccountsProps) {
 	);
 }
 
-function Account({ name, status, children }: { name: string; status?: string; children: ReactNode }) {
+export function Account({ name, status, children }: { name: string; status?: string; children: ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
 			<div className="flex items-baseline justify-between">

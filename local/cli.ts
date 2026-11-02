@@ -4,14 +4,13 @@
 //   node local/cli.ts         shares the folders of ~/.config/figpal/local.json with FigPal's agent. The user adds
 //                             them in FigPal (Settings → Access). `pnpm local:install` starts it at login.
 //   node local/cli.ts --mcp   an MCP server on stdin and stdout: an outside agent acts on the open Figma file through
-//                             FigPal, for example `claude mcp add figpal -- node /path/to/figpal/local/cli.ts --mcp`.
+//                             FigPal. The install makes the command figpal-mcp for it: `<agent> mcp add figpal -- figpal-mcp`.
 //   --config <path>           another config file (tests)
 //   --origin <url>            accept one more UI origin (development, tests)
 
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { LOCAL_ORIGINS, LOCAL_PORTS } from "@figpal/shared/local";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -42,14 +41,10 @@ const pick = () =>
 		}),
 	);
 
-/** A shell word: the user pastes the command in a terminal. */
-const word = (text: string) => (/^[\w@%+=:,./-]+$/.test(text) ? text : `'${text.replaceAll("'", `'\\''`)}'`);
-
 const helper = await startHelper({
 	origins: [...LOCAL_ORIGINS, ...values.origin],
 	ports: LOCAL_PORTS,
 	agent: values.mcp,
-	command: [process.execPath, fileURLToPath(import.meta.url), "--mcp"].map(word).join(" "),
 	...(!values.mcp && { folders: { config: values.config, home: homedir(), pick } }),
 });
 // stdout is for MCP: notes go to stderr.

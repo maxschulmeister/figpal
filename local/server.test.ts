@@ -8,7 +8,6 @@ import { saveConfig } from "./files.ts";
 import { type Helper, startHelper } from "./server.ts";
 
 const UI = "https://figpal.example";
-const COMMAND = "node cli.ts --mcp";
 let helper: Helper | undefined;
 const sockets: WebSocket[] = [];
 
@@ -44,7 +43,7 @@ async function folderHelper(paths: string[] = [], picked: string[] = []) {
 	mkdirSync(home);
 	const config = join(root, "local.json");
 	await saveConfig(config, { folders: paths, home: false });
-	helper = await startHelper({ origins: [UI], ports, agent: false, command: COMMAND, folders: { config, home, pick: async () => picked } });
+	helper = await startHelper({ origins: [UI], ports, agent: false, folders: { config, home, pick: async () => picked } });
 	return { root, home, config, helper };
 }
 
@@ -60,7 +59,7 @@ describe("local helper", () => {
 		const { helper } = await folderHelper([project]);
 		await expect(connect(helper.port, "https://evil.example")).rejects.toThrow();
 		const ui = await connect(helper.port);
-		expect(await ui.next()).toEqual({ kind: "hello", folders: ["project"], agent: false, manage: true, home: false, command: COMMAND });
+		expect(await ui.next()).toEqual({ kind: "hello", folders: ["project"], agent: false, manage: true, home: false });
 	});
 
 	it("answers file requests", async () => {
@@ -111,18 +110,20 @@ describe("local helper", () => {
 	});
 
 	it("an MCP helper keeps no folders", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true, command: COMMAND });
+		helper = await startHelper({ origins: [UI], ports, agent: true });
 		const ui = await connect(helper.port);
-		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: true, manage: false, home: false, command: COMMAND });
+		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: true, manage: false, home: false });
 		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
 		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: false });
 	});
 
 	it("sends the requests of an outside agent to FigPal, and gives its answer", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true, command: COMMAND });
+		helper = await startHelper({ origins: [UI], ports, agent: true });
 		await expect(helper.request("execute", { code: "return 1" })).rejects.toThrow("FigPal is not open");
 		const ui = await connect(helper.port);
 		await ui.next();
+		ui.send({ kind: "window", file: "Cards" });
+		await expect.poll(() => helper!.request("execute", { code: "return 0" }, "Logos").catch((error: Error) => error.message)).toContain('"Cards"');
 		const answer = helper.request("execute", { code: "return 1" });
 		const request = await ui.next();
 		expect(request).toMatchObject({ kind: "request", type: "execute", params: { code: "return 1" } });
@@ -132,7 +133,7 @@ describe("local helper", () => {
 
 	// FigPal opens once for each file: with several files, the agent must name one.
 	it("sends a request to the window of the file that the agent names", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true, command: COMMAND });
+		helper = await startHelper({ origins: [UI], ports, agent: true });
 		const [cards, icons] = [await connect(helper.port), await connect(helper.port)];
 		await cards.next();
 		await icons.next();
@@ -142,6 +143,10 @@ describe("local helper", () => {
 			'FigPal is open in several files: "Cards", "Icons". Give the file.',
 		);
 		await expect(helper.request("execute", { code: "1" }, "Logos")).rejects.toThrow('FigPal is not open in "Logos". Open files: "Cards", "Icons".');
+		// A window that connects counts once it names its file: until then, the agent's request goes to the others.
+		const opening = await connect(helper.port);
+		await opening.next();
+		await expect(helper.request("execute", { code: "1" }, "Logos")).rejects.toThrow('Open files: "Cards", "Icons".');
 		helper.request("execute", { code: "1" }, "Icons").catch(() => {});
 		expect(await icons.next()).toMatchObject({ kind: "request", params: { code: "1" } });
 	});
@@ -149,7 +154,7 @@ describe("local helper", () => {
 	it("takes the next port when one is in use", async () => {
 		const busy = createServer().listen(ports[0], "127.0.0.1");
 		await new Promise((resolve) => busy.once("listening", resolve));
-		helper = await startHelper({ origins: [UI], ports, agent: false, command: COMMAND });
+		helper = await startHelper({ origins: [UI], ports, agent: false });
 		expect(helper.port).toBe(ports[1]);
 		busy.close();
 	});

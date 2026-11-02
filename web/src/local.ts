@@ -16,9 +16,9 @@ import { toBase64 } from "./extensions/figma";
 
 /**
  * The shared folders; whether an outside agent is connected; whether the helper that keeps the folders is connected,
- * and whether it shares the home folder; the command that starts an MCP helper.
+ * and whether it shares the home folder.
  */
-export type LocalState = { folders: string[]; agent: boolean; manage: boolean; home: boolean; command: string | undefined };
+export type LocalState = { folders: string[]; agent: boolean; manage: boolean; home: boolean };
 export type LocalFiles = (request: FileRequest) => Promise<unknown>;
 
 /** How often FigPal looks for helpers, and when its window gets the focus. A failed try writes an error in the console. */
@@ -52,7 +52,6 @@ export function connectLocal(options: {
 			agent: list.some((helper) => helper.agent),
 			manage: keeper() !== undefined,
 			home: keeper()?.home ?? false,
-			command: list[0]?.command,
 		});
 	};
 	const send = (socket: WebSocket, message: UiToHelper) => socket.send(JSON.stringify(message));
@@ -68,7 +67,7 @@ export function connectLocal(options: {
 	/** A request of an outside agent: code.js runs it, as for FigPal's own agent. */
 	const run = async (socket: WebSocket, message: Extract<HelperToUi, { kind: "request" }>) => {
 		if (!options.allowAgents()) {
-			send(socket, { kind: "response", id: message.id, ok: false, error: "MCP is off in FigPal. The user can turn it on: Settings → Access → Enable MCP." });
+			send(socket, { kind: "response", id: message.id, ok: false, error: "MCP is off in FigPal. The user can turn it on: Settings → Access → MCP." });
 			return;
 		}
 		try {

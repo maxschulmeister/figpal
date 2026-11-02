@@ -29,7 +29,7 @@ export default async function local(t: Context) {
 	await agent.connect(new StdioClientTransport({ command: "node", args: [CLI, "--mcp", "--origin", session.ui], stderr: "ignore" }));
 	try {
 		await session.login();
-		const { frame, page } = session;
+		const { frame } = session;
 		await session.ask("Read my notes", "Done: I read the notes.");
 		const read = resultText(toolResults(session.model.at(-1)!)[0]!);
 		t.check("FigPal connects without a setting, and its agent reads a file of a shared folder", read === "Hello from disk", read);
@@ -37,7 +37,7 @@ export default async function local(t: Context) {
 		await frame.getByLabel("Settings").click();
 		await frame.getByRole("tab", { name: "Access" }).click();
 		await frame.getByRole("button", { name: "Remove notes" }).waitFor();
-		t.check("the Access tab shows the shared folders", true);
+		t.check("the Access tab shows the shared folders, without the install note", (await frame.getByText("pnpm local:install", { exact: true }).count()) === 0);
 		await frame.getByRole("switch", { name: "Share the home folder", exact: true }).click();
 		await frame.getByRole("button", { name: `Remove ${basename(process.env.HOME!)}` }).waitFor();
 		await t.screenshot(session, "local-access");
@@ -49,14 +49,11 @@ export default async function local(t: Context) {
 
 		const off = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
 		t.check("an outside agent is refused until the user enables MCP", off.isError === true && JSON.stringify(off.content).includes("MCP is off in FigPal"), JSON.stringify(off));
-		await frame.getByRole("switch", { name: "Enable MCP", exact: true }).click();
+		await frame.locator("section", { hasText: "Let agents on this Mac" }).getByText("Connected", { exact: true }).waitFor();
+		t.check("MCP says that an agent is connected", true);
+		await frame.getByRole("switch", { name: "Enable", exact: true }).click();
 		const on = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
 		t.check("then its code runs in code.js", JSON.stringify(on.content) === JSON.stringify([{ type: "text", text: '"ran return 1"' }]), JSON.stringify(on));
-		const command = await frame.locator("code", { hasText: "claude mcp add figpal -- " }).textContent();
-		t.check("the MCP command has the paths of this copy of FigPal", command?.includes(`${CLI} --mcp`) === true, command ?? "");
-		await frame.getByRole("button", { name: "Copy" }).click();
-		await frame.getByRole("button", { name: "Copied" }).waitFor();
-		await page.waitForTimeout(100);
 	} finally {
 		await agent.close();
 		service.kill();

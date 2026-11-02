@@ -26,8 +26,8 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-const HELLO = { kind: "hello", folders: [], agent: false, manage: false, home: false, command: "node cli.ts --mcp" };
-const NONE: LocalState = { folders: [], agent: false, manage: false, home: false, command: undefined };
+const HELLO = { kind: "hello", folders: [], agent: false, manage: false, home: false };
+const NONE: LocalState = { folders: [], agent: false, manage: false, home: false };
 
 function start(allowAgents = false) {
 	const sockets: FakeSocket[] = [];
@@ -64,7 +64,7 @@ describe("local helper connection", () => {
 		expect(sockets.map((socket) => socket.url)).toEqual(["ws://127.0.0.1:9300", "ws://127.0.0.1:9301"]);
 		sockets[0]!.receive({ ...HELLO, folders: ["project"], manage: true });
 		expect(sockets[0]!.sent).toEqual([{ kind: "window", file: "Cards" }]);
-		expect(states.at(-1)).toEqual({ folders: ["project"], agent: false, manage: true, home: false, command: "node cli.ts --mcp" });
+		expect(states.at(-1)).toEqual({ folders: ["project"], agent: false, manage: true, home: false });
 		sockets[0]!.close();
 		expect(states.at(-1)).toEqual(NONE);
 	});

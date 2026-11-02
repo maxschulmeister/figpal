@@ -28,9 +28,9 @@ export type HelperToUi =
 	/**
 	 * After the connection and after each change of the folders: the names of the shared folders; whether an outside
 	 * agent uses this helper; whether it keeps the folders (the helper that starts at login); whether the home folder is
-	 * shared; and the command that starts an MCP helper of this copy of FigPal.
+	 * shared.
 	 */
-	| { kind: "hello"; folders: string[]; agent: boolean; manage: boolean; home: boolean; command: string }
+	| { kind: "hello"; folders: string[]; agent: boolean; manage: boolean; home: boolean }
 	/** A request of an outside agent. */
 	| { kind: "request"; id: string; type: AgentRequest; params: Record<string, unknown> }
 	/** The answer to a file request. */
@@ -57,8 +57,7 @@ export function isHelperToUi(value: unknown): value is HelperToUi {
 			value.folders.every((name) => typeof name === "string") &&
 			typeof value.agent === "boolean" &&
 			typeof value.manage === "boolean" &&
-			typeof value.home === "boolean" &&
-			typeof value.command === "string"
+			typeof value.home === "boolean"
 		);
 	if (value.kind === "request")
 		return typeof value.id === "string" && AGENT_REQUESTS.includes(value.type as AgentRequest) && isRecord(value.params);

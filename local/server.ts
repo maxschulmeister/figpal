@@ -42,8 +42,6 @@ export async function startHelper(options: {
 	ports: readonly number[];
 	/** An outside agent uses this helper (MCP). */
 	agent: boolean;
-	/** The command that starts an MCP helper: FigPal shows it. */
-	command: string;
 	/** Only the helper that starts at login keeps folders. */
 	folders?: FolderOptions;
 }): Promise<Helper> {
@@ -64,7 +62,6 @@ export async function startHelper(options: {
 			agent: options.agent,
 			manage: store !== undefined,
 			home: config.home,
-			command: options.command,
 		});
 
 	/** The config after a change. "add" opens the folder picker. */
@@ -134,8 +131,9 @@ export async function startHelper(options: {
 	return {
 		port,
 		request(type, params, file) {
-			const open = [...windows];
-			const names = open.map(([, name]) => `"${name ?? "?"}"`).join(", ");
+			// A window counts once it names its file: it does so at once after the hello.
+			const open = [...windows].filter((entry): entry is [WebSocket, string] => entry[1] !== undefined);
+			const names = open.map(([, name]) => `"${name}"`).join(", ");
 			const matches = file === undefined ? open : open.filter(([, name]) => name === file);
 			if (open.length === 0) return Promise.reject(new Error("FigPal is not open. Run the FigPal plugin in Figma Desktop."));
 			if (matches.length === 0) return Promise.reject(new Error(`FigPal is not open in "${file}". Open files: ${names}.`));

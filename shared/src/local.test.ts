@@ -3,10 +3,10 @@ import { isHelperToUi, isUiToHelper } from "./local";
 
 describe("local helper messages", () => {
 	it("accepts the messages of the helper, and only requests that outside agents may send", () => {
-		const hello = { kind: "hello", folders: ["project"], agent: true, manage: true, home: false, command: "node cli.ts --mcp" };
+		const hello = { kind: "hello", folders: ["project"], agent: true, manage: true, home: false };
 		expect(isHelperToUi(hello)).toBe(true);
 		expect(isHelperToUi({ ...hello, manage: "yes" })).toBe(false);
-		expect(isHelperToUi({ ...hello, command: undefined })).toBe(false);
+		expect(isHelperToUi({ ...hello, home: undefined })).toBe(false);
 		expect(isHelperToUi({ kind: "request", id: "1", type: "execute", params: { code: "return 1" } })).toBe(true);
 		expect(isHelperToUi({ kind: "response", id: "1", ok: true, result: [] })).toBe(true);
 		expect(isHelperToUi({ kind: "request", id: "1", type: "storage-set", params: {} })).toBe(false);
