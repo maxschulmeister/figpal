@@ -381,14 +381,12 @@ export function App({ bridge }: { bridge: Bridge }) {
 								<Dialog.Section>
 									<TokenAccount kind={FIGMA} connected={connected} credentials={credentials} onChange={refreshConnected} />
 								</Dialog.Section>
-								<Dialog.Section>
-									<LocalHelperSettings
-										settings={settings}
-										local={local}
-										onChange={updateSettings}
-										onChangeFolders={(change) => localLink.connection?.changeFolders(change) ?? Promise.resolve()}
-									/>
-								</Dialog.Section>
+								<LocalHelperSettings
+									settings={settings}
+									local={local}
+									onChange={updateSettings}
+									onChangeFolders={(change) => localLink.connection?.changeFolders(change) ?? Promise.resolve()}
+								/>
 							</Tabs.Panel>
 						</Tabs.Root>
 					</Dialog.Popup>

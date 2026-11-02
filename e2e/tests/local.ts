@@ -38,12 +38,12 @@ export default async function local(t: Context) {
 		await frame.getByRole("tab", { name: "Access" }).click();
 		await frame.getByRole("button", { name: "Remove notes" }).waitFor();
 		t.check("the Access tab shows the shared folders, without the install note", (await frame.getByText("pnpm local:install", { exact: true }).count()) === 0);
-		await frame.getByRole("switch", { name: "Share the home folder", exact: true }).click();
+		await frame.getByRole("switch", { name: "Share Home", exact: true }).click();
 		await frame.getByRole("button", { name: `Remove ${basename(process.env.HOME!)}` }).waitFor();
 		await t.screenshot(session, "local-access");
 		await frame.getByRole("button", { name: `Remove ${basename(process.env.HOME!)}` }).click();
 		await frame.getByRole("button", { name: "Remove notes" }).click();
-		await frame.getByText("No shared folders.", { exact: false }).waitFor();
+		await frame.getByRole("button", { name: "Remove notes" }).waitFor({ state: "detached" });
 		const config = JSON.parse(readFileSync(join(root, "local.json"), "utf8"));
 		t.check("the home folder and Remove change the config of the helper", JSON.stringify(config) === JSON.stringify({ folders: [], home: false }), JSON.stringify(config));
 
@@ -54,6 +54,9 @@ export default async function local(t: Context) {
 		await frame.getByRole("switch", { name: "Enable", exact: true }).click();
 		const on = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
 		t.check("then its code runs in code.js", JSON.stringify(on.content) === JSON.stringify([{ type: "text", text: '"ran return 1"' }]), JSON.stringify(on));
+		await frame.getByRole("button", { name: "Copy" }).click();
+		await frame.getByRole("button", { name: "Copied" }).waitFor();
+		t.check("the MCP command has a Copy button", true);
 	} finally {
 		await agent.close();
 		service.kill();
