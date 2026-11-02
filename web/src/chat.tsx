@@ -12,6 +12,7 @@ import {
 	MessagePrimitive,
 	type ReasoningMessagePartComponent,
 	QueueItemPrimitive,
+	SelectionToolbarPrimitive,
 	ThreadPrimitive,
 	type ThreadMessageLike,
 	type ToolCallMessagePartComponent,
@@ -43,7 +44,7 @@ import {
 } from "figma-kit";
 import { type ComponentProps, createContext, Fragment, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { COMMAND_PRIORITY_HIGH, PASTE_COMMAND } from "lexical";
+import { $getRoot, $getSelection, $isRangeSelection, COMMAND_PRIORITY_HIGH, type LexicalEditor, PASTE_COMMAND } from "lexical";
 import { ACCEPT, attachable, attachmentAdapter, isLongText } from "./attachments";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
@@ -157,6 +158,8 @@ export function Chat(props: ChatProps) {
 	const [failure, setFailure] = useState<string>();
 	const thread = useThread(conversation, setFailure);
 	const [sendError, setSendError] = useState<string>();
+	/** The editor of the composer, for Reply: it is outside the composer. */
+	const editor = useRef<LexicalEditor>(undefined);
 	// Images need a model that reads them: the adapter asks at each image.
 	const readsImages = useRef(true);
 	const model = thread?.agent?.model;
@@ -231,6 +234,7 @@ export function Chat(props: ChatProps) {
 		<ChatActions.Provider value={actions}>
 			<AssistantRuntimeProvider runtime={runtime}>
 				<ThreadPrimitive.Root className="flex h-full flex-col" data-text-size={props.textSize}>
+					<ReplyToolbar editor={editor} />
 					{/* relative: the scroll area clips the absolute screen-reader texts of its chips; else the page grows. */}
 					<ThreadPrimitive.Viewport className="relative flex flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4">
 						<AuiIf condition={(state) => state.thread.isEmpty}>
@@ -250,6 +254,7 @@ export function Chat(props: ChatProps) {
 								>
 									<SelectionChips bridge={props.bridge} initial={file} />
 									<PasteFiles />
+									<KeepEditor editor={editor} />
 								</LexicalComposerInput>
 								{/* While the agent works: Send for a typed message (it steers), and Stop. */}
 								<AuiIf condition={(state) => !state.thread.isRunning || !state.composer.isEmpty}>
@@ -387,6 +392,48 @@ function PasteFiles() {
 		[editor, addFiles],
 	);
 	return null;
+}
+
+/** Keeps the editor of the composer in `editor`. */
+function KeepEditor({ editor }: { editor: { current?: LexicalEditor } }) {
+	const [current] = useLexicalComposerContext();
+	useEffect(() => {
+		editor.current = current;
+	}, [editor, current]);
+	return null;
+}
+
+/**
+ * Reply (user request, like Cite in T3 Code): selected text of a message goes into the composer at the cursor, as a
+ * Markdown quote. assistant-ui's toolbar shows the button at the selection and keeps the selection on a click; its own
+ * Quote button puts one quote above the composer.
+ */
+function ReplyToolbar({ editor }: { editor: { current?: LexicalEditor } }) {
+	const reply = () => {
+		const text = getSelection()?.toString().trim();
+		const current = editor.current;
+		if (!text || !current) return;
+		getSelection()?.removeAllRanges();
+		current.update(() => {
+			const cursor = $getSelection();
+			const selection = $isRangeSelection(cursor) ? cursor : $getRoot().selectEnd();
+			// A quote starts a line, and the reply starts after it.
+			const newLine = selection.anchor.offset > 0 ? "\n" : "";
+			const quote = text
+				.split("\n")
+				.map((line) => `> ${line}`)
+				.join("\n");
+			selection.insertRawText(`${newLine}${quote}\n\n`);
+		});
+		current.focus();
+	};
+	return (
+		<SelectionToolbarPrimitive.Root className="z-50 rounded-md border border-default bg-default p-0.5 shadow-md">
+			<Button variant="text" onClick={reply}>
+				Reply
+			</Button>
+		</SelectionToolbarPrimitive.Root>
+	);
 }
 
 /** The attachments in the composer, with Remove. */
