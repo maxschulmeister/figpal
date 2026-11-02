@@ -1,7 +1,7 @@
 // Runs Plugin API JavaScript from the model. Pure logic, so tests can run it without Figma.
 
 import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, type NodeSummary, type Result } from "@figpal/shared";
-import { analyzeComponentSet, auditComponentAccessibility, lintDesign } from "./vendor/figma-console-mcp/checks.js";
+import { analyzeComponentSet, auditComponentAccessibility, lintDesign } from "./vendor/figma-console-mcp/checks";
 
 /** A node or its ID. */
 type NodeRef = string | { id: string };

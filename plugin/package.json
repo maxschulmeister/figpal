@@ -3,9 +3,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "node build.mjs",
-		"dev": "node build.mjs --watch",
-		"typecheck": "tsc -p ."
+		"build": "node build.ts",
+		"dev": "node build.ts --watch",
+		"typecheck": "tsc -p . && tsc -p tsconfig.build.json"
 	},
 	"dependencies": {
 		"@figpal/shared": "workspace:*",
@@ -13,6 +13,7 @@
 	},
 	"devDependencies": {
 		"@figma/plugin-typings": "^1.142.0",
+		"@types/node": "26.6.6",
 		"esbuild": "^0.28.2"
 	}
 }

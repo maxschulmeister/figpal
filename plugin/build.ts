@@ -1,4 +1,5 @@
-// Builds src/code.ts to dist/code.js.
+// Builds src/code.ts to dist/code.js. Node runs this TypeScript file directly; tsconfig.build.json checks it (Node types,
+// which the Figma sandbox of src/ must not have).
 import * as esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");

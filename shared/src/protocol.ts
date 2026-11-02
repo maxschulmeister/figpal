@@ -75,7 +75,7 @@ export type Components = {
 	styles: { name: string; type: string }[];
 };
 
-/** The findings of the lint (checks.js of figma-console-mcp), by rule. Each finding has the layer and details. */
+/** The findings of the lint (the checks of figma-console-mcp), by rule. Each finding has the layer and details. */
 export type LintResult = {
 	rootNodeId: string;
 	rootNodeName: string;

@@ -1,3 +1,4 @@
+// @ts-nocheck: copied code; FigPal's TypeScript settings are stricter. The exported functions have their types.
 // Copied from figma-console-mcp (MIT, see LICENSE in this folder): figma-desktop-bridge/code.js at commit 5ef4df3
 // (https://github.com/southleft/figma-console-mcp). It has the handlers ANALYZE_COMPONENT_SET, LINT_DESIGN and
 // AUDIT_COMPONENT_ACCESSIBILITY, and the helper extractSlots that the first one uses.
@@ -33,6 +34,7 @@
 //   the size and weight of the text. It is in the group "wcag", so it runs with wcag-contrast by default.
 // - LINT_DESIGN: the option timeLimitMs stops the walk, with a warning that says how far it got.
 
+import type { LintResult } from "@figpal/shared";
 import { APCAcontrast, fontLookupAPCA, sRGBtoY } from "apca-w3";
 
 // FigPal: the color of c at opacity a over the color under it. A paint without opacity is opaque.
@@ -140,7 +142,8 @@ function extractSlots(node) {
   });
 }
 
-export async function analyzeComponentSet(msg) {
+/** Variant axes, states, CSS mapping and the changes of each variant. Needs a component set. The result is JSON. */
+export async function analyzeComponentSet(msg: { nodeId: string }): Promise<unknown> {
 
       var node = await figma.getNodeByIdAsync(msg.nodeId);
       if (!node) throw new Error('Node not found: ' + msg.nodeId);
@@ -699,7 +702,15 @@ export async function analyzeComponentSet(msg) {
       return result;
 }
 
-export async function lintDesign(msg) {
+/** Accessibility and design-system findings by rule. Without nodeId: the current page. */
+export async function lintDesign(msg: {
+  nodeId?: string;
+  rules?: string[];
+  maxDepth?: number;
+  maxFindings?: number;
+  /** FigPal: stop the walk after this time, with a warning. */
+  timeLimitMs?: number;
+}): Promise<LintResult> {
 
       // ---- Helper functions ----
 
@@ -1924,7 +1935,8 @@ export async function lintDesign(msg) {
       return responseData;
 }
 
-export async function auditComponentAccessibility(msg) {
+/** An accessibility score of a component set. Without nodeId: the single selected node. The result is JSON. */
+export async function auditComponentAccessibility(msg: { nodeId?: string; targetSize?: number }): Promise<unknown> {
 
       // ---- Color science helpers (shared with lint) ----
       function auditLinearize(c) {

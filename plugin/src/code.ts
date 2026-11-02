@@ -21,7 +21,7 @@ import {
 	type UiToPlugin,
 } from "@figpal/shared";
 import { ExecuteTimeout, execute } from "./execute";
-import { lintDesign } from "./vendor/figma-console-mcp/checks.js";
+import { lintDesign } from "./vendor/figma-console-mcp/checks";
 
 const UI_OPTIONS: ShowUIOptions = { themeColors: true };
 const DEFAULT_WIDTH = 420;

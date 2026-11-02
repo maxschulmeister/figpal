@@ -1,4 +1,4 @@
-// Lint: the checks of figma-console-mcp (plugin/src/vendor/figma-console-mcp/checks.js) on the layers of the open file,
+// Lint: the checks of figma-console-mcp (plugin/src/vendor/figma-console-mcp/checks.ts) on the layers of the open file,
 // with APCA, the contrast method of the WCAG 3 drafts. The chat shows a pill for each rule: a click selects its layers.
 
 import { type Static, Type } from "@earendil-works/pi-ai";
