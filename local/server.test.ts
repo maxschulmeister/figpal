@@ -140,7 +140,6 @@ describe("local helper", () => {
 		await ui.next();
 		ui.send({ kind: "window", file: "Cards" });
 		const agent = await connect(helper.port, AGENT);
-		await ui.next(); // The hello: an agent is connected.
 		agent.send({ kind: "request", id: "a1", type: "execute", params: { code: "return 1" } });
 		const request = await ui.next();
 		expect(request).toMatchObject({ kind: "request", type: "execute", params: { code: "return 1" } });
@@ -150,22 +149,16 @@ describe("local helper", () => {
 		expect(await agent.next()).toMatchObject({ kind: "response", id: "a2", ok: false, error: expect.stringContaining('Open files: "Cards"') });
 	});
 
-	it("tells FigPal whether an agent is connected; a web page cannot connect as an agent", async () => {
+	it("a web page cannot connect as an agent", async () => {
 		const { helper } = await folderHelper();
-		const ui = await connect(helper.port);
-		expect(await ui.next()).toMatchObject({ kind: "hello", agent: false });
 		await expect(connect(helper.port, { path: AGENT_PATH })).rejects.toThrow("401");
-		const agent = await connect(helper.port, AGENT);
-		expect(await ui.next()).toMatchObject({ kind: "hello", agent: true });
-		agent.socket.close();
-		expect(await ui.next()).toMatchObject({ kind: "hello", agent: false });
 	});
 
 	// Two bridges can run: FigPal must not show the folders twice.
-	it("the bridge of an agent's MCP process keeps no folders, and its agent counts as connected", async () => {
-		helper = await startHelper({ origins: [UI], ports, agent: true });
+	it("the bridge of an agent's MCP process keeps no folders", async () => {
+		helper = await startHelper({ origins: [UI], ports });
 		const ui = await connect(helper.port);
-		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: true, manage: false, home: false });
+		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: false, manage: false, home: false });
 		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
 		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: false });
 	});

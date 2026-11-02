@@ -67,8 +67,8 @@ export default async function local(t: Context) {
 		const off = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
 		t.check("an outside agent is refused until the user enables MCP", off.isError === true && JSON.stringify(off.content).includes("MCP is off in FigPal"), JSON.stringify(off));
 		const mcp = frame.locator("section", { has: frame.getByRole("switch", { name: "Enable", exact: true }) });
-		await mcp.getByText("Connected", { exact: true }).waitFor();
-		t.check("MCP says that an agent is connected", true);
+		// The switch is the state: a status next to it said "Connected" also when MCP was off.
+		t.check("MCP has no status next to its switch", (await mcp.getByText(/connected/i).count()) === 0);
 		await frame.getByRole("switch", { name: "Enable", exact: true }).click();
 		const on = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
 		t.check("then its code runs in code.js", JSON.stringify(on.content) === JSON.stringify([{ type: "text", text: '"ran return 1"' }]), JSON.stringify(on));

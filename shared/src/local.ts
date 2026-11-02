@@ -26,11 +26,10 @@ export type FolderChange = { op: "add" } | { op: "remove"; name: string } | { op
 
 export type HelperToUi =
 	/**
-	 * After the connection, after each change of the folders, and when an agent connects or disconnects: the names of
-	 * the shared folders; whether an outside agent is connected through this helper; whether it keeps the folders (the
-	 * bridge of `figpal`, not of `figpal mcp`); whether the home folder is shared.
+	 * After the connection and after each change of the folders: the names of the shared folders; whether it keeps the
+	 * folders (the bridge of `figpal`, not of `figpal mcp`); whether the home folder is shared.
 	 */
-	| { kind: "hello"; folders: string[]; agent: boolean; manage: boolean; home: boolean }
+	| { kind: "hello"; folders: string[]; manage: boolean; home: boolean }
 	/** A request of an outside agent. */
 	| { kind: "request"; id: string; type: AgentRequest; params: Record<string, unknown> }
 	/** The answer to a file request. */
@@ -55,7 +54,6 @@ export function isHelperToUi(value: unknown): value is HelperToUi {
 		return (
 			Array.isArray(value.folders) &&
 			value.folders.every((name) => typeof name === "string") &&
-			typeof value.agent === "boolean" &&
 			typeof value.manage === "boolean" &&
 			typeof value.home === "boolean"
 		);

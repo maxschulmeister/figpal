@@ -14,11 +14,8 @@ import {
 import type { Bridge } from "./bridge";
 import { toBase64 } from "./extensions/figma";
 
-/**
- * The shared folders; whether an outside agent is connected; whether the helper that keeps the folders is connected,
- * and whether it shares the home folder.
- */
-export type LocalState = { folders: string[]; agent: boolean; manage: boolean; home: boolean };
+/** The shared folders; whether the helper that keeps the folders is connected, and whether it shares the home folder. */
+export type LocalState = { folders: string[]; manage: boolean; home: boolean };
 export type LocalFiles = (request: FileRequest) => Promise<unknown>;
 
 /** How often FigPal looks for helpers, and when its window gets the focus. A failed try writes an error in the console. */
@@ -49,7 +46,6 @@ export function connectLocal(options: {
 		const list = [...helpers.values()];
 		options.onChange({
 			folders: list.flatMap((helper) => helper.folders),
-			agent: list.some((helper) => helper.agent),
 			manage: keeper() !== undefined,
 			home: keeper()?.home ?? false,
 		});
@@ -95,8 +91,8 @@ export function connectLocal(options: {
 				trying.delete(port);
 				// The first hello: the helper learns the file. A later one has new folders.
 				if (helpers.get(port)?.socket !== socket) send(socket, { kind: "window", file: options.file });
-				const { kind: _, ...hello } = message;
-				helpers.set(port, { ...hello, socket });
+				const { folders, manage, home } = message;
+				helpers.set(port, { folders, manage, home, socket });
 				changed();
 			} else if (message.kind === "request") void run(socket, message);
 			else {

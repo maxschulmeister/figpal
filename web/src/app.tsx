@@ -64,7 +64,7 @@ function newThreadAgent({ model, thinkingLevel }: Settings, connected: ReadonlyS
 
 /** Errors of actions after the start: the chat stays open. */
 const report = (error: unknown) => console.error("FigPal:", error);
-const NO_LOCAL: LocalState = { folders: [], agent: false, manage: false, home: false };
+const NO_LOCAL: LocalState = { folders: [], manage: false, home: false };
 
 export function App({ bridge }: { bridge: Bridge }) {
 	const [phase, setPhase] = useState<Phase>({ kind: "starting" });

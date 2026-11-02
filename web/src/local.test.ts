@@ -26,8 +26,8 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-const HELLO = { kind: "hello", folders: [], agent: false, manage: false, home: false };
-const NONE: LocalState = { folders: [], agent: false, manage: false, home: false };
+const HELLO = { kind: "hello", folders: [], manage: false, home: false };
+const NONE: LocalState = { folders: [], manage: false, home: false };
 
 function start(allowAgents = false) {
 	const sockets: FakeSocket[] = [];
@@ -64,7 +64,7 @@ describe("local helper connection", () => {
 		expect(sockets.map((socket) => socket.url)).toEqual(["ws://127.0.0.1:9300", "ws://127.0.0.1:9301"]);
 		sockets[0]!.receive({ ...HELLO, folders: ["project"], manage: true });
 		expect(sockets[0]!.sent).toEqual([{ kind: "window", file: "Cards" }]);
-		expect(states.at(-1)).toEqual({ folders: ["project"], agent: false, manage: true, home: false });
+		expect(states.at(-1)).toEqual({ folders: ["project"], manage: true, home: false });
 		sockets[0]!.close();
 		expect(states.at(-1)).toEqual(NONE);
 	});
@@ -92,7 +92,7 @@ describe("local helper connection", () => {
 	it("sends a change of the folders to the helper that keeps them", async () => {
 		const { local, sockets } = start();
 		await expect(local.changeFolders({ op: "add" })).rejects.toThrow("pnpm local:install");
-		sockets[0]!.receive({ ...HELLO, agent: true });
+		sockets[0]!.receive(HELLO);
 		sockets[1]!.receive({ ...HELLO, manage: true });
 		const adding = local.changeFolders({ op: "add" });
 		const request = sockets[1]!.sent.at(-1)!;
@@ -107,7 +107,7 @@ describe("local helper connection", () => {
 	// An outside agent can run code in the file: only when the user allows it.
 	it("refuses the requests of an outside agent unless the user allows them", async () => {
 		const { sockets, bridge } = start(false);
-		sockets[0]!.receive({ ...HELLO, agent: true });
+		sockets[0]!.receive(HELLO);
 		sockets[0]!.receive({ kind: "request", id: "7", type: "execute", params: { code: "return 1" } });
 		await flush();
 		expect(bridge.request).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe("local helper connection", () => {
 
 	it("runs the allowed requests of an outside agent in code.js", async () => {
 		const { sockets, bridge } = start(true);
-		sockets[0]!.receive({ ...HELLO, agent: true });
+		sockets[0]!.receive(HELLO);
 		sockets[0]!.receive({ kind: "request", id: "7", type: "execute", params: { code: "return 1" } });
 		await flush();
 		expect(bridge.request).toHaveBeenCalledWith("execute", { code: "return 1" });

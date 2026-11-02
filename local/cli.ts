@@ -55,7 +55,7 @@ const origins = values.origin.length ? values.origin : LOCAL_ORIGINS;
 
 if (positionals[0] === "mcp") {
 	// This bridge keeps no folders: only the bridge of `figpal` keeps them.
-	const helper = joinBridge(ports, (port) => startHelper({ origins, ports: [port], agent: true }));
+	const helper = joinBridge(ports, (port) => startHelper({ origins, ports: [port] }));
 	const transport = new StdioServerTransport();
 	const exit = () => process.exit(0);
 	transport.onclose = exit;

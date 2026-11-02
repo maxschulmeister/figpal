@@ -67,8 +67,6 @@ export async function startHelper(options: {
 	ports: readonly number[];
 	/** Only the bridge of `figpal` keeps folders: two bridges can run, and FigPal must not show the folders twice. */
 	folders?: FolderOptions;
-	/** The bridge of an agent's MCP process (`figpal mcp`): that agent is connected too. */
-	agent?: boolean;
 }): Promise<Helper> {
 	const store = options.folders;
 	let config: Config = store ? await loadConfig(store.config) : { folders: [], home: false };
@@ -76,8 +74,6 @@ export async function startHelper(options: {
 	const { server, port } = await listen(options.ports, options.origins);
 	/** The FigPal windows, oldest first, with the names of their files. */
 	const windows = new Map<WebSocket, string | undefined>();
-	/** The MCP processes of the outside agents. */
-	const agents = new Set<WebSocket>();
 	const pending = new Map<string, Pending>();
 	let nextId = 0;
 
@@ -86,7 +82,8 @@ export async function startHelper(options: {
 		send(socket, {
 			kind: "hello",
 			folders: shared.map((folder) => folder.name),
-			agent: options.agent === true || agents.size > 0,
+			// FigPal before 2026-11-02 reads it.
+			agent: false,
 			manage: store !== undefined,
 			home: config.home,
 		});
@@ -125,12 +122,6 @@ export async function startHelper(options: {
 
 	server.on("connection", (socket, request) => {
 		if (request.url === AGENT_PATH) {
-			agents.add(socket);
-			helloAll();
-			socket.on("close", () => {
-				agents.delete(socket);
-				helloAll();
-			});
 			socket.on("message", (data) => {
 				const message = parse(data);
 				if (!isAgentMessage(message)) {

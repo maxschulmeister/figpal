@@ -103,7 +103,7 @@ export function LocalHelperSettings(props: {
 				</Account>
 			</Dialog.Section>
 			<Dialog.Section>
-				<Account name="MCP" status={status(local.agent, ["Connected", "Not connected"])}>
+				<Account name="MCP">
 					<SwitchRow label="Enable" checked={settings.outsideAgents} onChange={(outsideAgents) => props.onChange({ outsideAgents })} />
 					<AgentSetup />
 				</Account>

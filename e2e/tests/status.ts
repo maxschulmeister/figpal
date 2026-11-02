@@ -23,8 +23,8 @@ export default async function status(t: Context) {
 	await frame.getByRole("tab", { name: "Access" }).click();
 	// The user's own helpers answer FigPal's real origins: there, the helper parts can be on.
 	const real = LOCAL_ORIGINS.includes(new URL(t.ui).origin);
-	const access = [await tone("Personal access token"), ...(real ? [] : [await tone("Local helper"), await tone("MCP")])];
-	const off = ["Not connected: secondary", ...(real ? [] : ["Not running: secondary", "Not connected: secondary"])];
+	const access = [await tone("Personal access token"), ...(real ? [] : [await tone("Local helper")])];
+	const off = ["Not connected: secondary", ...(real ? [] : ["Not running: secondary"])];
 	t.check("the optional parts that are off are grey", JSON.stringify(access) === JSON.stringify(off), JSON.stringify(access));
 	await t.screenshot(session, "status-access");
 }

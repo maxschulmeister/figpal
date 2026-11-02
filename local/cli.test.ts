@@ -36,22 +36,18 @@ async function start(args: string[]): Promise<number> {
 	return Number(/port (\d+)/.exec(log)![1]);
 }
 
-/** A fake FigPal window of the file "Cards": it runs each request, and keeps the hellos. */
+/** A fake FigPal window of the file "Cards": it runs each request. */
 function fakeWindow(port: number) {
 	const socket = new WebSocket(`ws://127.0.0.1:${port}`, { origin: UI });
 	windows.push(socket);
-	const hellos: Record<string, unknown>[] = [];
 	socket.on("error", () => {});
 	socket.on("message", (data) => {
 		const message = JSON.parse(String(data));
-		if (message.kind === "hello") {
-			hellos.push(message);
-			socket.send(JSON.stringify({ kind: "window", file: "Cards" }));
-		}
+		if (message.kind === "hello") socket.send(JSON.stringify({ kind: "window", file: "Cards" }));
 		if (message.kind === "request")
 			socket.send(JSON.stringify({ kind: "response", id: message.id, ok: true, result: { value: `ran ${message.params.code}` }, attachments: [] }));
 	});
-	return { socket, hellos };
+	return socket;
 }
 
 /** An outside agent with `figpal mcp`. */
@@ -87,10 +83,9 @@ describe("the helper command", () => {
 		const config = join(mkdtempSync(join(tmpdir(), "figpal-cli-")), "local.json");
 		await saveConfig(config, { folders: [], home: false });
 		bridge = await startHelper({ origins: [UI], ports: [9395], folders: { config, home: tmpdir(), pick: async () => [] } });
-		const window = fakeWindow(9395);
+		fakeWindow(9395);
 		const agent = await startAgent(["--port", "9395", "--origin", UI]);
 		await expect.poll(() => run(agent), { timeout: 10_000 }).toBe(RAN);
-		expect(window.hellos.at(-1)).toMatchObject({ agent: true, manage: true });
 	});
 
 	// As figma-console-mcp: the command works alone. The first agent is the bridge, the others use it, and one of them
@@ -103,7 +98,7 @@ describe("the helper command", () => {
 		await expect.poll(() => run(second), { timeout: 10_000 }).toBe(RAN);
 		expect(await run(first)).toBe(RAN);
 		// The first agent stops: the other becomes the bridge, and FigPal finds it again.
-		const closed = new Promise((resolve) => window.socket.once("close", resolve));
+		const closed = new Promise((resolve) => window.once("close", resolve));
 		await first.close();
 		await closed;
 		// FigPal looks for bridges again: here, until it finds the new one.
@@ -111,7 +106,7 @@ describe("the helper command", () => {
 		await expect
 			.poll(
 				() => {
-					if (again.socket.readyState === WebSocket.CLOSED) again = fakeWindow(9396);
+					if (again.readyState === WebSocket.CLOSED) again = fakeWindow(9396);
 					return run(second);
 				},
 				{ timeout: 10_000 },
