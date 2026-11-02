@@ -2,7 +2,7 @@
 // (the message joins the running work after the current tool step) and Cmd+Enter sends after the answer.
 
 import type { AppendMessage, ExternalThreadQueueAdapter, QueueItemState } from "@assistant-ui/react";
-import type { QueuedMessage, Thread } from "./transcript";
+import type { QueuedInput, QueuedMessage, Thread } from "./transcript";
 
 export type QueueMode = "steer" | "followUp";
 
@@ -12,35 +12,37 @@ const item = ({ id, text }: QueuedMessage): QueueItemState => ({ id, prompt: tex
 
 export function inboxQueue(options: {
 	queue: Thread["queue"];
-	/** Submits a message with `whenBusy` set to the mode. */
-	send(text: string, mode: QueueMode): void;
+	/** The input of a message of the composer: its text and attachments, with the Figma context. */
+	input(message: AppendMessage): QueuedInput;
+	/** Submits an input with `whenBusy` set to the mode. */
+	submit(input: QueuedInput, mode: QueueMode): void;
 	/** Withdraws a waiting message. "already_placed": the run took it first, so it is in the chat. */
 	abort(id: string): Promise<string>;
 }): ExternalThreadQueueAdapter {
-	const { queue, send, abort } = options;
+	const { queue, input, submit, abort } = options;
 	const find = (id: string) => {
 		const steer = queue.steer.find((message) => message.id === id);
 		if (steer) return { message: steer, mode: "steer" as const };
 		const followUp = queue.followUp.find((message) => message.id === id);
 		return followUp && { message: followUp, mode: "followUp" as const };
 	};
-	/** Withdraws it and sends it again: pi-durable cannot move or change a waiting message. */
-	const resend = (id: string, text: (old: string) => string, mode: (old: QueueMode) => QueueMode) => {
+	/** Withdraws it and submits it again: pi-durable cannot move or change a waiting message. */
+	const resend = (id: string, next: (old: QueuedInput) => QueuedInput, mode: (old: QueueMode) => QueueMode) => {
 		const found = find(id);
 		if (!found) return;
 		void abort(id).then((result) => {
-			if (result === "aborted") send(text(found.message.text), mode(found.mode));
+			if (result === "aborted") submit(next(found.message.input), mode(found.mode));
 		});
 	};
 	return {
 		items: queue.followUp.map(item),
 		steerItems: queue.steer.map(item),
-		enqueue: (message) => send(textOf(message), "followUp"),
-		steer: (message) => send(textOf(message), "steer"),
+		enqueue: (message) => submit(input(message), "followUp"),
+		steer: (message) => submit(input(message), "steer"),
 		move: (id, placement) => {
-			if (placement.lane === "steer" && find(id)?.mode === "followUp") resend(id, (text) => text, () => "steer");
+			if (placement.lane === "steer" && find(id)?.mode === "followUp") resend(id, (old) => old, () => "steer");
 		},
-		edit: (id, message) => resend(id, () => textOf(message), (mode) => mode),
+		edit: (id, message) => resend(id, () => input(message), (mode) => mode),
 		remove: (id) => void abort(id),
 	};
 }

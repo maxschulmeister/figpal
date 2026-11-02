@@ -1,6 +1,8 @@
 // The chat: assistant-ui primitives on the pi-durable conversation, with figma-kit's look.
 
 import {
+	type Attachment,
+	AttachmentPrimitive,
 	AssistantRuntimeProvider,
 	AuiIf,
 	ComposerPrimitive,
@@ -35,10 +37,14 @@ import {
 	createIcon,
 	DropdownMenu,
 	IconButton,
+	PlusIcon,
 	Text,
 	Tooltip,
 } from "figma-kit";
-import { type ComponentProps, createContext, Fragment, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { type ComponentProps, createContext, Fragment, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { COMMAND_PRIORITY_HIGH, PASTE_COMMAND } from "lexical";
+import { ACCEPT, attachable, attachmentAdapter, isLongText } from "./attachments";
 import remarkGfm from "remark-gfm";
 import { userInput } from "./agent";
 import { inboxQueue, textOf } from "./queue";
@@ -151,6 +157,11 @@ export function Chat(props: ChatProps) {
 	const [failure, setFailure] = useState<string>();
 	const thread = useThread(conversation, setFailure);
 	const [sendError, setSendError] = useState<string>();
+	// Images need a model that reads them: the adapter asks at each image.
+	const readsImages = useRef(true);
+	const model = thread?.agent?.model;
+	readsImages.current = !model || (props.models.getModel(model.provider, model.modelId)?.input.includes("image") ?? true);
+	const attachments = useMemo(() => attachmentAdapter(() => readsImages.current), []);
 	const { abortSubmission, onSend } = props;
 	// While the agent works, or while messages wait: without a queue, assistant-ui sends with onNew, which puts the text
 	// back when the message cannot be sent.
@@ -160,14 +171,17 @@ export function Chat(props: ChatProps) {
 			thread && busy
 				? inboxQueue({
 						queue: thread.queue,
-						send: (text, mode) =>
-							void conversation.submit({ ...userInput(text, file), whenBusy: mode }, context).then(
+						input: (message) => userInput(textOf(message), file, message.attachments),
+						submit: (input, mode) => {
+							const text = (input.entry?.data as { text?: string } | undefined)?.text ?? "";
+							void conversation.submit({ type: "input", ...input, whenBusy: mode }, context).then(
 								() => {
 									setSendError(undefined);
 									onSend(text);
 								},
 								(error) => setSendError(`FigPal could not send "${text}": ${errorText(error)}`),
-							),
+							);
+						},
 						abort: abortSubmission,
 					})
 				: undefined,
@@ -175,6 +189,7 @@ export function Chat(props: ChatProps) {
 	);
 	const runtime = useExternalStoreRuntime<ThreadMessageLike>({
 		queue,
+		adapters: { attachments },
 		messages: thread?.messages ?? [],
 		convertMessage: asIs,
 		isRunning: thread?.isRunning,
@@ -182,7 +197,7 @@ export function Chat(props: ChatProps) {
 		onNew: async (message) => {
 			const text = textOf(message);
 			try {
-				await conversation.submit(userInput(text, file), context);
+				await conversation.submit(userInput(text, file, message.attachments), context);
 				props.onSend(text);
 			} catch (error) {
 				console.error("FigPal could not send the message:", error);
@@ -234,6 +249,7 @@ export function Chat(props: ChatProps) {
 									className="chat-text max-h-40 min-w-0 flex-1 px-2 py-1"
 								>
 									<SelectionChips bridge={props.bridge} initial={file} />
+									<PasteFiles />
 								</LexicalComposerInput>
 								{/* While the agent works: Send for a typed message (it steers), and Stop. */}
 								<AuiIf condition={(state) => !state.thread.isRunning || !state.composer.isEmpty}>
@@ -274,22 +290,153 @@ export function Chat(props: ChatProps) {
 	);
 }
 
-/** The composer. Enter sends; while the agent works it steers (assistant-ui). Cmd+Enter sends after the answer. */
+/** Adds files to the composer, or says why not: the "+" button, paste and drop use it. */
+const AddFiles = createContext<(files: Iterable<File>) => void>(() => {});
+
+/**
+ * The composer. Enter sends; while the agent works it steers (assistant-ui). Cmd+Enter sends after the answer. Files
+ * come from the "+" button, paste and drop.
+ */
 function Composer({ children }: { children: ReactNode }) {
 	const aui = useAui();
+	const chooser = useRef<HTMLInputElement>(null);
+	// A note about files shows until the next message: it keeps the number of messages when it came.
+	const messages = useAuiState((state) => state.thread.messages.length);
+	const [noteOf, setNoteOf] = useState<{ text: string; messages: number }>();
+	const note = noteOf?.messages === messages ? noteOf.text : "";
+	const setNote = (text: string) => setNoteOf({ text, messages });
+	const addFiles = (files: Iterable<File>) => {
+		setNote("");
+		for (const file of files) {
+			const refused = attachable(file);
+			if (refused) setNote(refused);
+			else aui.composer.addAttachment(file).catch((error: unknown) => setNote(errorText(error)));
+		}
+	};
 	return (
-		<ComposerPrimitive.Root
-			className="flex items-end gap-1 rounded-md border border-default p-1 focus-within:border-selected"
-			// Before Lexical, which would add a line.
-			onKeyDownCapture={(event) => {
-				if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.nativeEvent.isComposing) return;
-				event.preventDefault();
-				event.stopPropagation();
-				if (aui.composer.getState().canSend) aui.composer.send({ steer: false });
-			}}
-		>
-			{children}
-		</ComposerPrimitive.Root>
+		<AddFiles.Provider value={addFiles}>
+			{note && (
+				<Text role="alert" className="text-danger">
+					{note}
+				</Text>
+			)}
+			<ComposerPrimitive.Root
+				className="flex flex-col gap-1 rounded-md border border-default p-1 focus-within:border-selected"
+				// Before Lexical, which would add a line.
+				onKeyDownCapture={(event) => {
+					if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.nativeEvent.isComposing) return;
+					event.preventDefault();
+					event.stopPropagation();
+					if (aui.composer.getState().canSend) aui.composer.send({ steer: false });
+				}}
+				onDragOver={(event) => {
+					if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+				}}
+				onDrop={(event) => {
+					if (event.dataTransfer.files.length === 0) return;
+					event.preventDefault();
+					addFiles(event.dataTransfer.files);
+				}}
+			>
+				<ComposerFiles />
+				<div className="flex items-end gap-1">
+					<Tooltip content="Add files">
+						{/* type="button": in the form of the composer, a button sends the message. */}
+						<IconButton type="button" aria-label="Add files" onClick={() => chooser.current?.click()}>
+							<PlusIcon />
+						</IconButton>
+					</Tooltip>
+					<input
+						ref={chooser}
+						type="file"
+						multiple
+						hidden
+						accept={ACCEPT}
+						onChange={(event) => {
+							addFiles(event.target.files ?? []);
+							event.target.value = "";
+						}}
+					/>
+					{children}
+				</div>
+			</ComposerPrimitive.Root>
+		</AddFiles.Provider>
+	);
+}
+
+/** Pasted files become attachments, and so does long pasted text (2,000 characters or 30 lines). */
+function PasteFiles() {
+	const [editor] = useLexicalComposerContext();
+	const addFiles = useContext(AddFiles);
+	useEffect(
+		() =>
+			editor.registerCommand(
+				PASTE_COMMAND,
+				(event) => {
+					const data = event instanceof ClipboardEvent ? event.clipboardData : null;
+					if (!data) return false;
+					const text = data.getData("text/plain");
+					const files = data.files.length > 0 ? [...data.files] : isLongText(text) ? [new File([text], "Pasted text.txt", { type: "text/plain" })] : [];
+					if (files.length === 0) return false;
+					event.preventDefault();
+					addFiles(files);
+					return true;
+				},
+				COMMAND_PRIORITY_HIGH,
+			),
+		[editor, addFiles],
+	);
+	return null;
+}
+
+/** The attachments in the composer, with Remove. */
+function ComposerFiles() {
+	const count = useAuiState((state) => state.composer.attachments.length);
+	if (count === 0) return null;
+	return (
+		<ul aria-label="Attachments" className="flex flex-wrap gap-1">
+			<ComposerPrimitive.Attachments>{({ attachment }) => <FileChip attachment={attachment} removable />}</ComposerPrimitive.Attachments>
+		</ul>
+	);
+}
+
+/** The attachments of a sent message. */
+function SentFiles() {
+	const count = useAuiState((state) => state.message.attachments?.length ?? 0);
+	if (count === 0) return null;
+	return (
+		<ul aria-label="Attachments of the message" className="flex flex-wrap justify-end gap-1">
+			<MessagePrimitive.Attachments>{({ attachment }) => <FileChip attachment={attachment} />}</MessagePrimitive.Attachments>
+		</ul>
+	);
+}
+
+/** An attachment: a small preview of an image, and the name. */
+function FileChip({ attachment, removable }: { attachment: Attachment; removable?: boolean }) {
+	const sent = attachment.content?.find((part) => part.type === "image")?.image;
+	const [preview, setPreview] = useState<string>();
+	const file = attachment.type === "image" && !sent ? attachment.file : undefined;
+	useEffect(() => {
+		if (!file) return;
+		const url = URL.createObjectURL(file);
+		setPreview(url);
+		return () => URL.revokeObjectURL(url);
+	}, [file]);
+	const image = sent ?? preview;
+	return (
+		<li className="flex min-w-0 items-center gap-1 rounded-md border border-default bg-default py-0.5 pr-0.5 pl-1 whitespace-normal">
+			{image && <img src={image} alt="" className="size-5 shrink-0 rounded-sm object-cover" />}
+			<Text className="min-w-0 truncate">{attachment.name}</Text>
+			{removable ? (
+				<AttachmentPrimitive.Remove asChild>
+					<IconButton aria-label={`Remove ${attachment.name}`}>
+						<CloseIcon />
+					</IconButton>
+				</AttachmentPrimitive.Remove>
+			) : (
+				<span className="w-1" />
+			)}
+		</li>
 	);
 }
 
@@ -466,8 +613,12 @@ const renderMessage = ({ message }: { message: { role: string } }) =>
 
 function UserMessage() {
 	return (
-		<MessagePrimitive.Root className="chat-text ml-10 self-end rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap break-words">
-			<MessagePrimitive.Parts components={{ Text: ChipText }} />
+		<MessagePrimitive.Root className="chat-text ml-10 flex flex-col gap-1 self-end rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap break-words">
+			<SentFiles />
+			{/* One block: the chips and the text of the message are in one line. */}
+			<div>
+				<MessagePrimitive.Parts components={{ Text: ChipText }} />
+			</div>
 		</MessagePrimitive.Root>
 	);
 }

@@ -1,7 +1,8 @@
 // The FigPal agent: a pi-durable Harness for one Figma file, with Claude through the Anthropic route.
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { Api, CredentialStore, Model, Provider, StreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
+import type { CompleteAttachment } from "@assistant-ui/react";
+import type { Api, CredentialStore, ImageContent, Model, Provider, StreamOptions, TextContent, TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness, type InputSubmissionDraft, type Storage } from "@earendil-works/pi-durable";
@@ -126,8 +127,25 @@ export function openAgent(fileId: string, options: AgentOptions): Promise<Harnes
  * The model gets the file and the page before the text, and the nodes of each chip in the text. The selection goes
  * only as chips: a chip that the user removed is not sent. The transcript shows the text with its chips.
  */
-export function userInput(text: string, file: FileInfo): InputSubmissionDraft {
+export function userInput(text: string, file: FileInfo, attachments: readonly CompleteAttachment[] = []): InputSubmissionDraft {
 	const name = file.fileKey ? `${clean(file.fileName)} (key ${file.fileKey})` : clean(file.fileName);
 	const block = `<figma>\nFile: ${name}\nPage: ${describeNode(file.page)}\n</figma>`;
-	return { type: "input", content: `${block}\n\n${chipsForModel(text)}`, entry: { kind: UserText.kind, data: { text } } };
+	const typed = `${block}\n\n${chipsForModel(text)}`;
+	if (attachments.length === 0) return { type: "input", content: typed, entry: { kind: UserText.kind, data: { text } } };
+	// Images go to the model as images, text files as text (assistant-ui wraps them in <attachment name="…">).
+	const parts = attachments.flatMap((attachment) =>
+		attachment.content.flatMap((part): (TextContent | ImageContent)[] =>
+			part.type === "text" ? [{ type: "text", text: part.text }] : part.type === "image" ? [imageContent(part.image)] : [],
+		),
+	);
+	// The names, for the chips of the sent message. The images stay in the model content only.
+	const files = attachments.map(({ name, type, contentType }) => ({ name, type, ...(contentType && { contentType }) }));
+	return { type: "input", content: [{ type: "text", text: typed }, ...parts], entry: { kind: UserText.kind, data: { text, files } } };
+}
+
+/** A data URL, "data:image/png;base64,…", as an image for the model. */
+function imageContent(url: string): ImageContent {
+	const match = /^data:([^;,]+);base64,(.*)$/.exec(url);
+	if (!match) throw new Error("FigPal can send only images as data URLs.");
+	return { type: "image", mimeType: match[1]!, data: match[2]! };
 }

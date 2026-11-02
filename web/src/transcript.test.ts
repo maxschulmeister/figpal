@@ -40,9 +40,11 @@ describe("toThread", () => {
 			entry: { kind: "figpal.user", data: { text } },
 		});
 		const inbox = { items: [queued("s1", "steer", "Use 8 px"), queued("f1", "followUp", "Then check it"), { id: "w1", mode: "write", entry: {} }] };
+		// The input as stored: "Send now" sends it again, with its attachments.
+		const input = (item: ReturnType<typeof queued>) => ({ content: item.content, entry: item.entry });
 		expect(toThread(view([userEntry(1, "Hi")], {}, undefined, inbox)).queue).toEqual({
-			steer: [{ id: "s1", text: "Use 8 px" }],
-			followUp: [{ id: "f1", text: "Then check it" }],
+			steer: [{ id: "s1", text: "Use 8 px", input: input(inbox.items[0] as ReturnType<typeof queued>) }],
+			followUp: [{ id: "f1", text: "Then check it", input: input(inbox.items[1] as ReturnType<typeof queued>) }],
 		});
 		expect(toThread(view([userEntry(1, "Hi")])).queue).toEqual({ steer: [], followUp: [] });
 	});

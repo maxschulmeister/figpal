@@ -60,6 +60,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
 		stop();
 		process.exit(130);
 	});
+// A check can fail outside its await, for example a waitForEvent that times out: without this, Vite keeps running.
+process.on("unhandledRejection", (error) => {
+	console.error(error);
+	stop();
+	process.exit(1);
+});
 const ui = remote ?? server!.ui;
 let failed = 0;
 try {

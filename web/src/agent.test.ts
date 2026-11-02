@@ -15,6 +15,7 @@ import {
 	Type,
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
+import type { InputSubmissionDraft } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import type { Attachment, FileInfo } from "@figpal/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -168,13 +169,13 @@ const FIGMA_TOKEN = {
 async function run(
 	models: ReturnType<typeof createModels>,
 	bridge: Pick<Bridge, "request">,
-	text = "Check the card",
+	text: string | InputSubmissionDraft = "Check the card",
 	credentials: Pick<CredentialStore, "read"> = FIGMA_TOKEN,
 	fileKey: string | null = FILE.fileKey,
 ) {
 	const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials, fileKey, subagentModels: () => [] });
 	const root = await currentThread(harness, SCRIPT);
-	const submission = await root.submit(userInput(text, FILE), context);
+	const submission = await root.submit(typeof text === "string" ? userInput(text, FILE) : text, context);
 	const settled = await submission.wait(context);
 	const view = (await root.viewState(context)).value;
 	await harness.close(context);
@@ -519,6 +520,37 @@ describe("figma tools", () => {
 			content: '<figma>\nFile: Test file (key KEY1)\nPage: Page 1 (PAGE, 0:1)\n</figma>\n\nCheck <nodes page="Page 1 (0:1)">Card (FRAME, 1:2)</nodes>now',
 		});
 		expect(toThread(view).messages[0]).toEqual({ id: expect.any(String), role: "user", content: [{ type: "text", text: `Check ${card}now` }] });
+	});
+
+	// Attachments (user request): images go to the model as images, text files as text with their names; the chat
+	// shows them as chips of the sent message.
+	it("gives the model the attachments, and the chat their chips", async () => {
+		const { models, requests } = scriptedModels("figma_screenshot", {});
+		const { bridge } = fakeBridge(() => ({ result: { nodeId: "1:2", width: 1, height: 1 } }));
+		const complete = { type: "complete" } as const;
+		const notes = '<attachment name="notes.md">\n# Notes\n</attachment>';
+		const attachments = [
+			{ id: "a", type: "image", name: "logo.png", contentType: "image/png", status: complete, content: [{ type: "image" as const, image: "data:image/png;base64,iVBO" }] },
+			{ id: "b", type: "document", name: "notes.md", contentType: "text/markdown", status: complete, content: [{ type: "text" as const, text: notes }] },
+		];
+		const { view } = await run(models, bridge, userInput("Use these", FILE, attachments));
+		expect(requests[0]!.at(-1)).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text", text: "<figma>\nFile: Test file (key KEY1)\nPage: Page 1 (PAGE, 0:1)\n</figma>\n\nUse these" },
+				{ type: "image", data: "iVBO", mimeType: "image/png" },
+				{ type: "text", text: notes },
+			],
+		});
+		expect(toThread(view).messages[0]).toEqual({
+			id: expect.any(String),
+			role: "user",
+			content: [{ type: "text", text: "Use these" }],
+			attachments: [
+				{ id: "0", type: "image", name: "logo.png", contentType: "image/png", status: complete, content: [{ type: "image", image: "data:image/png;base64,iVBO" }] },
+				{ id: "1", type: "document", name: "notes.md", contentType: "text/markdown", status: complete, content: [] },
+			],
+		});
 	});
 
 	it("keeps < and > of the file and page names out of the <figma> block", () => {

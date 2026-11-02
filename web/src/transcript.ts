@@ -1,7 +1,7 @@
 // Turns the pi-durable view of a conversation into assistant-ui messages.
 
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import { calculateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
 	AgentDoc,
@@ -10,12 +10,16 @@ import {
 	defineEntry,
 	InboxDoc,
 	type InboxState,
+	type InputSubmissionDraft,
 	LiveDoc,
 	type LiveState,
 } from "@earendil-works/pi-durable";
 
+/** A file of a sent message: its name and kind, for its chip. The images are in the model content of the entry. */
+export type SentFile = { name: string; type: string; contentType?: string };
+
 /** A user message from FigPal. `data.text` is what the user typed, without the Figma context block. */
-export const UserText = defineEntry<{ text: string }>("figpal.user");
+export const UserText = defineEntry<{ text: string; files?: SentFile[] }>("figpal.user");
 
 type Part = Exclude<ThreadMessageLike["content"], string>[number];
 
@@ -32,8 +36,28 @@ export type Thread = {
 	queue: { steer: QueuedMessage[]; followUp: QueuedMessage[] };
 };
 
-/** A waiting message: its submission ID and the typed text. */
-export type QueuedMessage = { id: string; text: string };
+/** A waiting message: its submission ID, the typed text, and its input as stored (with its attachments). */
+export type QueuedMessage = { id: string; text: string; input: QueuedInput };
+export type QueuedInput = Pick<InputSubmissionDraft, "content" | "entry">;
+
+/** The chips of a sent message. An image chip shows its image, from the model content of the entry. */
+function sentFiles(files: SentFile[], message: unknown): NonNullable<ThreadMessageLike["attachments"]> {
+	const content = (message as { content?: unknown } | undefined)?.content;
+	const images = (Array.isArray(content) ? (content as ImageContent[]) : [])
+		.filter((part) => part.type === "image")
+		.map((part) => `data:${part.mimeType};base64,${part.data}`);
+	return files.map((file, index) => {
+		const image = file.type === "image" ? images.shift() : undefined;
+		return {
+			id: String(index),
+			type: file.type,
+			name: file.name,
+			...(file.contentType && { contentType: file.contentType }),
+			status: { type: "complete" },
+			content: image ? [{ type: "image", image }] : [],
+		};
+	});
+}
 
 /**
  * One user message for each user entry, and one assistant message for each answer to it: all model responses and
@@ -67,7 +91,9 @@ export function toThread(view: ConversationView): Thread {
 	for (const entry of view.entries) {
 		if (UserText.is(entry)) {
 			userId = String(entry.id);
-			messages.push({ id: userId, role: "user", content: [{ type: "text", text: entry.data.text }] });
+			const files = entry.data.files ?? [];
+			const message: ThreadMessageLike = { id: userId, role: "user", content: [{ type: "text", text: entry.data.text }] };
+			messages.push(files.length ? { ...message, attachments: sentFiles(files, entry.model?.[0]) } : message);
 			continue;
 		}
 		for (const message of entry.model ?? []) {
@@ -91,8 +117,10 @@ export function toThread(view: ConversationView): Thread {
 	};
 	const queued = (mode: "steer" | "followUp") =>
 		inbox.flatMap((item) => {
-			const text = item.mode === mode ? textOf(item.entry) : undefined;
-			return text === undefined ? [] : [{ id: String(item.id), text }];
+			if (item.mode !== mode) return [];
+			const text = textOf(item.entry);
+			const input = { content: item.content, entry: item.entry } as QueuedInput;
+			return text === undefined ? [] : [{ id: String(item.id), text, input }];
 		});
 	const queue = { steer: queued("steer"), followUp: queued("followUp") };
 	return { messages, isRunning, retry: live?.generation?.retry, agent, contextTokens, queue };
