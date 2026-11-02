@@ -35,6 +35,8 @@ export default async function reply(t: Context) {
 	await t.screenshot(session, "reply-composer");
 	await page.keyboard.press("Enter");
 	await frame.getByText("Changed.").waitFor();
+	t.check("the sent message shows the quote as a quote", (await frame.locator("blockquote.quote-block").textContent()) === "The radius is 8 px.");
+	await t.screenshot(session, "reply-sent");
 	const sent = lastUserText(session.model.at(-1)!).replace(/^<figma>[\s\S]*?<\/figma>\s*/, "");
 	t.check("Reply puts the selected text at the cursor as a quote", sent === "Please: \n> The radius is 8 px.\n\nmake it 12 px", JSON.stringify(sent));
 }

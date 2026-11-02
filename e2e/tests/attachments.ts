@@ -38,6 +38,10 @@ export default async function attachments(t: Context) {
 		JSON.stringify(await chips.getByRole("listitem").allTextContents()),
 	);
 	t.check("the long text is not in the message", !((await box.textContent()) ?? "").includes("Line 3"));
+	// The policy of the hosted page blocks blob: images: the preview must load (user report: a broken image).
+	await chips.locator("img").waitFor();
+	const loaded = await chips.locator("img").evaluate((image: HTMLImageElement) => image.decode().then(() => image.naturalWidth > 0, () => false));
+	t.check("the preview of the image loads", loaded);
 	await t.screenshot(session, "attachments-composer");
 	await box.click();
 	await page.keyboard.type("Use these");

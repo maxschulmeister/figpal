@@ -47,6 +47,13 @@ export default async function local(t: Context) {
 		await agent.connect(new StdioClientTransport({ command: "node", args: [CLI, "mcp", "--port", port, "--origin", session.ui], stderr: "ignore" }));
 		await session.login();
 		const { frame } = session;
+		// The user comes back to FigPal after starting the helpers: FigPal looks for them when its window gets the focus.
+		await frame.locator("body").evaluate(() => dispatchEvent(new Event("focus")));
+		// FigPal is connected to the bridge when the folder shows in Access: then its agent has the local tools.
+		await frame.getByLabel("Settings").click();
+		await frame.getByRole("tab", { name: "Access" }).click();
+		await frame.getByRole("button", { name: "Remove notes" }).waitFor();
+		await frame.getByRole("button", { name: "Back to the chat" }).click();
 		await session.ask("Read my notes", "Done: I read the notes.");
 		const read = resultText(toolResults(session.model.at(-1)!)[0]!);
 		t.check("FigPal connects without a setting, and its agent reads a file of a shared folder", read === "Hello from disk", read);

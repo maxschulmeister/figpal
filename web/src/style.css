@@ -71,6 +71,41 @@ body {
 	cursor: default;
 	box-decoration-break: clone;
 }
+/* A quote (Reply): one line in the composer, a block of at most 4 lines in the sent message. */
+.quote-chip,
+.quote-block {
+	border-left: 2px solid var(--figma-color-border-strong);
+	color: var(--figma-color-text-secondary);
+}
+.quote-chip {
+	display: inline-block;
+	max-width: 100%;
+	overflow: hidden;
+	padding-left: 0.375rem;
+	text-overflow: ellipsis;
+	vertical-align: bottom;
+	white-space: nowrap;
+}
+.quote-block {
+	display: -webkit-box;
+	overflow: hidden;
+	margin: 0.25rem 0;
+	padding-left: 0.5rem;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+}
+
+/* An answer: its steps are a list (24 px rows), its text has room above and below. */
+.answer .fp-CollapsibleTrigger {
+	padding-block: 0.25rem;
+}
+.answer > .markdown {
+	margin-block: 0.5rem;
+}
+.answer > .markdown:first-child {
+	margin-top: 0;
+}
+
 /* A layer chip in an answer: a click selects its layers. */
 button.node-chip {
 	font: inherit;

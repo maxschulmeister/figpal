@@ -1,16 +1,21 @@
 // Node chips: when the user selects layers in Figma while typing, the composer puts a chip into the text. The text
-// keeps each chip as an assistant-ui directive, `:node{label="…" name="<JSON of the page and nodes>"}`.
+// keeps each chip as an assistant-ui directive, `:node{label="…" name="<JSON of the page and nodes>"}`. Quote chips
+// (Reply) work the same way: `:quote{label="…" name="{\"quote\":…}"}`.
 
 import { defaultDirectiveFormatter, type TriggerItem } from "@assistant-ui/react";
 import type { NodeSummary } from "@figpal/shared";
 import { nodeIdOf } from "./schema";
 
 export const CHIP_TYPE = "node";
+export const QUOTE_TYPE = "quote";
 
 /** `nodes`: at most 50 (code.js sends no more). `count`: all selected nodes. */
 type Chip = { page: NodeSummary; nodes: NodeSummary[]; count: number };
 
-export type ChipSegment = { kind: "text"; text: string } | ({ kind: "chip"; label: string } & Chip);
+export type ChipSegment =
+	| { kind: "text"; text: string }
+	| ({ kind: "chip"; label: string } & Chip)
+	| { kind: "quote"; label: string; text: string };
 
 /** The plural of a node type: "Frames" for FRAME, "Component sets" for COMPONENT_SET. */
 function typePlural(type: string): string {
@@ -59,12 +64,46 @@ export function readChip(id: string): Chip | undefined {
 	return { page, nodes, count: typeof count === "number" ? count : nodes.length };
 }
 
+/** assistant-ui reads at most 1,024 characters of a directive's name: a longer quote stays Markdown text. */
+const MAX_QUOTE = 900;
+const MAX_QUOTE_LABEL = 60;
+
+/**
+ * The chip of a quote, or undefined when it is too long for a chip. The ID is JSON: the name of a directive can have a
+ * line break only in its quoted form, which assistant-ui uses for an ID with "}".
+ */
+export function quoteItem(text: string): TriggerItem | undefined {
+	if (text.length > MAX_QUOTE) return undefined;
+	const line = text.replace(/\s+/g, " ").trim();
+	const label = line.length > MAX_QUOTE_LABEL ? `${line.slice(0, MAX_QUOTE_LABEL - 1)}…` : line;
+	return { id: JSON.stringify({ quote: text }), type: QUOTE_TYPE, label };
+}
+
+/** The text as Markdown quote lines. */
+export const quoteLines = (text: string) =>
+	text
+		.split("\n")
+		.map((line) => `> ${line}`)
+		.join("\n");
+
+function readQuote(id: string): string | undefined {
+	try {
+		const quote = (JSON.parse(id) as { quote?: unknown } | null)?.quote;
+		return typeof quote === "string" ? quote : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** The text and the chips of a message, in order. */
 export function chipSegments(text: string): ChipSegment[] {
 	return defaultDirectiveFormatter.parse(text).map((segment) => {
 		if (segment.kind === "text") return segment;
 		const chip = segment.type === CHIP_TYPE ? readChip(segment.id) : undefined;
-		return chip ? { kind: "chip", label: segment.label, ...chip } : { kind: "text", text: defaultDirectiveFormatter.serialize(segment) };
+		if (chip) return { kind: "chip", label: segment.label, ...chip };
+		const quote = segment.type === QUOTE_TYPE ? readQuote(segment.id) : undefined;
+		if (quote !== undefined) return { kind: "quote", label: segment.label, text: quote };
+		return { kind: "text", text: defaultDirectiveFormatter.serialize(segment) };
 	});
 }
 
@@ -90,11 +129,24 @@ export const clean = (name: string) => name.replace(/[<>]/g, "");
 
 export const describeNode = (node: NodeSummary) => `${clean(node.name)} (${node.type}, ${node.id})`;
 
-/** The text for the model: each chip becomes a <nodes> tag with its page and nodes, at its place in the text. */
+/**
+ * The text for the model: each chip becomes a <nodes> tag with its page and nodes, at its place in the text, and each
+ * quote Markdown quote lines on their own lines.
+ */
 export function chipsForModel(text: string): string {
 	return chipSegments(text)
-		.map((segment) => {
+		.map((segment, index, all) => {
 			if (segment.kind === "text") return segment.text;
+			if (segment.kind === "quote") {
+				// A quote starts a line.
+				const previous = all[index - 1];
+				const atLineStart = !previous || previous.kind === "quote" || (previous.kind === "text" && previous.text.endsWith("\n"));
+				const before = atLineStart ? "" : "\n";
+				// One empty line after it, also when the text after it starts a line.
+				const next = all[index + 1];
+				const after = next?.kind === "text" && next.text.startsWith("\n") ? "\n" : "\n\n";
+				return `${before}${quoteLines(segment.text)}${after}`;
+			}
 			const more = segment.count > segment.nodes.length ? `, and ${segment.count - segment.nodes.length} more` : "";
 			const nodes = segment.nodes.map(describeNode).join(", ");
 			return `<nodes page="${clean(segment.page.name)} (${segment.page.id})">${nodes}${more}</nodes>`;
@@ -105,6 +157,6 @@ export function chipsForModel(text: string): string {
 /** The text with the labels of the chips, for a thread title. */
 export function chipLabels(text: string): string {
 	return chipSegments(text)
-		.map((segment) => (segment.kind === "text" ? segment.text : segment.label))
+		.map((segment) => (segment.kind === "text" ? segment.text : segment.kind === "quote" ? `“${segment.label}”` : segment.label))
 		.join("");
 }

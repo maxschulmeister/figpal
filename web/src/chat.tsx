@@ -6,6 +6,7 @@ import {
 	AssistantRuntimeProvider,
 	AuiIf,
 	ComposerPrimitive,
+	defaultDirectiveFormatter,
 	type EmptyMessagePartProps,
 	ErrorPrimitive,
 	MessageNotSentError,
@@ -21,7 +22,7 @@ import {
 	useAuiState,
 	useExternalStoreRuntime,
 } from "@assistant-ui/react";
-import { LexicalComposerInput } from "@assistant-ui/react-lexical";
+import { $createDirectiveNodeWithFormatter, LexicalComposerInput } from "@assistant-ui/react-lexical";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
@@ -56,8 +57,8 @@ import { exportNodes, type NODE_EXPORT } from "./extensions/figma";
 import type { SubagentDetails } from "./extensions/subagent";
 import { downloadFile, type FileDetails, type FileRef, fileById, fileSize, keepFiles } from "./files";
 import type { PillDetails } from "./lint";
-import { nodeIdsOfLink } from "./node-chips";
-import { ChipText, NodeChip, SelectionChips } from "./selection-chips";
+import { nodeIdsOfLink, quoteItem, quoteLines } from "./node-chips";
+import { ChipText, ComposerChip, SelectionChips } from "./selection-chips";
 import { enabledModelGroups, type Settings, type TextSize } from "./settings";
 import { exportTokens, type TokenExport } from "./tokens";
 import { type Thread, toThread } from "./transcript";
@@ -241,7 +242,7 @@ export function Chat(props: ChatProps) {
 							<p className="m-auto text-lg text-secondary">Ask FigPal to read or change this file.</p>
 						</AuiIf>
 						<ThreadPrimitive.Messages>{renderMessage}</ThreadPrimitive.Messages>
-						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-1 bg-default pb-2">
+						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-2 bg-default pb-2">
 							{retry && <p className="text-secondary">The model call failed and runs again soon: {retry.error}</p>}
 							{sendError && <p className="text-danger">{sendError}</p>}
 							{thread && <WaitingMessages queue={thread.queue} />}
@@ -249,7 +250,7 @@ export function Chat(props: ChatProps) {
 								<LexicalComposerInput
 									autoFocus
 									placeholder="Ask FigPal"
-									directiveChip={NodeChip}
+									directiveChip={ComposerChip}
 									className="chat-text max-h-40 min-w-0 flex-1 px-2 py-1"
 								>
 									<SelectionChips bridge={props.bridge} initial={file} />
@@ -417,13 +418,13 @@ function ReplyToolbar({ editor }: { editor: { current?: LexicalEditor } }) {
 		current.update(() => {
 			const cursor = $getSelection();
 			const selection = $isRangeSelection(cursor) ? cursor : $getRoot().selectEnd();
-			// A quote starts a line, and the reply starts after it.
-			const newLine = selection.anchor.offset > 0 ? "\n" : "";
-			const quote = text
-				.split("\n")
-				.map((line) => `> ${line}`)
-				.join("\n");
-			selection.insertRawText(`${newLine}${quote}\n\n`);
+			// A quote has its own line: the reply starts after it.
+			if (selection.anchor.offset > 0) selection.insertLineBreak();
+			const item = quoteItem(text);
+			if (item) {
+				selection.insertNodes([$createDirectiveNodeWithFormatter(item, defaultDirectiveFormatter)]);
+				selection.insertLineBreak();
+			} else selection.insertRawText(`${quoteLines(text)}\n\n`);
 		});
 		current.focus();
 	};
@@ -463,25 +464,25 @@ function FileChip({ attachment, removable }: { attachment: Attachment; removable
 	const sent = attachment.content?.find((part) => part.type === "image")?.image;
 	const [preview, setPreview] = useState<string>();
 	const file = attachment.type === "image" && !sent ? attachment.file : undefined;
+	// A data URL: the policy of the hosted page allows images only from itself and data: URLs, not blob: URLs.
 	useEffect(() => {
 		if (!file) return;
-		const url = URL.createObjectURL(file);
-		setPreview(url);
-		return () => URL.revokeObjectURL(url);
+		const reader = new FileReader();
+		reader.onload = () => setPreview(String(reader.result));
+		reader.readAsDataURL(file);
+		return () => reader.abort();
 	}, [file]);
 	const image = sent ?? preview;
 	return (
-		<li className="flex min-w-0 items-center gap-1 rounded-md border border-default bg-default py-0.5 pr-0.5 pl-1 whitespace-normal">
-			{image && <img src={image} alt="" className="size-5 shrink-0 rounded-sm object-cover" />}
+		<li className={`flex h-5 min-w-0 items-center gap-1 rounded border border-default bg-default pl-1 whitespace-normal ${removable ? "" : "pr-1.5"}`}>
+			{image && <img src={image} alt="" className="size-3.5 shrink-0 rounded-[2px] object-cover" />}
 			<Text className="min-w-0 truncate">{attachment.name}</Text>
-			{removable ? (
+			{removable && (
 				<AttachmentPrimitive.Remove asChild>
-					<IconButton aria-label={`Remove ${attachment.name}`}>
-						<CloseIcon />
+					<IconButton type="button" aria-label={`Remove ${attachment.name}`} className="size-[18px]">
+						<CloseIcon size="4" />
 					</IconButton>
 				</AttachmentPrimitive.Remove>
-			) : (
-				<span className="w-1" />
 			)}
 		</li>
 	);
@@ -495,7 +496,7 @@ function WaitingMessages({ queue }: { queue: Thread["queue"] }) {
 		<ul aria-label="Waiting messages" className="flex flex-col gap-1">
 			<ComposerPrimitive.Queue>
 				{({ queueItem }) => (
-					<li className="flex items-center gap-2 rounded-md bg-secondary py-0.5 pr-0.5 pl-2">
+					<li className="flex h-6 items-center gap-2 rounded-md bg-secondary pl-2">
 						<Text className="min-w-0 flex-1 truncate">
 							<QueueItemPrimitive.Text />
 						</Text>
@@ -672,7 +673,7 @@ function UserMessage() {
 
 function AssistantMessage() {
 	return (
-		<MessagePrimitive.Root className="chat-text group/message flex flex-col gap-3 break-words">
+		<MessagePrimitive.Root className="chat-text answer group/message flex flex-col break-words">
 			<MessagePrimitive.Parts components={PARTS} />
 			<MessagePrimitive.Error>
 				<ErrorPrimitive.Root className="rounded-md bg-danger-tertiary px-3 py-2 text-danger">
@@ -691,7 +692,8 @@ function ForkButton() {
 	const running = useAuiState((state) => state.thread.isRunning);
 	if (!fork || at === undefined || running) return null;
 	return (
-		<div className="-mt-1 flex opacity-0 group-hover/message:opacity-100 focus-within:opacity-100">
+		// -mb-4 takes back the gap to the next message: hidden, the row would make the space after an answer 3 times larger.
+		<div className="-mt-1 -mb-4 flex opacity-0 group-hover/message:opacity-100 focus-within:opacity-100">
 			<Button variant="text" className="text-secondary" onClick={() => fork(at)}>
 				Fork from here
 			</Button>

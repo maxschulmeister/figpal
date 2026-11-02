@@ -1,6 +1,6 @@
 import { defaultDirectiveFormatter } from "@assistant-ui/react";
 import { describe, expect, it } from "vitest";
-import { chipItem, chipLabels, chipSegments, chipsForModel, nodeIdsOfLink } from "./node-chips";
+import { chipItem, chipLabels, chipSegments, chipsForModel, nodeIdsOfLink, quoteItem } from "./node-chips";
 
 const home = { id: "0:1", name: "Home", type: "PAGE" };
 const parts = { id: "0:2", name: "Parts", type: "PAGE" };
@@ -75,6 +75,25 @@ describe("node chips", () => {
 	});
 
 	// The agent links the layers that it names: [Card](#node=1:2). IDs in Figma links have dashes.
+	// Reply (user request): a quote of an answer is a chip in the composer and in the sent message; the model gets
+	// Markdown quote lines.
+	it("keep a quote of several lines, with brackets and quote marks, and give the model Markdown lines", () => {
+		const quote = 'The radius is 8 px.\nUse "rounded" [sm] {here}.';
+		const text = `Please: ${defaultDirectiveFormatter.serialize(quoteItem(quote)!)}make it 12 px`;
+		expect(chipSegments(text)).toEqual([
+			{ kind: "text", text: "Please: " },
+			{ kind: "quote", label: 'The radius is 8 px. Use "rounded" [sm] {here}.', text: quote },
+			{ kind: "text", text: "make it 12 px" },
+		]);
+		expect(chipsForModel(text)).toBe('Please: \n> The radius is 8 px.\n> Use "rounded" [sm] {here}.\n\nmake it 12 px');
+		expect(chipLabels(text)).toBe('Please: “The radius is 8 px. Use "rounded" [sm] {here}.”make it 12 px');
+		// The composer puts the quote on its own line: one empty line after it for the model.
+		const own = `Please:\n${defaultDirectiveFormatter.serialize(quoteItem("Short.")!)}\nmake it 12 px`;
+		expect(chipsForModel(own)).toBe("Please:\n> Short.\n\nmake it 12 px");
+		// A directive holds at most 1,024 characters: a longer quote is no chip.
+		expect(quoteItem("a".repeat(901))).toBeUndefined();
+	});
+
 	it("read the node IDs of a layer link in an answer", () => {
 		expect(nodeIdsOfLink("#node=1:2")).toEqual(["1:2"]);
 		expect(nodeIdsOfLink("#node=1-3,I1:5;3:4")).toEqual(["1:3", "I1:5;3:4"]);

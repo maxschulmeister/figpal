@@ -32,7 +32,7 @@ import {
 } from "lexical";
 import { useEffect, useState } from "react";
 import type { Bridge } from "./bridge";
-import { CHIP_TYPE, chipItem, chipSegments, readChip } from "./node-chips";
+import { CHIP_TYPE, chipItem, chipSegments, QUOTE_TYPE, readChip } from "./node-chips";
 
 /**
  * The chip next to a collapsed caret (before it, or after it), or the selected chip. With `space`, a space between the
@@ -234,9 +234,25 @@ export function NodeChip({ label }: { label: string }) {
 	return <span className="node-chip">{label}</span>;
 }
 
-/** The text of a sent message, with its chips. */
+/** A chip of the composer: a layer chip, or a quote (Reply). */
+export function ComposerChip({ label, directiveType }: { label: string; directiveType: string }) {
+	return directiveType === QUOTE_TYPE ? <span className="quote-chip">{label}</span> : <NodeChip label={label} />;
+}
+
+/** The text of a sent message, with its chips. A quote is a block: the line breaks around it are its own. */
 export const ChipText: TextMessagePartComponent = ({ text }) =>
-	chipSegments(text).map((segment, index) =>
+	chipSegments(text).map((segment, index, all) => {
+		if (segment.kind === "quote")
+			return (
+				// biome-ignore lint/suspicious/noArrayIndexKey: the segments of a sent message do not change.
+				<blockquote key={index} className="quote-block">
+					{segment.text}
+				</blockquote>
+			);
 		// biome-ignore lint/suspicious/noArrayIndexKey: the segments of a sent message do not change.
-		segment.kind === "text" ? segment.text : <NodeChip key={index} label={segment.label} />,
-	);
+		if (segment.kind === "chip") return <NodeChip key={index} label={segment.label} />;
+		let value = segment.text;
+		if (all[index - 1]?.kind === "quote") value = value.replace(/^\n/, "");
+		if (all[index + 1]?.kind === "quote") value = value.replace(/\n$/, "");
+		return value;
+	});
