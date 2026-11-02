@@ -8,10 +8,8 @@ The pi packages (`@earendil-works/pi-ai`, `pi-durable`, `chord`) are pinned to 1
 
 ## Local files and outside agents (user, 2026-11-01)
 
-FigPal needs at least one of these. Choose and plan before building:
+Done (Phase 7): the local helper `local/cli.ts` gives local files (`--folder`) and access from outside (`--mcp`). Open:
 
-- **Local files:** the agent can read and write files on the user's machine, for example a codebase or an export folder. The hosted UI runs in a browser sandbox, so this needs a helper on the machine or a browser file API.
-- **Access from outside, like the figma-console-mcp Desktop Bridge:** an agent in a terminal (Claude Code, pi, Codex) can act on the open Figma file through FigPal, for example with an MCP server that sends requests to `code.js`.
 - **Remote threads:** a pi instance on another machine can start a thread in the plugin and follow it.
 
 ### Optional Node host (from PLAN.md)
