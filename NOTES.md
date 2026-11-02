@@ -22,13 +22,6 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 - It adds pi-durable `createCodingTools` with a `NodeExecutionEnv` for each repo, and the figma-console-mcp codebase extraction (`src/core/extraction`).
 - A LaunchAgent (`RunAtLoad`, `KeepAlive`) starts it at login.
 
-## TypeScript only (user, 2026-11-01)
-
-Rewrite all JavaScript in TypeScript. Now two files are JavaScript:
-
-- `plugin/src/vendor/figma-console-mcp/checks.js` (about 2,500 lines, copied from figma-console-mcp `code.js`, with `checks.d.ts` for its types). A rewrite makes a later update from upstream a manual merge, not a simple diff. The tests in `plugin/src/checks.test.ts` check its behavior.
-- `plugin/build.mjs` (the esbuild script of the plugin).
-
 ## Size of the version diff answers (2026-11-01)
 
 `figma_diff_versions` reads `GET /v1/files/KEY?depth=1` for each version, as upstream does. A review expected the `components`, `componentSets` and `styles` maps of the whole file in that answer, which could be MB for a large library. Measured on 5 of the user's files (1 to 10 pages): 1 to 4 KB, with empty maps at depth 1. The 7th call in 30 seconds got a 429, so the Tier 1 limit is the real cost, not the size. If a large library is slow, measure it, and consider reading the current pages through `code.js` (`figma.root.children`): no REST call for "current".
