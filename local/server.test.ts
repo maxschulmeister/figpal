@@ -1,13 +1,14 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { folders } from "./files.ts";
+import { saveConfig } from "./files.ts";
 import { type Helper, startHelper } from "./server.ts";
 
 const UI = "https://figpal.example";
+const COMMAND = "node cli.ts --mcp";
 let helper: Helper | undefined;
 const sockets: WebSocket[] = [];
 
@@ -36,30 +37,90 @@ async function connect(port: number, origin = UI) {
 
 const ports = [9390, 9391, 9392];
 
+/** The helper that starts at login, with a config file in a new folder, and a folder picker that gives `picked`. */
+async function folderHelper(paths: string[] = [], picked: string[] = []) {
+	const root = mkdtempSync(join(tmpdir(), "figpal-helper-"));
+	const home = join(root, "home");
+	mkdirSync(home);
+	const config = join(root, "local.json");
+	await saveConfig(config, { folders: paths, home: false });
+	helper = await startHelper({ origins: [UI], ports, agent: false, command: COMMAND, folders: { config, home, pick: async () => picked } });
+	return { root, home, config, helper };
+}
+
+const folder = (name: string) => {
+	const path = join(mkdtempSync(join(tmpdir(), "figpal-shared-")), name);
+	mkdirSync(path);
+	return path;
+};
+
 describe("local helper", () => {
 	it("accepts only FigPal's origins, and says hello with the shared folders", async () => {
-		const root = mkdtempSync(join(tmpdir(), "figpal-helper-"));
-		helper = await startHelper({ folders: folders([root]), origins: [UI], ports, agent: false });
+		const project = folder("project");
+		const { helper } = await folderHelper([project]);
 		await expect(connect(helper.port, "https://evil.example")).rejects.toThrow();
 		const ui = await connect(helper.port);
-		expect(await ui.next()).toEqual({ kind: "hello", folders: [root.split("/").at(-1)], agent: false });
+		expect(await ui.next()).toEqual({ kind: "hello", folders: ["project"], agent: false, manage: true, home: false, command: COMMAND });
 	});
 
 	it("answers file requests", async () => {
-		const root = mkdtempSync(join(tmpdir(), "figpal-helper-"));
-		writeFileSync(join(root, "a.txt"), "hello");
-		helper = await startHelper({ folders: folders([root]), origins: [UI], ports, agent: false });
+		const project = folder("project");
+		writeFileSync(join(project, "a.txt"), "hello");
+		const { helper } = await folderHelper([project]);
 		const ui = await connect(helper.port);
 		await ui.next();
-		ui.send({ kind: "files", id: "1", request: { op: "read", path: `${root.split("/").at(-1)}/a.txt` } });
+		ui.send({ kind: "files", id: "1", request: { op: "read", path: "project/a.txt" } });
 		expect(await ui.next()).toEqual({ kind: "response", id: "1", ok: true, result: "hello" });
 		ui.send({ kind: "files", id: "2", request: { op: "read", path: "nothing/a.txt" } });
 		expect(await ui.next()).toMatchObject({ kind: "response", id: "2", ok: false, error: expect.stringContaining("No shared folder") });
 	});
 
+	it("adds folders from the folder picker, removes them, and shares the home folder: it saves each change and says hello again", async () => {
+		const [design, code] = [folder("design"), folder("code")];
+		const { helper, config, home } = await folderHelper([], [design, code]);
+		const ui = await connect(helper.port);
+		const other = await connect(helper.port);
+		await ui.next();
+		await other.next();
+		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
+		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: true });
+		expect(await ui.next()).toMatchObject({ kind: "hello", folders: ["design", "code"] });
+		// All windows get the new folders.
+		expect(await other.next()).toMatchObject({ kind: "hello", folders: ["design", "code"] });
+		ui.send({ kind: "folders", id: "2", change: { op: "remove", name: "design" } });
+		await ui.next();
+		expect(await ui.next()).toMatchObject({ kind: "hello", folders: ["code"] });
+		ui.send({ kind: "folders", id: "3", change: { op: "home", on: true } });
+		await ui.next();
+		expect(await ui.next()).toMatchObject({ kind: "hello", folders: ["code", basename(home)], home: true });
+		expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({ folders: [code], home: true });
+		// The home folder is in the list too: its Remove turns the setting off.
+		ui.send({ kind: "folders", id: "4", change: { op: "remove", name: basename(home) } });
+		await ui.next();
+		expect(await ui.next()).toMatchObject({ kind: "hello", folders: ["code"], home: false });
+	});
+
+	// The agent names files by the folder name: two folders with one name would be the same.
+	it("refuses a second folder with the same name", async () => {
+		const { helper, config } = await folderHelper([folder("project")], [folder("project")]);
+		const ui = await connect(helper.port);
+		await ui.next();
+		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
+		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: false, error: expect.stringContaining('Two shared folders are named "project"') });
+		expect(JSON.parse(readFileSync(config, "utf8")).folders).toHaveLength(1);
+	});
+
+	it("an MCP helper keeps no folders", async () => {
+		helper = await startHelper({ origins: [UI], ports, agent: true, command: COMMAND });
+		const ui = await connect(helper.port);
+		expect(await ui.next()).toEqual({ kind: "hello", folders: [], agent: true, manage: false, home: false, command: COMMAND });
+		ui.send({ kind: "folders", id: "1", change: { op: "add" } });
+		expect(await ui.next()).toMatchObject({ kind: "response", id: "1", ok: false });
+	});
+
 	it("sends the requests of an outside agent to FigPal, and gives its answer", async () => {
-		helper = await startHelper({ folders: [], origins: [UI], ports, agent: true });
-		await expect(helper.request("execute", { code: "return 1" })).rejects.toThrow("FigPal is not connected");
+		helper = await startHelper({ origins: [UI], ports, agent: true, command: COMMAND });
+		await expect(helper.request("execute", { code: "return 1" })).rejects.toThrow("FigPal is not open");
 		const ui = await connect(helper.port);
 		await ui.next();
 		const answer = helper.request("execute", { code: "return 1" });
@@ -69,10 +130,26 @@ describe("local helper", () => {
 		expect(await answer).toEqual({ result: { value: "1" }, attachments: [] });
 	});
 
+	// FigPal opens once for each file: with several files, the agent must name one.
+	it("sends a request to the window of the file that the agent names", async () => {
+		helper = await startHelper({ origins: [UI], ports, agent: true, command: COMMAND });
+		const [cards, icons] = [await connect(helper.port), await connect(helper.port)];
+		await cards.next();
+		await icons.next();
+		cards.send({ kind: "window", file: "Cards" });
+		icons.send({ kind: "window", file: "Icons" });
+		await expect.poll(() => helper!.request("execute", { code: "1" }).catch((error: Error) => error.message)).toBe(
+			'FigPal is open in several files: "Cards", "Icons". Give the file.',
+		);
+		await expect(helper.request("execute", { code: "1" }, "Logos")).rejects.toThrow('FigPal is not open in "Logos". Open files: "Cards", "Icons".');
+		helper.request("execute", { code: "1" }, "Icons").catch(() => {});
+		expect(await icons.next()).toMatchObject({ kind: "request", params: { code: "1" } });
+	});
+
 	it("takes the next port when one is in use", async () => {
 		const busy = createServer().listen(ports[0], "127.0.0.1");
 		await new Promise((resolve) => busy.once("listening", resolve));
-		helper = await startHelper({ folders: [], origins: [UI], ports, agent: false });
+		helper = await startHelper({ origins: [UI], ports, agent: false, command: COMMAND });
 		expect(helper.port).toBe(ports[1]);
 		busy.close();
 	});

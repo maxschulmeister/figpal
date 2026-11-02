@@ -62,7 +62,7 @@ function newThreadAgent({ model, thinkingLevel }: Settings, connected: ReadonlyS
 
 /** Errors of actions after the start: the chat stays open. */
 const report = (error: unknown) => console.error("FigPal:", error);
-const NO_HELPER: LocalFiles = () => Promise.reject(new Error("FigPal is not connected to a local helper."));
+const NO_LOCAL: LocalState = { folders: [], agent: false, manage: false, home: false, command: undefined };
 
 export function App({ bridge }: { bridge: Bridge }) {
 	const [phase, setPhase] = useState<Phase>({ kind: "starting" });
@@ -88,32 +88,35 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [models, settings, connected]);
 
 	const fail = useCallback((error: unknown) => setPhase({ kind: "failed", message: errorText(error) }), []);
-	const [local, setLocal] = useState<LocalState & { connected: boolean }>({ folders: [], agent: false, connected: false });
+	const [local, setLocal] = useState<LocalState>(NO_LOCAL);
 	const outsideAgents = useRef(false);
 	outsideAgents.current = settings?.outsideAgents ?? false;
-	/** The file requests and folder listeners of the agent: the connection to the helper changes, the agent stays. */
+	/** The connection to the local helpers, and the folder listeners of the agent: the agent starts before the connection. */
 	const [localLink] = useState(() => ({
-		files: NO_HELPER as LocalFiles,
+		connection: undefined as ReturnType<typeof connectLocal> | undefined,
 		folders: [] as string[],
 		listeners: new Set<(folders: string[]) => void>(),
 	}));
-	// The connection to the local helper, while the setting is on.
-	const localHelper = settings?.localHelper ?? false;
+	// FigPal looks for helpers once it knows the file: an outside agent can choose the file by its name.
+	const fileName = file?.fileName;
 	useEffect(() => {
-		if (!localHelper) return;
-		const update = (state: LocalState) => {
-			setLocal({ ...state, connected: state.folders.length > 0 || state.agent || false });
-			localLink.folders = state.folders;
-			for (const listener of localLink.listeners) listener(state.folders);
-		};
-		const connection = connectLocal({ bridge, allowAgents: () => outsideAgents.current, onChange: update });
-		localLink.files = connection.files;
+		if (fileName === undefined) return;
+		const connection = connectLocal({
+			bridge,
+			file: fileName,
+			allowAgents: () => outsideAgents.current,
+			onChange: (state) => {
+				setLocal(state);
+				localLink.folders = state.folders;
+				for (const listener of localLink.listeners) listener(state.folders);
+			},
+		});
+		localLink.connection = connection;
 		return () => {
 			connection.stop();
-			localLink.files = NO_HELPER;
-			update({ folders: [], agent: false });
+			localLink.connection = undefined;
 		};
-	}, [bridge, localHelper, localLink]);
+	}, [bridge, fileName, localLink]);
 
 
 	const openExternal = useCallback(
@@ -161,7 +164,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
 		const local = {
-			files: (request: Parameters<LocalFiles>[0]) => localLink.files(request),
+			files: (request: Parameters<LocalFiles>[0]) =>
+				localLink.connection?.files(request) ?? Promise.reject(new Error("FigPal is not connected to a local helper.")),
 			subscribe: (listener: (folders: string[]) => void) => {
 				localLink.listeners.add(listener);
 				listener(localLink.folders);
@@ -378,7 +382,12 @@ export function App({ bridge }: { bridge: Bridge }) {
 									<TokenAccount kind={FIGMA} connected={connected} credentials={credentials} onChange={refreshConnected} />
 								</Dialog.Section>
 								<Dialog.Section>
-									<LocalHelperSettings settings={settings} local={local} onChange={updateSettings} />
+									<LocalHelperSettings
+										settings={settings}
+										local={local}
+										onChange={updateSettings}
+										onChangeFolders={(change) => localLink.connection?.changeFolders(change) ?? Promise.resolve()}
+									/>
 								</Dialog.Section>
 							</Tabs.Panel>
 						</Tabs.Root>

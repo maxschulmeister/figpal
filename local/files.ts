@@ -1,8 +1,8 @@
 // The shared folders: FigPal's agent reads and writes files in them, and nowhere else. A path starts with the name of
 // a folder, "project/src/app.tsx".
 
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import type { FileRequest } from "@figpal/shared/local";
 
@@ -10,6 +10,30 @@ export type Folder = { name: string; root: string };
 
 /** A file for the model is text: larger files are not useful in a conversation. */
 const MAX_READ_BYTES = 1_000_000;
+
+/** The config of the helper that starts at login: the paths of the shared folders, and whether the home folder is shared. */
+export type Config = { folders: string[]; home: boolean };
+
+const EMPTY: Config = { folders: [], home: false };
+
+/** The config in the file. Without a file, or with a broken one: no folders. */
+export async function loadConfig(path: string): Promise<Config> {
+	const value: unknown = await readFile(path, "utf8").then(JSON.parse).catch(() => EMPTY);
+	const config = value as Partial<Config> | null;
+	const valid =
+		typeof config === "object" && config !== null && Array.isArray(config.folders) && config.folders.every((item) => typeof item === "string") && typeof config.home === "boolean";
+	return valid ? { folders: config.folders!, home: config.home! } : EMPTY;
+}
+
+export async function saveConfig(path: string, config: Config): Promise<void> {
+	await mkdir(dirname(path), { recursive: true });
+	await writeFile(path, `${JSON.stringify(config, null, "\t")}\n`);
+}
+
+/** The folders of the config. A folder that is gone (deleted or moved) is left out, so the helper still starts. */
+export function sharedFolders(config: Config, home: string): Folder[] {
+	return folders([...config.folders, ...(config.home ? [home] : [])].filter((path) => existsSync(path)));
+}
 
 /** The folders by their names. The real paths: a symbolic link in a folder cannot lead out of it. */
 export function folders(paths: string[]): Folder[] {

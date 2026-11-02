@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type Folder, folders, runFile } from "./files.ts";
+import { type Folder, folders, loadConfig, runFile, saveConfig, sharedFolders } from "./files.ts";
 
 let root: string;
 let shared: Folder[];
@@ -14,6 +14,31 @@ beforeEach(() => {
 	writeFileSync(join(root, "secret.txt"), "secret");
 	symlinkSync(join(root, "secret.txt"), join(root, "project", "link.txt"));
 	shared = folders([join(root, "project")]);
+});
+
+describe("the folders of the config", () => {
+	it("shares the folders of the config, and the home folder when the user turns it on", () => {
+		const home = join(root, "home");
+		mkdirSync(home);
+		expect(sharedFolders({ folders: [join(root, "project")], home: false }, home).map((folder) => folder.name)).toEqual(["project"]);
+		expect(sharedFolders({ folders: [join(root, "project")], home: true }, home).map((folder) => folder.name)).toEqual(["project", "home"]);
+	});
+
+	// The user can delete or move a folder after sharing it: the helper must still start.
+	it("leaves out a folder that is gone", () => {
+		expect(sharedFolders({ folders: [join(root, "gone"), join(root, "project")], home: false }, root).map((folder) => folder.name)).toEqual(["project"]);
+	});
+
+	it("saves the config, and loads an empty one when the file is missing or broken", async () => {
+		const path = join(root, "config", "local.json");
+		expect(await loadConfig(path)).toEqual({ folders: [], home: false });
+		await saveConfig(path, { folders: ["/a"], home: true });
+		expect(await loadConfig(path)).toEqual({ folders: ["/a"], home: true });
+		writeFileSync(path, '{"folders": [1]}');
+		expect(await loadConfig(path)).toEqual({ folders: [], home: false });
+		writeFileSync(path, "{");
+		expect(await loadConfig(path)).toEqual({ folders: [], home: false });
+	});
 });
 
 describe("local files", () => {

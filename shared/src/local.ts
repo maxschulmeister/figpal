@@ -21,9 +21,16 @@ export type WireAttachment = Omit<Attachment, "bytes"> & { data: string };
 
 type Response<T> = { kind: "response"; id: string } & ({ ok: true } & T | { ok: false; error: string });
 
+/** A change of the shared folders. The helper opens the folder picker for "add": FigPal cannot name a path. */
+export type FolderChange = { op: "add" } | { op: "remove"; name: string } | { op: "home"; on: boolean };
+
 export type HelperToUi =
-	/** After the connection: the names of the folders, and whether an outside agent uses this helper. */
-	| { kind: "hello"; folders: string[]; agent: boolean }
+	/**
+	 * After the connection and after each change of the folders: the names of the shared folders; whether an outside
+	 * agent uses this helper; whether it keeps the folders (the helper that starts at login); whether the home folder is
+	 * shared; and the command that starts an MCP helper of this copy of FigPal.
+	 */
+	| { kind: "hello"; folders: string[]; agent: boolean; manage: boolean; home: boolean; command: string }
 	/** A request of an outside agent. */
 	| { kind: "request"; id: string; type: AgentRequest; params: Record<string, unknown> }
 	/** The answer to a file request. */
@@ -31,6 +38,9 @@ export type HelperToUi =
 
 export type UiToHelper =
 	| { kind: "files"; id: string; request: FileRequest }
+	| { kind: "folders"; id: string; change: FolderChange }
+	/** The name of the file of this window: an outside agent can choose the file. */
+	| { kind: "window"; file: string }
 	/** The answer to a request of an outside agent. */
 	| Response<{ result: unknown; attachments: WireAttachment[] }>;
 
@@ -42,7 +52,14 @@ function isResponse(value: Record<string, unknown>): boolean {
 export function isHelperToUi(value: unknown): value is HelperToUi {
 	if (!isRecord(value)) return false;
 	if (value.kind === "hello")
-		return Array.isArray(value.folders) && value.folders.every((name) => typeof name === "string") && typeof value.agent === "boolean";
+		return (
+			Array.isArray(value.folders) &&
+			value.folders.every((name) => typeof name === "string") &&
+			typeof value.agent === "boolean" &&
+			typeof value.manage === "boolean" &&
+			typeof value.home === "boolean" &&
+			typeof value.command === "string"
+		);
 	if (value.kind === "request")
 		return typeof value.id === "string" && AGENT_REQUESTS.includes(value.type as AgentRequest) && isRecord(value.params);
 	return isResponse(value);
@@ -56,6 +73,12 @@ export function isUiToHelper(value: unknown): value is UiToHelper {
 		if (typeof value.id !== "string" || !isRecord(request) || typeof request.path !== "string") return false;
 		return request.op === "list" || request.op === "read" || (request.op === "write" && typeof request.content === "string");
 	}
+	if (value.kind === "folders") {
+		const change = value.change;
+		if (typeof value.id !== "string" || !isRecord(change)) return false;
+		return change.op === "add" || (change.op === "remove" && typeof change.name === "string") || (change.op === "home" && typeof change.on === "boolean");
+	}
+	if (value.kind === "window") return typeof value.file === "string";
 	if (!isResponse(value)) return false;
 	return value.ok === false || (Array.isArray(value.attachments) && value.attachments.every(isWireAttachment));
 }

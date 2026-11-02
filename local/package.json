@@ -2,9 +2,6 @@
 	"name": "@figpal/local",
 	"private": true,
 	"type": "module",
-	"bin": {
-		"figpal-local": "./cli.ts"
-	},
 	"scripts": {
 		"start": "node cli.ts",
 		"typecheck": "tsc -p ."

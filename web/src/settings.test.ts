@@ -27,7 +27,6 @@ describe("settings", () => {
 			model: { provider: "openai-codex", modelId: "gpt-6.1-sol" },
 			thinkingLevel: "high",
 			enabledModels: ["anthropic/claude-haiku-5"],
-			localHelper: true,
 			outsideAgents: true,
 		} as const;
 		await saveSettings(bridge, { ...settings, enabledModels: [...settings.enabledModels] });
@@ -36,8 +35,8 @@ describe("settings", () => {
 
 	it("loads the settings of Phase 2 without enabled models, and leaves out values that are not model names", async () => {
 		const phase2 = { model: { provider: "anthropic", modelId: "claude-sonnet-5-5" }, thinkingLevel: "low" };
-		// Older settings have no local helper: it stays off.
-		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], localHelper: false, outsideAgents: false });
+		// Older settings have no MCP setting: it stays off.
+		expect(await loadSettings(storage(phase2).bridge)).toEqual({ ...phase2, enabledModels: [], outsideAgents: false });
 		const mixed = { ...phase2, enabledModels: ["anthropic/claude-haiku-5", 3, "no-slash"] };
 		expect((await loadSettings(storage(mixed).bridge)).enabledModels).toEqual(["anthropic/claude-haiku-5"]);
 	});

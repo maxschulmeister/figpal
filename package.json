@@ -10,7 +10,9 @@
 		"e2e": "node e2e/run.ts",
 		"typecheck": "pnpm -r typecheck",
 		"lint": "biome lint",
-		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh"
+		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh",
+		"local:install": "node local/install.ts",
+		"local:uninstall": "node local/install.ts --uninstall"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.4",

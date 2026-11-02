@@ -24,6 +24,9 @@ async function answer(run: () => Promise<CallToolResult["content"]>): Promise<Ca
 	}
 }
 
+/** FigPal opens once for each Figma file. */
+const file = z.string().optional().describe("The name of the Figma file, when FigPal is open in several files.");
+
 export function mcpServer(helper: Pick<Helper, "request">): McpServer {
 	const server = new McpServer({ name: "figpal", version: "1.0.0" });
 	server.registerTool(
@@ -42,11 +45,12 @@ export function mcpServer(helper: Pick<Helper, "request">): McpServer {
 					.max(EXECUTE_TIMEOUT_MS.max)
 					.optional()
 					.describe(`Default ${EXECUTE_TIMEOUT_MS.default}.`),
+				file,
 			},
 		},
-		({ code, timeout_ms }) =>
+		({ code, timeout_ms, file }) =>
 			answer(async () => {
-				const { result, attachments } = await helper.request("execute", { code, ...(timeout_ms && { timeoutMs: timeout_ms }) });
+				const { result, attachments } = await helper.request("execute", { code, ...(timeout_ms && { timeoutMs: timeout_ms }) }, file);
 				return [{ type: "text" as const, text: (result as { value: string }).value }, ...files(attachments)];
 			}),
 	);
@@ -54,11 +58,12 @@ export function mcpServer(helper: Pick<Helper, "request">): McpServer {
 		"figma_screenshot",
 		{
 			description: "Returns a PNG of a node, or of the current page, in the file that is open in FigPal. Without node_id: the first selected node, else the page.",
-			inputSchema: { node_id: z.string().optional(), scale: z.number().positive().optional() },
+			inputSchema: { node_id: z.string().optional(), scale: z.number().positive().optional(), file },
 		},
-		({ node_id, scale }) =>
+		({ node_id, scale, file }) =>
 			answer(async () => {
-				const { result, attachments } = await helper.request("screenshot", { ...(node_id && { nodeId: nodeIdOf(node_id) }), ...(scale && { scale }) });
+				const params = { ...(node_id && { nodeId: nodeIdOf(node_id) }), ...(scale && { scale }) };
+				const { result, attachments } = await helper.request("screenshot", params, file);
 				const { nodeId, width, height } = result as { nodeId: string; width: number; height: number };
 				return [{ type: "text" as const, text: `Screenshot of ${nodeId} (${width} × ${height} px).` }, ...files(attachments)];
 			}),

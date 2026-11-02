@@ -1,8 +1,10 @@
-// The local helper (local/cli.ts) on the user's machine: FigPal connects to it to read and write the shared folders,
-// and to run the requests of an outside agent (MCP) in code.js, when the user allows it.
+// The local helpers (local/cli.ts) on the user's machine: FigPal connects to them to read and write the shared folders,
+// to change the folders, and to run the requests of an outside agent (MCP) in code.js, when the user allows it. One
+// helper starts at login and keeps the folders; each outside agent starts its own helper.
 
 import {
 	type FileRequest,
+	type FolderChange,
 	type HelperToUi,
 	isHelperToUi,
 	LOCAL_PORTS,
@@ -12,22 +14,28 @@ import {
 import type { Bridge } from "./bridge";
 import { toBase64 } from "./extensions/figma";
 
-export type LocalState = { folders: string[]; agent: boolean };
+/**
+ * The shared folders; whether an outside agent is connected; whether the helper that keeps the folders is connected,
+ * and whether it shares the home folder; the command that starts an MCP helper.
+ */
+export type LocalState = { folders: string[]; agent: boolean; manage: boolean; home: boolean; command: string | undefined };
 export type LocalFiles = (request: FileRequest) => Promise<unknown>;
 
-/** How often FigPal looks for a helper. A failed try writes an error in the console of the browser. */
-const SCAN_MS = 10_000;
+/** How often FigPal looks for helpers, and when its window gets the focus. A failed try writes an error in the console. */
+const SCAN_MS = 30_000;
 
-type Helper = { socket: WebSocket; folders: string[]; agent: boolean };
+type Helper = Omit<Extract<HelperToUi, { kind: "hello" }>, "kind"> & { socket: WebSocket };
 
 export function connectLocal(options: {
 	bridge: Pick<Bridge, "request">;
+	/** The name of the open file: an outside agent can choose the file. */
+	file: string;
 	allowAgents(): boolean;
 	onChange(state: LocalState): void;
 	ports?: readonly number[];
 	/** For tests. */
 	open?: (url: string) => WebSocket;
-}): { files: LocalFiles; stop(): void } {
+}): { files: LocalFiles; changeFolders(change: FolderChange): Promise<void>; stop(): void } {
 	const open = options.open ?? ((url: string) => new WebSocket(url));
 	const helpers = new Map<number, Helper>();
 	const trying = new Set<number>();
@@ -36,11 +44,26 @@ export function connectLocal(options: {
 	const pending = new Map<string, { socket: WebSocket; resolve(value: unknown): void; reject(error: Error): void }>();
 	let nextId = 0;
 
+	const keeper = () => [...helpers.values()].find((helper) => helper.manage);
 	const changed = () => {
 		const list = [...helpers.values()];
-		options.onChange({ folders: list.flatMap((helper) => helper.folders), agent: list.some((helper) => helper.agent) });
+		options.onChange({
+			folders: list.flatMap((helper) => helper.folders),
+			agent: list.some((helper) => helper.agent),
+			manage: keeper() !== undefined,
+			home: keeper()?.home ?? false,
+			command: list[0]?.command,
+		});
 	};
 	const send = (socket: WebSocket, message: UiToHelper) => socket.send(JSON.stringify(message));
+	/** Sends a request to a helper, and gives its answer. */
+	const ask = (socket: WebSocket, message: (id: string) => UiToHelper) => {
+		const id = String(++nextId);
+		return new Promise<unknown>((resolve, reject) => {
+			pending.set(id, { socket, resolve, reject });
+			send(socket, message(id));
+		});
+	};
 
 	/** A request of an outside agent: code.js runs it, as for FigPal's own agent. */
 	const run = async (socket: WebSocket, message: Extract<HelperToUi, { kind: "request" }>) => {
@@ -71,7 +94,10 @@ export function connectLocal(options: {
 			if (!isHelperToUi(message)) return;
 			if (message.kind === "hello") {
 				trying.delete(port);
-				helpers.set(port, { socket, folders: message.folders, agent: message.agent });
+				// The first hello: the helper learns the file. A later one has new folders.
+				if (helpers.get(port)?.socket !== socket) send(socket, { kind: "window", file: options.file });
+				const { kind: _, ...hello } = message;
+				helpers.set(port, { ...hello, socket });
 				changed();
 			} else if (message.kind === "request") void run(socket, message);
 			else {
@@ -101,6 +127,7 @@ export function connectLocal(options: {
 	};
 	scan();
 	const timer = setInterval(scan, SCAN_MS);
+	addEventListener("focus", scan);
 
 	return {
 		files(request) {
@@ -109,14 +136,16 @@ export function connectLocal(options: {
 			if (request.op === "list" && name === "") return Promise.resolve(all.flatMap((helper) => helper.folders.map((folder) => `${folder}/`)));
 			const helper = all.find((item) => item.folders.includes(name));
 			if (!helper) return Promise.reject(new Error(`No shared folder is named "${name}".`));
-			const id = String(++nextId);
-			return new Promise((resolve, reject) => {
-				pending.set(id, { socket: helper.socket, resolve, reject });
-				send(helper.socket, { kind: "files", id, request });
-			});
+			return ask(helper.socket, (id) => ({ kind: "files", id, request }));
+		},
+		async changeFolders(change) {
+			const helper = keeper();
+			if (!helper) throw new Error("The local helper is not running. Run pnpm local:install in the FigPal repo.");
+			await ask(helper.socket, (id) => ({ kind: "folders", id, change }));
 		},
 		stop() {
 			clearInterval(timer);
+			removeEventListener("focus", scan);
 			for (const socket of sockets) socket.close();
 		},
 	};

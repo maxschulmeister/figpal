@@ -8,8 +8,8 @@ import type { Helper } from "./server.ts";
 async function connect(answer: Awaited<ReturnType<Helper["request"]>> | Error) {
 	const requests: unknown[] = [];
 	const helper: Pick<Helper, "request"> = {
-		request: async (type, params) => {
-			requests.push({ type, params });
+		request: async (type, params, file) => {
+			requests.push({ type, params, ...(file && { file }) });
 			if (answer instanceof Error) throw answer;
 			return answer;
 		},
@@ -54,6 +54,17 @@ describe("MCP server of the helper", () => {
 		expect(result.content).toEqual([
 			{ type: "text", text: "Screenshot of 1:2 (200 × 100 px)." },
 			{ type: "image", data: "iVBO", mimeType: "image/png" },
+		]);
+	});
+
+	// FigPal can be open in several files.
+	it("passes the file that the agent names", async () => {
+		const { mcp, requests } = await connect({ result: { value: "1", nodeId: "1:2", width: 1, height: 1 }, attachments: [] });
+		await mcp.callTool({ name: "figma_execute", arguments: { code: "return 1", file: "Icons" } });
+		await mcp.callTool({ name: "figma_screenshot", arguments: { file: "Icons" } });
+		expect(requests).toEqual([
+			{ type: "execute", params: { code: "return 1" }, file: "Icons" },
+			{ type: "screenshot", params: {}, file: "Icons" },
 		]);
 	});
 
