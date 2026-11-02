@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LOCAL_ORIGINS } from "@figpal/shared/local";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { type Context, resultText, text, toolResults, toolUse } from "../harness.ts";
@@ -14,6 +15,11 @@ import { type Context, resultText, text, toolResults, toolUse } from "../harness
 const CLI = fileURLToPath(new URL("../../local/cli.ts", import.meta.url));
 
 export default async function local(t: Context) {
+	// The user's own helper accepts FigPal's real origins: against them, this check could change the user's folders.
+	if (LOCAL_ORIGINS.includes(new URL(t.ui).origin)) {
+		t.check("skipped: it runs only against a UI of its own (pnpm e2e local), not against a real FigPal origin", true);
+		return;
+	}
 	const root = mkdtempSync(join(tmpdir(), "figpal-shared-"));
 	const folder = join(root, "notes");
 	mkdirSync(folder);

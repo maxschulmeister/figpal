@@ -20,6 +20,9 @@ importers:
 
   e2e:
     devDependencies:
+      '@figpal/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.6.7)
