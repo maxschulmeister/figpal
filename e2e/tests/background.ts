@@ -1,4 +1,4 @@
-// Run in the background: a minimize button right of the context usage, while the agent works. code.js hides the panel and shows a notice;
+// Run in the background: the eye button in the header, between New chat and Settings (user request). code.js hides the panel and shows a notice;
 // when the agent is idle, the notice says so. The chat list replaces the chat while the agent works: the notice must not
 // depend on the open chat.
 
@@ -21,15 +21,13 @@ export default async function background(t: Context) {
 	});
 	await session.login();
 	const hide = session.frame.getByRole("button", { name: "Run in the background" });
-	t.check("no button while the agent is idle", (await hide.count()) === 0);
+	const header = await session.frame.locator("header button[aria-label]").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
+	t.check("the header has New chat, the eye and Settings", JSON.stringify(header) === JSON.stringify(["New chat", "Run in the background", "Settings"]), JSON.stringify(header));
 	await session.frame.getByRole("textbox", { name: "Ask FigPal" }).click();
 	await session.page.keyboard.type("Make a card");
 	await session.page.keyboard.press("Enter");
 	await hide.hover();
 	await t.screenshot(session, "background");
-	// The model row: the button is the last part, right of the model menu.
-	const row = await hide.evaluate((button) => [button.textContent, button.closest("div")?.parentElement?.lastElementChild?.contains(button)]);
-	t.check("an icon at the end of the model row", JSON.stringify(row) === JSON.stringify(["", true]), JSON.stringify(row));
 	await hide.click();
 	await session.frame.getByRole("button", { name: /Make a card/ }).first().click();
 	for (let i = 0; i < 50 && requests.length < 2; i++) await session.page.waitForTimeout(100);

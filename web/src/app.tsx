@@ -9,6 +9,7 @@ import {
 	ChevronDownIcon,
 	ChevronLeftIcon,
 	Dialog,
+	EyeClosedIcon,
 	IconButton,
 	Paragraph,
 	PlusIcon,
@@ -290,6 +291,11 @@ export function App({ bridge }: { bridge: Bridge }) {
 							<PlusIcon />
 						</IconButton>
 					</Tooltip>
+					<Tooltip content="Run in the background">
+						<IconButton aria-label="Run in the background" onClick={() => void hide()}>
+							<EyeClosedIcon />
+						</IconButton>
+					</Tooltip>
 					<Tooltip content="Settings">
 						<IconButton aria-label="Settings" onClick={() => setSettingsOpen(true)}>
 							<SlidersIcon />
@@ -327,7 +333,6 @@ export function App({ bridge }: { bridge: Bridge }) {
 							fork={(at: EntryId) => run(() => forkThread(thread, at, current?.title ?? ""))}
 							openConversation={openConversation}
 							onSend={(text) => noteMessage(harness, thread.id, chipLabels(text)).catch(report)}
-							onHide={() => void hide()}
 							textSize={settings.textSize}
 							onModelChange={updateSettings}
 							onEditModels={() => {

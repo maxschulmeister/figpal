@@ -31,7 +31,6 @@ import {
 	Collapsible,
 	createIcon,
 	DropdownMenu,
-	MinusIcon,
 	IconButton,
 	Text,
 	Tooltip,
@@ -134,8 +133,6 @@ type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 	enabledModels: string[];
 	/** A message was sent. */
 	onSend(text: string): void;
-	/** Hides the panel while the agent works. */
-	onHide(): void;
 	textSize: TextSize;
 	/** The user picked a model or thinking level. New threads use it too. */
 	onModelChange(choice: ModelChoice): void;
@@ -232,15 +229,8 @@ export function Chat(props: ChatProps) {
 									onEditModels={props.onEditModels}
 								/>
 								{/* The right end; mr-3 keeps it off the resize grip in the corner. */}
-								<div className="mr-3 ml-auto flex shrink-0 items-center gap-1">
+								<div className="mr-3 ml-auto flex shrink-0 items-center">
 									<ContextUsage tokens={thread?.contextTokens} model={thread?.agent?.model} models={props.models} />
-									<AuiIf condition={(state) => state.thread.isRunning}>
-										<Tooltip content="Run in the background">
-											<IconButton aria-label="Run in the background" onClick={props.onHide}>
-												<MinusIcon />
-											</IconButton>
-										</Tooltip>
-									</AuiIf>
 								</div>
 							</div>
 						</ThreadPrimitive.ViewportFooter>
