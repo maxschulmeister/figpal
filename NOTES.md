@@ -46,10 +46,3 @@ Now "Archive" hides a thread (it said "Delete" until 2026-11-02, user request): 
 
 - Archive: done, but there is no way yet to show archived threads again.
 - Delete: remove the entries, so that they do not fill the browser storage. This needs pi-durable support, or a "Delete all threads of this file" action.
-
-## Thread names (from PLAN.md, not in Phase 7)
-
-The UX of thread names. Now a thread takes the first line of its first message (at most 60 characters), and you can rename it.
-
-- Idea: an AI name, like T3 Code: after the first message, a small, fast model writes a short title. A name that the user gave stays.
-- Decide: which model (the provider of the thread, or a fixed small model), the cost, when it runs (the first message only, or again later), and what shows while it runs.

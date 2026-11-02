@@ -643,6 +643,8 @@ Checks:
 
 - "Delete" is "Archive" (user: "if delete is not possible currently the label should be Archive"): the menu item, the dialog and `archiveThread`; the dialog button is primary, not red, because the entries stay in the storage. A real delete and showing archived chats again stay in `NOTES.md` (group B). New e2e check `archive`.
 
+- AI chat names (user: like T3 Code; a "Text generation model" setting under Settings → Models; run after the first answer): `nameThread` waits for the answer of the first message (its submission, so a waiting follow-up does not change it), and asks the text generation model with no tools for 2 to 6 words, at most 40 tokens; the message goes in up to 1,000 characters, the answer up to 2,000. Automatic (the default) is the cheapest model of the chat's provider by price (now Claude Haiku 5.5 and GPT-6 Luna), so it stays right when the catalog changes; a chosen model of a provider that is not connected falls back to Automatic. The AI name replaces the name only while it is the first line of the message: a name that the user gave stays, also during the request, and then no request goes. A stopped answer or a model failure keeps the first line. A first message with only attachments now gets "New chat" as its name, so the next message does not count as the first. The e2e harness answers naming requests with "Test chat" and keeps them out of `session.model` (option `naming`). Reviews (gpt-6.1-sol, xhigh, through pi) found 7 points; all fixed: wait for the submission, not for idle; no name after a stopped answer; pi-ai `contentText`; attachment-only first messages; input limits; no request after a rename; e2e harness.
+
 ## Open questions
 
 None at the moment.
