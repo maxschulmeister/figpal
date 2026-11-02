@@ -25,6 +25,10 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 
 The user selects text in an answer, and a "Reply" button shows next to it, as "Cite" in T3 Code. Reply puts the text in the composer as a quote; the user writes a comment for it. Several quotes in one message are possible.
 
+## Steering (user, 2026-11-02)
+
+FigPal must handle messages that the user sends while the agent works. Now the composer shows only Stop during a run, so the user cannot send. pi-durable has both kinds: `submit(..., { whenBusy: "steer" })` joins the running work after the current tool round, and a follow-up (the default) starts the next run when the agent answers. Decide the default (steer, as in pi and Claude Code, or follow-up), how the user picks the other, and how the chat shows queued messages until they are placed.
+
 ## Attachments in the composer (user, 2026-11-02)
 
 As in T3 Code: the user can attach files and images to a message, with a button or with copy and paste into the composer. Long pasted text becomes an attachment too, not a wall of text in the message. The composer shows each attachment as a chip that the user can remove. Images go to the model as images; other files as text.
