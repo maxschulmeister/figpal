@@ -38,7 +38,7 @@ Profiles with their own instructions, model, thinking level and skills, for the 
 - An agent picker in the chat, next to the model picker: a thread can use a profile. The `subagent` tool gets an `agent` field.
 - A stale profile must not fail: a removed skill is left out, and a model that was removed (or whose provider is not connected) falls back to the thread's model, with a warning on the profile.
 - Storage: `figpal:global` already has an empty `agents` store (version 3).
-- Alternative with less code: one "Instructions" field in the settings for the main agent and all subagents.
+- Done instead of the small option (one "Instructions" field): Settings → Rules, for all files and for this file. Profiles stay open.
 
 ## Archive and delete threads (from PLAN.md, not in Phase 7)
 
