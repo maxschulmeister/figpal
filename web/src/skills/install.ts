@@ -69,8 +69,11 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 
 async function get(url: string): Promise<Response> {
 	const response = await fetch(url);
-	if (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0")
-		throw new Error("The GitHub rate limit (60 requests in an hour) is reached. Try again later.");
+	if (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0") {
+		const minutes = Math.ceil((Number(response.headers.get("x-ratelimit-reset")) * 1000 - Date.now()) / 60_000);
+		const when = minutes > 0 ? `in ${minutes} minute${minutes === 1 ? "" : "s"}` : "later";
+		throw new Error(`The GitHub rate limit (60 requests in an hour) is reached. Try again ${when}.`);
+	}
 	if (!response.ok) throw new Error(`${url} answered ${response.status}`);
 	return response;
 }
@@ -109,12 +112,32 @@ function skillFromFiles(files: SkillFile[], source: SkillSource, hash: string): 
 type TreeEntry = { path: string; type: string; sha?: string; size?: number };
 type Tree = { sha: string; entries: TreeEntry[] };
 
-async function githubTree({ owner, repo, ref }: Omit<GitHubFolder, "path">): Promise<Tree> {
+/**
+ * GitHub allows 60 API requests in an hour without a login, for all programs on the network. The list of a repository
+ * and the installs of its skills use one tree for 10 minutes, also at the same time (user report: the limit was
+ * reached). A failed read is not kept. `fresh`: for Check for update.
+ */
+const TREE_TTL_MS = 10 * 60_000;
+const trees = new Map<string, { at: number; tree: Promise<Tree> }>();
+
+/** For tests: each test starts without trees. */
+export const forgetGitHubTrees = () => trees.clear();
+
+function githubTree({ owner, repo, ref }: Omit<GitHubFolder, "path">, { fresh = false } = {}): Promise<Tree> {
 	const url = `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`;
-	const json = (await (await get(url)).json()) as { sha?: string; tree?: TreeEntry[]; truncated?: boolean };
-	// Without all files, a skill could install with files missing.
-	if (json.truncated) throw new Error(`${owner}/${repo} is too large for the GitHub API. Install the skill from skills.sh or a zip.`);
-	return { sha: json.sha ?? "", entries: json.tree ?? [] };
+	const kept = trees.get(url);
+	if (kept && !fresh && Date.now() - kept.at < TREE_TTL_MS) return kept.tree;
+	// Expired trees go, so that large trees do not stay in memory.
+	for (const [key, { at }] of trees) if (Date.now() - at >= TREE_TTL_MS) trees.delete(key);
+	const tree = (async () => {
+		const json = (await (await get(url)).json()) as { sha?: string; tree?: TreeEntry[]; truncated?: boolean };
+		// Without all files, a skill could install with files missing.
+		if (json.truncated) throw new Error(`${owner}/${repo} is too large for the GitHub API. Install the skill from skills.sh or a zip.`);
+		return { sha: json.sha ?? "", entries: json.tree ?? [] };
+	})();
+	trees.set(url, { at: Date.now(), tree });
+	tree.catch(() => trees.get(url)?.tree === tree && trees.delete(url));
+	return tree;
 }
 
 /** The tree SHA of a folder: the hash of a GitHub skill. */
@@ -207,7 +230,7 @@ export async function fetchUpdate(skill: Skill): Promise<Installable | undefined
 	let next: Installable;
 	if (source.kind === "skills.sh") next = fromDownload(source.id, await downloadFromSkillsSh(source.id));
 	else {
-		const tree = await githubTree(source);
+		const tree = await githubTree(source, { fresh: true });
 		if (folderSha(tree, source.path) === skill.hash) return undefined;
 		next = await fromGitHub(source, tree);
 	}

@@ -1,6 +1,6 @@
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchSkill, fetchUpdate, parseSkillInput, repoSkills, skillFromZip } from "./install";
+import { fetchSkill, fetchUpdate, forgetGitHubTrees, parseSkillInput, repoSkills, skillFromZip } from "./install";
 
 const SKILL_MD = `---
 name: figma-use
@@ -36,7 +36,10 @@ const TREE = {
 	],
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	forgetGitHubTrees();
+});
 
 describe("parseSkillInput", () => {
 	it.each([
@@ -169,6 +172,52 @@ describe("repoSkills", () => {
 			{ name: "figma-shaders", path: "skills/figma-shaders" },
 			{ name: "figma-use", path: "skills/figma-use" },
 		]);
+	});
+});
+
+// User report: "The GitHub rate limit (60 requests in an hour) is reached." The list of a repository and the installs
+// of its skills (without skills.sh) read its tree each time; the Figma skills at start, once for each skill.
+describe("the GitHub tree of a repository", () => {
+	const TREE_URL = "https://api.github.com/repos/figma/mcp-server-guide/git/trees/HEAD";
+	const answers = {
+		"/api/skills/": () => new Response("error", { status: 500 }),
+		[TREE_URL]: () => json(TREE),
+		"https://raw.githubusercontent.com/figma/mcp-server-guide/HEAD/skills/": () => new Response(SKILL_MD),
+	};
+	const ref = (skill: string) => ({ kind: "skill", owner: "figma", repo: "mcp-server-guide", skill }) as const;
+
+	it("is read once for the list and the installs of its skills, also at the same time", async () => {
+		const urls = fakeFetch(answers);
+		await repoSkills("figma", "mcp-server-guide");
+		await Promise.all([fetchSkill(ref("figma-use")), fetchSkill(ref("figma-use"))]);
+		expect(urls.filter((url) => url.startsWith(TREE_URL))).toHaveLength(1);
+	});
+
+	it("is read again after a failure", async () => {
+		let fail = true;
+		const urls = fakeFetch({ ...answers, [TREE_URL]: () => (fail ? new Response("error", { status: 500 }) : json(TREE)) });
+		await expect(repoSkills("figma", "mcp-server-guide")).rejects.toThrow();
+		fail = false;
+		await repoSkills("figma", "mcp-server-guide");
+		expect(urls.filter((url) => url.startsWith(TREE_URL))).toHaveLength(2);
+	});
+
+	it("says when GitHub allows requests again, after the limit", async () => {
+		// The reset is in whole seconds: at most 34 minutes away, so the text never says a time before it.
+		const reset = String(Math.floor(Date.now() / 1000) + 34 * 60);
+		const headers = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset };
+		fakeFetch({ ...answers, [TREE_URL]: () => new Response("limit", { status: 403, headers }) });
+		await expect(repoSkills("figma", "mcp-server-guide")).rejects.toThrow(
+			"The GitHub rate limit (60 requests in an hour) is reached. Try again in 34 minutes.",
+		);
+	});
+
+	it("is read fresh for Check for update", async () => {
+		const urls = fakeFetch(answers);
+		await repoSkills("figma", "mcp-server-guide");
+		const source = { kind: "github", owner: "figma", repo: "mcp-server-guide", ref: "HEAD", path: "skills/figma-use" } as const;
+		await fetchUpdate({ name: "figma-use", description: "x", source, hash: "tree-sha-1", enabled: true });
+		expect(urls.filter((url) => url.startsWith(TREE_URL))).toHaveLength(2);
 	});
 });
 
