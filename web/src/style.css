@@ -15,6 +15,22 @@ body,
 	margin: 0;
 }
 
+/*
+ * The panel never scrolls, only the parts in it (user report: a second scroll bar; the header or the message box went
+ * out of view). clip also stops scrolling by code. position: relative makes body the box of absolute elements (popups,
+ * screen-reader texts), so that it clips them too; else they belong to the window, which can scroll.
+ */
+html {
+	overflow: hidden;
+}
+body {
+	position: relative;
+	overflow: clip;
+}
+#app {
+	overflow: clip;
+}
+
 body {
 	background: var(--figma-color-bg);
 	color: var(--figma-color-text);

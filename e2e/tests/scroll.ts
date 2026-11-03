@@ -26,4 +26,28 @@ export default async function scroll(t: Context) {
 		!layout.mainScrolls && layout.boxBottom <= layout.window,
 		JSON.stringify(layout),
 	);
+
+	// User report with screenshots: the panel and the chat had a scroll bar each; the header or the message box went
+	// out of view. The cause did not show here, so the check adds very tall content in each place and tries to scroll.
+	const after = await session.frame.locator("body").evaluate(() => {
+		const tall = (parent: Element) => {
+			const block = document.createElement("div");
+			block.style.cssText = "position: absolute; top: 0; left: 0; width: 1px; height: 4000px";
+			parent.append(block);
+		};
+		const main = document.querySelector("main")!;
+		tall(document.body);
+		tall(main);
+		tall(main.firstElementChild!);
+		document.scrollingElement!.scrollTop = 1000;
+		main.scrollTop = 1000;
+		const header = document.querySelector("header")!.getBoundingClientRect();
+		const box = document.querySelector('[aria-label="Ask FigPal"]')!.getBoundingClientRect();
+		return { headerTop: Math.round(header.top), boxBottom: Math.round(box.bottom), window: innerHeight };
+	});
+	t.check(
+		"with taller content anywhere, the panel does not scroll: the header and the message box stay in view",
+		after.headerTop === 0 && after.boxBottom <= after.window,
+		JSON.stringify(after),
+	);
 }

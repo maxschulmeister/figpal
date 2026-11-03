@@ -303,7 +303,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 					</Tooltip>
 				</div>
 			</header>
-			<main className="min-h-0 flex-1 overflow-y-auto">
+			{/* Only the chat list scrolls here. The chat scrolls in its own area, so the message box stays in view. */}
+			<main className={`min-h-0 flex-1 ${showThreads ? "overflow-y-auto" : "overflow-clip"}`}>
 				{showThreads && list ? (
 					<ThreadList
 						list={list}
