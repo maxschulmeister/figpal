@@ -655,6 +655,8 @@ Checks:
 - Skills (user report: "clicking install on one resets the field"): Install in the list keeps the field and the list, so several skills of one repository install one after the other; the button then says Reinstall. Only Enter (one pasted skill) empties the field after a success. New e2e check `skills` (fake GitHub and skills.sh).
 - Message box below the window after a long answer (user report): not reproduced in the e2e harness (long text, code, table, tool steps, streaming, after Settings, the chat list, the eye button, a new chat). The `scroll` check now also checks that the message box stays in the window and that only the chat scrolls. Open until the user gives the case.
 
+- GitHub rate limit (user report: "The GitHub rate limit (60 requests in an hour) is reached"; GitHub allows 60 API requests in an hour without a login, for all programs behind the IP address): measured in the harness, the list of a repository and each install of its skills (without skills.sh) read the same tree again, and the Figma skills at start read it once for each skill when skills.sh fails (16 calls). Now a tree is kept for 10 minutes and shared, also by calls at the same time; a failed read is not kept; expired trees go; Check for update reads fresh. The error says when GitHub allows requests again (`x-ratelimit-reset`, rounded up). Reviews: reuse none; efficiency 1 (expired trees in memory), fixed; quality 2: the time in the text could come before the reset, fixed; a push to the repository within the 10 minutes can install a skill with the file list of the kept tree: not fixed (rare; a fix costs one more call for each repository; Check for update finds it).
+
 ## Open questions
 
 None at the moment.
