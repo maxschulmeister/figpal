@@ -5,6 +5,9 @@ export const FIGMA_ORIGIN = "https://www.figma.com";
 /** The UI can only read and write clientStorage keys with this prefix. */
 export const STORAGE_PREFIX = "figpal.";
 
+/** The length limit of each text of rules: rules go in each model request. */
+export const MAX_RULES = 4000;
+
 /** Where the UI comes from: the VPS, through Tailscale. */
 export const UI_ORIGIN = "https://figpal.maxschulmeister.dev";
 
@@ -102,6 +105,8 @@ export type Requests = {
 	"storage-get": { params: { key: string }; result: unknown };
 	"storage-set": { params: { key: string; value: unknown }; result: null };
 	"storage-delete": { params: { key: string }; result: null };
+	/** The rules for this file, in the file. With `text`: saves it first. Gives the rules. */
+	rules: { params: { text?: string }; result: string };
 	"open-external": { params: { url: string }; result: null };
 	/** Read-only, so the UI can export tokens again without the agent. */
 	variables: { params: Record<string, never>; result: Variables };
@@ -163,6 +168,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
 	"storage-get": true,
 	"storage-set": true,
 	"storage-delete": true,
+	rules: true,
 	"open-external": true,
 	variables: true,
 	components: true,

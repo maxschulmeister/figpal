@@ -538,3 +538,40 @@ describe("export", () => {
 		expect(response).toMatchObject({ ok: false, error: 'The layer "Loose" is not in a top-level frame. Only top-level frames have animations.' });
 	});
 });
+
+// Rules for this file (user request, like an AGENTS.md of a repo): in the file, so everyone with the file gets them.
+describe("rules of the file", () => {
+	it("reads and saves the rules in the file, and refuses more than 4,000 characters", async () => {
+		const data = new Map<string, string>();
+		const root = { getPluginData: (key: string) => data.get(key) ?? "", setPluginData: (key: string, value: string) => void data.set(key, value) };
+		const { posted, send } = await startPlugin(async () => undefined, { root });
+		const ask = async (id: string, params: object) => {
+			send({ kind: "request", id, type: "rules", params }, "https://figpal.maxschulmeister.dev");
+			await vi.waitFor(() => expect(posted.some((reply) => (reply as { id: string }).id === id)).toBe(true));
+			return posted.find((reply) => (reply as { id: string }).id === id);
+		};
+		expect(await ask("1", {})).toMatchObject({ ok: true, result: "" });
+		expect(await ask("2", { text: "Use the Brand library." })).toMatchObject({ ok: true, result: "Use the Brand library." });
+		expect(await ask("3", { text: "x".repeat(4001) })).toMatchObject({ ok: false });
+		expect(await ask("4", { text: 3 })).toMatchObject({ ok: false });
+		await vi.waitFor(() => expect(data.get("figpal.rules")).toBe("Use the Brand library."));
+	});
+
+	// Typing must not change the file at each key; closing FigPal must not lose the last keys (review).
+	it("writes the rules into the file after a short wait, or at once when FigPal closes", async () => {
+		const data = new Map<string, string>();
+		const root = { getPluginData: (key: string) => data.get(key) ?? "", setPluginData: (key: string, value: string) => void data.set(key, value) };
+		const events: Record<string, () => void> = {};
+		const { posted, send } = await startPlugin(async () => undefined, { root, on: (event: string, listener: () => void) => {
+				events[event] = listener;
+			},
+		});
+		send({ kind: "request", id: "1", type: "rules", params: { text: "Use" } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "2", type: "rules", params: {} }, "https://figpal.maxschulmeister.dev");
+		await vi.waitFor(() => expect(posted).toHaveLength(2));
+		expect(posted[1]).toMatchObject({ ok: true, result: "Use" });
+		expect(data.has("figpal.rules")).toBe(false);
+		events.close!();
+		expect(data.get("figpal.rules")).toBe("Use");
+	});
+});

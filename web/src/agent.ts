@@ -13,6 +13,7 @@ import { figmaExtension } from "./extensions/figma";
 import { skillsExtension } from "./extensions/skills";
 import { subagentExtension } from "./extensions/subagent";
 import { localExtension } from "./extensions/local";
+import { rulesExtension } from "./extensions/rules";
 import { webExtension } from "./extensions/web";
 import type { LocalFiles } from "./local";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
@@ -85,6 +86,8 @@ export async function startAgent(storage: Storage, options: AgentOptions): Promi
 	registry.install(skillsExtension());
 	registry.install(webExtension());
 	registry.install(subagentExtension({ subagentModels: options.subagentModels }));
+	// Last: the user's rules come after FigPal's own instructions.
+	registry.install(rulesExtension(options.bridge));
 	// The file tools only while a helper shares folders.
 	options.local?.subscribe((folders) => {
 		const extension = localExtension(options.local!.files, folders);

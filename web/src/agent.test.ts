@@ -149,11 +149,12 @@ function scriptedModels(toolName: string, args: Parameters<typeof fauxToolCall>[
 	return { models, requests };
 }
 
-/** A fake code.js that answers one request type. */
+/** A fake code.js that answers one request type. Each model request reads the rules: there are none, and they are not in `calls`. */
 function fakeBridge(reply: (params: unknown, type: string) => { result: unknown; attachments?: Attachment[] }) {
 	const calls: { type: string; params: unknown }[] = [];
 	const bridge = {
 		async request(type: string, params: unknown) {
+			if (type === "rules" || (type === "storage-get" && (params as { key?: string }).key === "figpal.rules")) return { result: "", attachments: [] };
 			calls.push({ type, params });
 			return { attachments: [], ...reply(params, type) };
 		},
@@ -560,8 +561,8 @@ describe("figma tools", () => {
 
 	it("stops waiting for code.js when the run is stopped", async () => {
 		const { models } = scriptedModels("figma_execute", { code: "await new Promise(() => {})" });
-		// code.js cannot stop the code, so the request never ends.
-		const bridge = { request: () => new Promise(() => {}) } as unknown as Pick<Bridge, "request">;
+		// code.js cannot stop the code, so the request never ends. It answers the other requests (the rules).
+		const bridge = { request: (type: string) => (type === "execute" ? new Promise(() => {}) : Promise.resolve({ result: "", attachments: [] })) } as unknown as Pick<Bridge, "request">;
 		const harness = await startAgent(new MemoryStorage(), { models, bridge, credentials: FIGMA_TOKEN, fileKey: "KEY1", subagentModels: () => [] });
 		const root = await currentThread(harness, SCRIPT);
 		const submission = await root.submit(userInput("Hang", FILE), context);

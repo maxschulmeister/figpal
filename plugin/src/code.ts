@@ -14,6 +14,7 @@ import {
 	type RequestMessage,
 	type RequestType,
 	type Result,
+	MAX_RULES,
 	STORAGE_PREFIX,
 	THEME_HASH_KEY,
 	UI_ORIGIN,
@@ -30,6 +31,18 @@ const CANVAS_MARGIN = 64;
 const SIZE_KEY = "figpal.size";
 const LOAD_TIMEOUT_MS = 10_000;
 const FILE_ID_KEY = "figpal.fileId";
+const RULES_KEY = "figpal.rules";
+// The UI saves the rules for this file at each key. They go into the file after a short wait, or when FigPal closes, so
+// that typing does not change the file at each key.
+const RULES_DELAY_MS = 500;
+let unsavedRules: string | undefined;
+let rulesTimer = 0;
+function writeRules(): void {
+	clearTimeout(rulesTimer);
+	if (unsavedRules === undefined) return;
+	figma.root.setPluginData(RULES_KEY, unsavedRules);
+	unsavedRules = undefined;
+}
 const MAX_SELECTION = 50;
 
 /** Only the origin of the UI can send requests, and only it gets the replies. */
@@ -254,6 +267,17 @@ const handlers: Handlers = {
 	async "storage-delete"({ key }) {
 		await figma.clientStorage.deleteAsync(storageKey(key));
 		return { result: null };
+	},
+
+	// In the file, not in clientStorage: everyone who runs FigPal on the file gets them.
+	async rules({ text }) {
+		if (text !== undefined) {
+			if (typeof text !== "string" || text.length > MAX_RULES) throw new Error(`Rules must be text of at most ${MAX_RULES} characters.`);
+			unsavedRules = text;
+			clearTimeout(rulesTimer);
+			rulesTimer = setTimeout(writeRules, RULES_DELAY_MS);
+		}
+		return { result: unsavedRules ?? figma.root.getPluginData(RULES_KEY) };
 	},
 
 	async variables() {
@@ -485,6 +509,8 @@ figma.on("selectionchange", () => {
 	if (!byAgent) agentSelection = undefined;
 	post({ kind: "event", type: "selection", ...selection(nodes), page: summarize(figma.currentPage), byAgent });
 });
+
+figma.on("close", writeRules);
 
 figma.on("currentpagechange", () => {
 	post({ kind: "event", type: "page", page: summarize(figma.currentPage) });

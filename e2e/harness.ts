@@ -232,7 +232,13 @@ export class Context {
 		});
 		page.on("pageerror", (error) => session.pageErrors.push(error.message));
 		const storage = new Map<string, unknown>();
+		let fileRules = "";
 		const handlers: Record<string, Handler> = {
+			// The rules of the file (in the file in Figma).
+			rules: ({ text }) => {
+				if (typeof text === "string") fileRules = text;
+				return { result: fileRules };
+			},
 			"storage-get": ({ key }) => ({ result: storage.get(key) ?? null }),
 			"storage-set": ({ key, value }) => {
 				storage.set(key, value);

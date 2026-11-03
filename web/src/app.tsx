@@ -28,6 +28,7 @@ import { uiCredentials } from "./credentials";
 import { clampThinkingLevel } from "@earendil-works/pi-ai/models";
 import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings, TEXT_SIZES, type TextSize, textModel } from "./settings";
 import { chipLabels } from "./node-chips";
+import { RulesPanel } from "./rules-panel";
 import { SkillsPanel } from "./skills-panel";
 import { connectLocal, type LocalFiles, type LocalState } from "./local";
 import { LocalHelperSettings } from "./local-panel";
@@ -369,11 +370,17 @@ export function App({ bridge }: { bridge: Bridge }) {
 								</Tooltip>
 								<Dialog.Title>Settings</Dialog.Title>
 								<Tabs.List className="ml-auto">
+									<Tabs.Tab value="rules">Rules</Tabs.Tab>
 									<Tabs.Tab value="models">Models</Tabs.Tab>
 									<Tabs.Tab value="skills">Skills</Tabs.Tab>
 									<Tabs.Tab value="figma">Access</Tabs.Tab>
 								</Tabs.List>
 							</Dialog.Header>
+							<Tabs.Panel value="rules" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
+								<Dialog.Section>
+									<RulesPanel bridge={bridge} />
+								</Dialog.Section>
+							</Tabs.Panel>
 							<Tabs.Panel value="models" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
 								<Dialog.Section>{accounts}</Dialog.Section>
 								<Dialog.Section>
