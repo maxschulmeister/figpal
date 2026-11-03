@@ -124,18 +124,21 @@ export function SkillsPanel() {
 		return `${verb} ${skill.name}.${replaced}${left}`;
 	};
 
-	/** Installs the skill. After a success, the field and the results are empty. */
-	const installCandidate = (candidate: Candidate) =>
-		act(async () => {
-			const message = await install(await fetchSkill(candidate.ref));
+	/**
+	 * Installs the skill. The field and the list stay, so the user can install more skills of the list (user report);
+	 * the button of the skill then says Reinstall.
+	 */
+	const installCandidate = (candidate: Candidate) => act(async () => install(await fetchSkill(candidate.ref)));
+
+	/** Enter installs a pasted skill, and empties the field after a success. Search results show without Enter. */
+	const submit = (event: FormEvent) => {
+		event.preventDefault();
+		if (!pasted) return;
+		void act(async () => {
+			const message = await install(await fetchSkill(direct(pasted).ref));
 			setQuery("");
 			return message;
 		});
-
-	/** Enter installs a pasted skill. Search results show without Enter. */
-	const submit = (event: FormEvent) => {
-		event.preventDefault();
-		if (pasted) void installCandidate(direct(pasted));
 	};
 
 	return (

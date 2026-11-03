@@ -15,4 +15,15 @@ export default async function scroll(t: Context) {
 	await session.ask("Build the atoms", "Paragraph 11");
 	const sizes = await session.frame.locator("body").evaluate(() => [document.scrollingElement!.scrollHeight, innerHeight]);
 	t.check("only the chat scrolls: the page is as tall as the window", sizes[0] === sizes[1], JSON.stringify(sizes));
+	// User report: after a long answer, the message box was below the window. The outer <main> scrolled, not the chat.
+	const layout = await session.frame.locator("body").evaluate(() => {
+		const main = document.querySelector("main")!;
+		const box = document.querySelector('[aria-label="Ask FigPal"]')!.getBoundingClientRect();
+		return { mainScrolls: main.scrollHeight > main.clientHeight, boxBottom: Math.round(box.bottom), window: innerHeight };
+	});
+	t.check(
+		"the message box stays at the bottom of the window; the chat scrolls, not the panel",
+		!layout.mainScrolls && layout.boxBottom <= layout.window,
+		JSON.stringify(layout),
+	);
 }
