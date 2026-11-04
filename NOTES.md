@@ -1,11 +1,5 @@
 # Notes for later work
 
-## Upgrades of the pi packages
-
-The pi packages (`@earendil-works/pi-ai`, `pi-durable`, `chord`) are pinned to 1.4.0.
-
-- **JSON Schema (breaking change expected):** the pi maintainer announced pi-schema (2026-10-31, https://x.com/badlogicgames/status/2116653884362097081), a JSON Schema builder and validator that works without `eval()`. pi-durable is expected to change its JSON validator, so the TypeBox schemas (`Type.Object`, `Type.String`, `Type.Union`, …) of the tool parameters can break. They are in `web/src/extensions/figma.ts`, `skills.ts` and `subagent.ts`. Before an upgrade, read the changelog, migrate the schemas, and run the tests and the Chrome runs.
-
 ## Local files and outside agents (user, 2026-11-01)
 
 Done (Phase 7): the local helper `local/cli.ts` gives local files (`--folder`) and access from outside (`figpal mcp`). Open:
@@ -42,4 +36,4 @@ Profiles with their own instructions, model, thinking level and skills, for the 
 
 ## Delete threads (from PLAN.md, not in Phase 7)
 
-Archive is done (2026-11-03): archived threads are at the end of the chat list, and opening one brings it back. Open: delete, to remove the entries so that they do not fill the browser storage. pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`): this needs pi-durable support, or a "Delete all threads of this file" action.
+Archive is done (2026-11-03): archived threads are at the end of the chat list, and opening one brings it back. Open: delete, to remove the entries so that they do not fill the browser storage. pi-durable 1.5.0 still cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`): this needs pi-durable support, or a "Delete all threads of this file" action.
