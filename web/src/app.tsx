@@ -34,7 +34,7 @@ import { connectLocal, type LocalFiles, type LocalState } from "./local";
 import { LocalHelperSettings } from "./local-panel";
 import { installDefaultSkills } from "./skills/defaults";
 import { EnabledModels, TextModel } from "./enabled-models";
-import { ThreadList, threadTitle, UnreadDot } from "./thread-list";
+import { type FoldingGroup, OPEN_GROUPS, ThreadList, threadTitle, UnreadDot } from "./thread-list";
 import {
 	currentThread,
 	archiveThread,
@@ -188,6 +188,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
 	// When the work of a chat ends, it is unread if another chat is open then (also work that a restart continues).
 	const [working, setWorking] = useState<ReadonlySet<ConversationId>>(new Set());
+	// The folded groups of the chat list, while FigPal is open.
+	const [openGroups, setOpenGroups] = useState(OPEN_GROUPS);
 	const watchDone = useMemo(() => harness && doneWatcher(harness, report, setWorking), [harness]);
 
 	const openConversation = useCallback(
@@ -317,6 +319,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 					<ThreadList
 						list={list}
 						working={working}
+						openGroups={openGroups}
+						onOpenGroup={(group: FoldingGroup, open: boolean) => setOpenGroups((current) => ({ ...current, [group]: open }))}
 						onOpen={(id: ConversationId) =>
 							id === thread?.id ? setShowThreads(false) : run(() => selectThread(harness, id))
 						}

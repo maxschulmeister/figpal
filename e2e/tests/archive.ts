@@ -22,6 +22,9 @@ export default async function archive(t: Context) {
 	t.check("the archived chat leaves the list, without a dialog", (await frame.getByRole("alertdialog").count()) === 0, "");
 	const archived = frame.getByRole("button", { name: "Archived (1)" });
 	await archived.click();
+	// The list never scrolls sideways (a heading wider than the list did, after its click).
+	const sideways = await frame.locator("main").evaluate((main) => main.scrollWidth - main.clientWidth);
+	t.check("the list is not wider than the panel", sideways === 0, String(sideways));
 	await t.screenshot(session, "archive");
 	await frame.getByRole("button", { name: /^Test chat/ }).click();
 	await frame.getByText("Done.").waitFor();

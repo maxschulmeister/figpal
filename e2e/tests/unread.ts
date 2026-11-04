@@ -1,6 +1,6 @@
 // Unread chats and the groups of the chat list (user requests): a chat whose answer ends while another chat is open
 // gets a dot in the list and in the header, until the user opens it. The list has the groups Done, Working, Settled
-// and Archived, like T3 Code's sidebar.
+// and Archived, like T3 Code's sidebar: Done at the top without a heading, the others at the bottom, each folds.
 
 import { type Context, text } from "../harness.ts";
 
@@ -40,6 +40,23 @@ export default async function unread(t: Context) {
 	await t.screenshot(session, "unread-list");
 	await frame.getByRole("button", { name: "Back to the chat" }).click();
 	t.check("the header shows a dot for it", /unread/i.test((await header.textContent()) ?? ""), (await header.textContent()) ?? "");
+	await header.click();
+	const layout = await frame.locator("main").evaluate((main) => {
+		const box = (name: string) => main.querySelector(`[aria-label="${name}"]`)!.getBoundingClientRect();
+		return { headings: [...main.querySelectorAll("button")].map((button) => button.textContent).filter((text) => /^(Done|Working|Settled)/.test(text ?? "")), doneTop: Math.round(box("Done").top - main.getBoundingClientRect().top), settledBottom: Math.round(main.getBoundingClientRect().bottom - box("Settled").bottom) };
+	});
+	t.check(
+		"Done is at the top without a heading; Settled is at the bottom, with a heading that folds",
+		JSON.stringify(layout.headings) === JSON.stringify(["Settled (1)"]) && layout.doneTop < 16 && layout.settledBottom <= 32,
+		JSON.stringify(layout),
+	);
+	await frame.getByRole("button", { name: "Settled (1)" }).click();
+	t.check("a click folds the group", (await group("Settled").getByRole("listitem").count()) === 0, "");
+	await frame.getByRole("button", { name: "Back to the chat" }).click();
+	await header.click();
+	t.check("the group stays folded", (await group("Settled").getByRole("listitem").count()) === 0, "");
+	await frame.getByRole("button", { name: "Settled (1)" }).click();
+	await frame.getByRole("button", { name: "Back to the chat" }).click();
 
 	await header.click();
 	await group("Done").getByRole("button").first().click();
