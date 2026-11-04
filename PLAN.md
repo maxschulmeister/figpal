@@ -657,6 +657,8 @@ Checks:
 
 - GitHub rate limit (user report: "The GitHub rate limit (60 requests in an hour) is reached"; GitHub allows 60 API requests in an hour without a login, for all programs behind the IP address): measured in the harness, the list of a repository and each install of its skills (without skills.sh) read the same tree again, and the Figma skills at start read it once for each skill when skills.sh fails (16 calls). Now a tree is kept for 10 minutes and shared, also by calls at the same time; a failed read is not kept; expired trees go; Check for update reads fresh. The error says when GitHub allows requests again (`x-ratelimit-reset`, rounded up). Reviews: reuse none; efficiency 1 (expired trees in memory), fixed; quality 2: the time in the text could come before the reset, fixed; a push to the repository within the 10 minutes can install a skill with the file list of the kept tree: not fixed (rare; a fix costs one more call for each repository; Check for update finds it).
 
+- Unread chats (user request: "an indicator in the chat list for any chats that are done and unread"): when the work of a chat ends (`waitForIdle` after each message) and another chat is open, `noteDone` marks it `unread` in the thread list (saved, so it survives a reload); opening it (`selectThread`) clears it. A blue dot (`--figma-color-bg-brand`) after the title in the list, and next to the chat title in the header while another chat is unread; screen readers get "Unread". Not marked: a run that a restart continues (no message was sent in this window). New e2e check `unread`. No reviews (a change that the user asked for).
+
 ## Open questions
 
 None at the moment.
