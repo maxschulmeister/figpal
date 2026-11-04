@@ -1,8 +1,9 @@
 // The `figma` extension: tools that read and change the open file through code.js, and the rules for the model.
 
 import { awaitWithContext } from "@earendil-works/chord/context";
-import { type CredentialStore, type ImageContent, type Static, type TextContent, Type } from "@earendil-works/pi-ai";
+import type { CredentialStore, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
+import { arr, int, map, num, obj, opt, type Static, str, unknown } from "@earendil-works/pi-schema";
 import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMATS, MODEL_IMAGE_MAX_PX, MODEL_IMAGES } from "@figpal/shared";
 import { AUDIT, auditDesignSystem } from "../audit";
 import type { Bridge } from "../bridge";
@@ -50,29 +51,33 @@ function images(attachments: Attachment[]): ImageContent[] {
 const text = (value: string): TextContent => ({ type: "text", text: value });
 
 /** The parameters of figma_export_nodes. */
-export const NODE_EXPORT = Type.Object({
-	node_ids: Type.Array(Type.String(), { minItems: 1 }),
-	format: literals(EXPORT_FORMATS),
-	scale: Type.Optional(Type.Number({ description: "Not for SVG and PDF. MP4, WEBM and GIF: 0.5, 0.75, 1, 1.5, 2, 3 or 4. Default 1." })),
-});
+export const NODE_EXPORT = obj(
+	{
+		node_ids: arr(str(), { minItems: 1 }),
+		format: literals(EXPORT_FORMATS),
+		scale: opt(num({ description: "Not for SVG and PDF. MP4, WEBM and GIF: 0.5, 0.75, 1, 1.5, 2, 3 or 4. Default 1." })),
+	},
+	{ open: true },
+);
 
 /** Small and fast: the frames are for the model. 24 fps puts a frame at most 42 ms before the time. */
 const FRAMES_VIDEO = { format: "WEBM", fps: 24, quality: "LOW", width: 480 } as const;
 
 /** The parameters of figma_animation_frames. Each image stays in the conversation: Figma's skill uses 4 to 6 frames. */
-const ANIMATION_FRAMES = Type.Object({
-	node_id: Type.String({ description: "A top-level frame, or a layer in it." }),
-	times: Type.Optional(
-		Type.Array(Type.Number({ minimum: 0 }), {
-			minItems: 1,
-			maxItems: 6,
-			description: `In seconds. Default: ${DEFAULT_FRAMES} frames from start to end.`,
-		}),
-	),
-	width: Type.Optional(
-		Type.Integer({ minimum: 120, maximum: 1920, description: `Default ${FRAMES_VIDEO.width}. Larger to read small text.` }),
-	),
-});
+const ANIMATION_FRAMES = obj(
+	{
+		node_id: str({ description: "A top-level frame, or a layer in it." }),
+		times: opt(
+			arr(num({ minimum: 0 }), {
+				minItems: 1,
+				maxItems: 6,
+				description: `In seconds. Default: ${DEFAULT_FRAMES} frames from start to end.`,
+			}),
+		),
+		width: opt(int({ minimum: 120, maximum: 1920, description: `Default ${FRAMES_VIDEO.width}. Larger to read small text.` })),
+	},
+	{ open: true },
+);
 
 const seconds = (value: number) => `${Number(value.toFixed(2))} s`;
 
@@ -120,12 +125,13 @@ export function figmaExtension(
 					"`pi.attach(bytes, { mime, name })` sends an image (PNG, JPEG, GIF, WebP) to you; other files go to the user, but for files that the user asks for, use the export tools.",
 					"Checks of a component set (node or ID; return their JSON): `pi.auditAccessibility` scores states, focus, target size and color-blind contrast (figma_lint checks text contrast); `pi.analyzeComponentSet` gives the variant axes, the CSS state of each variant and what it changes.",
 				].join(" "),
-				parameters: Type.Object({
-					code: Type.String(),
-					timeout_ms: Type.Optional(
-						Type.Number({ description: `Default ${EXECUTE_TIMEOUT_MS.default}, maximum ${EXECUTE_TIMEOUT_MS.max}.` }),
-					),
-				}),
+				parameters: obj(
+					{
+						code: str(),
+						timeout_ms: opt(num({ description: `Default ${EXECUTE_TIMEOUT_MS.default}, maximum ${EXECUTE_TIMEOUT_MS.max}.` })),
+					},
+					{ open: true },
+				),
 				// When the run stops, stop the wait. code.js cannot stop the code, and it runs the next call after it.
 				execute: async ({ code, timeout_ms }, _api, context) => {
 					const request = bridge.request("execute", { code, timeoutMs: timeout_ms });
@@ -140,10 +146,7 @@ export function figmaExtension(
 				name: "figma_screenshot",
 				description:
 					`Returns a PNG of a node or a page. Without node_id: the first selected node, else the current page. The longest side is at most ${MODEL_IMAGE_MAX_PX} px.`,
-				parameters: Type.Object({
-					node_id: Type.Optional(Type.String()),
-					scale: Type.Optional(Type.Number({ description: "Default 1." })),
-				}),
+				parameters: obj({ node_id: opt(str()), scale: opt(num({ description: "Default 1." })) }, { open: true }),
 				replay: "safe",
 				execute: async ({ node_id, scale }, _api, context) => {
 					const request = bridge.request("screenshot", { nodeId: node_id && nodeIdOf(node_id), scale });
@@ -160,11 +163,7 @@ export function figmaExtension(
 					"path starts with /v1/ or /v2/ and can have a query, for example /v1/files/KEY/comments. body is JSON for POST and PUT.",
 					`The answer is JSON, cut after ${REST_OUTPUT_BYTES.toLocaleString("en-US")} bytes.`,
 				].join(" "),
-				parameters: Type.Object({
-					method: literals(["GET", "POST", "PUT", "DELETE"]),
-					path: Type.String(),
-					body: Type.Optional(Type.Object({}, { additionalProperties: true })),
-				}),
+				parameters: obj({ method: literals(["GET", "POST", "PUT", "DELETE"]), path: str(), body: opt(map(unknown())) }, { open: true }),
 				// Not safe to run again after a restart: a POST would, for example, add a comment two times.
 				// pi-durable keeps the head of the output and tells the model how much it dropped.
 				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
@@ -212,18 +211,21 @@ export function figmaExtension(
 			defineTool({
 				name: "figma_diff_versions",
 				description: `A Markdown changelog between two versions of the open file. ${DIFF_SCOPE} It uses 2 REST calls (4 with node_ids); View and Collab seats get about 20 a month.`,
-				parameters: Type.Object({
-					from_version: Type.String({
-						description: 'The older version: an ID from GET /v1/files/KEY/versions (newest first), or "current".',
-					}),
-					to_version: Type.Optional(Type.String({ description: 'Default "current": the file now.' })),
-					node_ids: Type.Optional(Type.Array(Type.String(), { description: "For example component sets." })),
-					mode: Type.Optional(
-						literals<DiffMode>(["summary", "standard", "detailed"], {
-							description: "summary: counts. standard (default): names and counts. detailed: each property and binding.",
+				parameters: obj(
+					{
+						from_version: str({
+							description: 'The older version: an ID from GET /v1/files/KEY/versions (newest first), or "current".',
 						}),
-					),
-				}),
+						to_version: opt(str({ description: 'Default "current": the file now.' })),
+						node_ids: opt(arr(str(), { description: "For example component sets." })),
+						mode: opt(
+							literals<DiffMode>(["summary", "standard", "detailed"], {
+								description: "summary: counts. standard (default): names and counts. detailed: each property and binding.",
+							}),
+						),
+					},
+					{ open: true },
+				),
 				outputLimits: { maxBytes: REST_OUTPUT_BYTES, retain: "head" },
 				// Read-only.
 				replay: "safe",

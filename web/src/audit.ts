@@ -2,7 +2,7 @@
 // components and styles that code.js reads. No REST calls and no cache: each call scores the file as it is now. The
 // report text is adapted from upstream's figma_audit_design_system_report (src/apps/design-system-dashboard/server.ts).
 
-import { type Static, Type } from "@earendil-works/pi-ai";
+import { obj, opt, type Static } from "@earendil-works/pi-schema";
 import type { Bridge } from "./bridge";
 import type { PillDetails } from "./lint";
 import { literals } from "./schema";
@@ -20,11 +20,10 @@ const CATEGORIES = [
 ] as const;
 
 /** The parameters of figma_audit_design_system. */
-export const AUDIT = Type.Object({
-	category: Type.Optional(
-		literals(CATEGORIES, { description: "Its findings, with examples, locations and fixes. Default: a summary of all." }),
-	),
-});
+export const AUDIT = obj(
+	{ category: opt(literals(CATEGORIES, { description: "Its findings, with examples, locations and fixes. Default: a summary of all." })) },
+	{ open: true },
+);
 
 /** The status of the overall score, for the report and the chat. */
 export const STATUS_LABELS: Record<DashboardData["status"], string> = { good: "Good", "needs-work": "Needs work", poor: "Poor" };

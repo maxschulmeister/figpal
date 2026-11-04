@@ -12,11 +12,11 @@ import {
 	InMemoryCredentialStore,
 	type Message,
 	type SystemMessage,
-	Type,
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import type { InputSubmissionDraft } from "@earendil-works/pi-durable";
+import { type InputSubmissionDraft, LiveDoc, type TranscriptView } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
+import { obj } from "@earendil-works/pi-schema";
 import type { Attachment, FileInfo } from "@figpal/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentModels, startAgent, userInput } from "./agent";
@@ -24,7 +24,7 @@ import { type FileDetails, fileById } from "./files";
 import { chipItem } from "./node-chips";
 import type { Bridge } from "./bridge";
 import { currentThread } from "./threads";
-import { toThread } from "./transcript";
+import { toThread, watchTranscript } from "./transcript";
 import { removeSkill, saveSkill } from "./skills/store";
 import { videoFrames } from "./video-frames";
 
@@ -94,7 +94,7 @@ describe("createAgentModels", () => {
 		await credentials.modify("openai-codex", async () => ({ type: "oauth", access, refresh: "r", expires: Date.now() + 3_600_000 }));
 		const models = createAgentModels(credentials, "https://figpal.example");
 		const messages = [{ role: "user" as const, content: "Hi", timestamp: 1 }];
-		const agentRequest = { messages, tools: [{ name: "figma_execute", description: "Runs code.", parameters: Type.Object({}) }] };
+		const agentRequest = { messages, tools: [{ name: "figma_execute", description: "Runs code.", parameters: obj({}, { open: true }) }] };
 		// Only the requests count: the answers are errors.
 		const options = { maxRetries: 0 };
 		const claude = models.getModel("anthropic", "claude-sonnet-5-5")!;
@@ -178,7 +178,8 @@ async function run(
 	const root = await currentThread(harness, SCRIPT);
 	const submission = await root.submit(typeof text === "string" ? userInput(text, FILE) : text, context);
 	const settled = await submission.wait(context);
-	const view = (await root.viewState(context)).value;
+	let view!: TranscriptView;
+	await (await watchTranscript(root, (value) => (view = value), context)).stop();
 	await harness.close(context);
 	return { settled, view };
 }
@@ -567,8 +568,8 @@ describe("figma tools", () => {
 		const root = await currentThread(harness, SCRIPT);
 		const submission = await root.submit(userInput("Hang", FILE), context);
 		await vi.waitFor(async () => {
-			const live = (await root.viewState(context)).value.docs["pi.live"] as { tools?: { status: string }[] };
-			expect(live.tools?.[0]?.status).toBe("running");
+			const live = await harness.snapshot(LiveDoc, root.id, context);
+			expect(live?.tools?.[0]?.status).toBe("running");
 		});
 		await root.abort(context);
 		expect((await submission.wait(context)).status).toBe("unanswered");

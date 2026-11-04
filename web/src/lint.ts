@@ -1,23 +1,24 @@
 // Lint: the checks of figma-console-mcp (plugin/src/vendor/figma-console-mcp/checks.ts) on the layers of the open file,
 // with APCA, the contrast method of the WCAG 3 drafts. The chat shows a pill for each rule: a click selects its layers.
 
-import { type Static, Type } from "@earendil-works/pi-ai";
+import { arr, int, obj, opt, type Static, str } from "@earendil-works/pi-schema";
 import type { Bridge } from "./bridge";
 import { nodeIdOf } from "./schema";
 
 /** The parameters of figma_lint. */
-export const LINT = Type.Object({
-	node_id: Type.Optional(Type.String({ description: "Default: the current page." })),
-	rules: Type.Optional(
-		Type.Array(Type.String(), {
-			description:
-				'Groups: "wcag" (WCAG 2 and APCA), "best-practice", "design-system", "layout", "all"; or rule IDs from an earlier result. Default: wcag, design-system and layout.',
-		}),
-	),
-	max_findings: Type.Optional(
-		Type.Integer({ minimum: 1, maximum: 500, description: "Default 200. A text that fails both contrast checks counts twice." }),
-	),
-});
+export const LINT = obj(
+	{
+		node_id: opt(str({ description: "Default: the current page." })),
+		rules: opt(
+			arr(str(), {
+				description:
+					'Groups: "wcag" (WCAG 2 and APCA), "best-practice", "design-system", "layout", "all"; or rule IDs from an earlier result. Default: wcag, design-system and layout.',
+			}),
+		),
+		max_findings: opt(int({ minimum: 1, maximum: 500, description: "Default 200. A text that fails both contrast checks counts twice." })),
+	},
+	{ open: true },
+);
 
 /** Layers that the user can select from a step of the chat. */
 export type PillDetails = { pills: { label: string; nodeIds: string[] }[] };

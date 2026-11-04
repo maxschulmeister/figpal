@@ -2,7 +2,7 @@
 // while a helper with folders is connected, so the tools cost no tokens without one.
 
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
-import { Type } from "@earendil-works/pi-ai";
+import { obj, opt, str } from "@earendil-works/pi-schema";
 import type { LocalFiles } from "../local";
 
 const text = (value: string) => ({ type: "text" as const, text: value });
@@ -23,7 +23,7 @@ export function localExtension(files: LocalFiles, folders: string[]) {
 			defineTool({
 				name: "local_list",
 				description: "Lists a shared folder: its files, and its folders with / at the end. Without path: the shared folders.",
-				parameters: Type.Object({ path: Type.Optional(Type.String()) }),
+				parameters: obj({ path: opt(str()) }, { open: true }),
 				outputLimits: { maxBytes: OUTPUT_BYTES, retain: "head" },
 				replay: "safe",
 				execute: async ({ path = "" }) => {
@@ -34,7 +34,7 @@ export function localExtension(files: LocalFiles, folders: string[]) {
 			defineTool({
 				name: "local_read",
 				description: "Reads a text file of a shared folder, at most 1 MB.",
-				parameters: Type.Object({ path: Type.String() }),
+				parameters: obj({ path: str() }, { open: true }),
 				outputLimits: { maxBytes: OUTPUT_BYTES, retain: "head" },
 				replay: "safe",
 				execute: async ({ path }) => ({ output: [text((await files({ op: "read", path })) as string)] }),
@@ -42,7 +42,7 @@ export function localExtension(files: LocalFiles, folders: string[]) {
 			defineTool({
 				name: "local_write",
 				description: "Writes a text file in a shared folder, and makes its folders. It replaces a file that exists.",
-				parameters: Type.Object({ path: Type.String(), content: Type.String() }),
+				parameters: obj({ path: str(), content: str() }, { open: true }),
 				// The same content again gives the same file.
 				replay: "safe",
 				execute: async ({ path, content }) => {

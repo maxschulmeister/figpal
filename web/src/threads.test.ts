@@ -222,13 +222,12 @@ describe("threads", () => {
 		const { harness, list } = await open();
 		const thread = await currentThread(harness, AGENT);
 		await say(thread, "One");
-		const { entries } = (await thread.viewState(context)).value;
-		const firstAnswer = entries.at(-1)!.id;
+		const ids = async (conversation: Conversation) => (await conversation.entries({ order: "ascending" }, 100, undefined, context)).items.map((entry) => entry.id);
+		const entries = await ids(thread);
 		await say(thread, "Two");
 
-		const fork = await forkThread(thread, firstAnswer, "Numbers");
-		const forkEntries = (await fork.viewState(context)).value.entries;
-		expect(forkEntries.map((entry) => entry.id)).toEqual(entries.map((entry) => entry.id));
+		const fork = await forkThread(thread, entries.at(-1)!, "Numbers");
+		expect(await ids(fork)).toEqual(entries);
 		expect((await list()).threads[0]).toMatchObject({ id: fork.id, title: "Numbers (fork)" });
 		expect((await list()).current).toBe(fork.id);
 	});

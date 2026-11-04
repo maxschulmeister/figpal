@@ -4,8 +4,9 @@
 
 import type { Context } from "@earendil-works/chord";
 import { boundOutput } from "@earendil-works/chord/output";
-import { type AssistantMessage, contentText, Type } from "@earendil-works/pi-ai";
+import { type AssistantMessage, contentText } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";
+import { arr, obj, opt, str } from "@earendil-works/pi-schema";
 import {
 	AssistantEntry,
 	type ConversationId,
@@ -67,15 +68,21 @@ export function subagentExtension(options: Options): Extension {
 			defineTool({
 				name: "subagent",
 				description: `Runs 1 to ${MAX_TASKS} tasks at the same time, each in a subagent: a new conversation with your other tools and without your history. Returns the last answer of each subagent.`,
-				parameters: Type.Object({
-					tasks: Type.Array(
-						Type.Object({
-							task: Type.String({ description: "All that the subagent must know: the goal, node IDs, what to return." }),
-							model: Type.Optional(Type.String({ description: "A model from the subagents section." })),
-						}),
-						{ minItems: 1, maxItems: MAX_TASKS },
-					),
-				}),
+				parameters: obj(
+					{
+						tasks: arr(
+							obj(
+								{
+									task: str({ description: "All that the subagent must know: the goal, node IDs, what to return." }),
+									model: opt(str({ description: "A model from the subagents section." })),
+								},
+								{ open: true },
+							),
+							{ minItems: 1, maxItems: MAX_TASKS },
+						),
+					},
+					{ open: true },
+				),
 				// A rerun after a restart finds the children and the submissions that it made before.
 				replay: "safe",
 				execute: async ({ tasks }, api, context) => {

@@ -24,11 +24,11 @@ import {
 } from "@assistant-ui/react";
 import { $createDirectiveNodeWithFormatter, LexicalComposerInput } from "@assistant-ui/react-lexical";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { ImageContent, ModelThinkingLevel, Static, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
+import type { Static } from "@earendil-works/pi-schema";
 import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai/models";
-import type { AgentState, Conversation, ConversationId, ConversationView, EntryId, Submission } from "@earendil-works/pi-durable";
+import type { AgentState, Conversation, ConversationId, EntryId, Submission, TranscriptView } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
 import {
 	Button,
@@ -61,7 +61,7 @@ import { nodeIdsOfLink, quoteItem, quoteLines } from "./node-chips";
 import { ChipText, ComposerChip, SelectionChips } from "./selection-chips";
 import { enabledModelGroups, type Settings, THINKING_LABELS, type TextSize } from "./settings";
 import { exportTokens, type TokenExport } from "./tokens";
-import { type Thread, toThread } from "./transcript";
+import { type Thread, toThread, watchTranscript } from "./transcript";
 
 type ModelChoice = Pick<Settings, "model" | "thinkingLevel">;
 
@@ -106,28 +106,37 @@ const TOOL_LABELS: Record<string, string> = {
 	subagent: "Subagents",
 };
 
-/** The messages of the conversation, with its changes. Undefined until they are loaded. */
-function useThread(conversation: Conversation | undefined, onError: (message: string) => void): Thread | undefined {
-	const [view, setView] = useState<ConversationView>();
+type Watch = Awaited<ReturnType<typeof watchTranscript>>;
+
+/**
+ * The messages of the conversation, with its changes: the thread is undefined until they are loaded. A long
+ * conversation starts with its newest messages, and `loadEarlier` adds the ones before them.
+ */
+function useThread(conversation: Conversation | undefined, onError: (message: string) => void) {
+	const [view, setView] = useState<TranscriptView>();
+	const [watch, setWatch] = useState<Watch>();
 	useEffect(() => {
 		if (!conversation) return;
-		let state: AttachedReplicatedState<ConversationView> | undefined;
+		let attached: Watch | undefined;
 		let closed = false;
-		conversation.viewState(context).then(
-			(attached) => {
-				if (closed) return attached.dispose();
-				state = attached;
-				// It also gives the current value at once.
-				attached.subscribe(setView);
+		const show = (value: TranscriptView) => {
+			if (!closed) setView(value);
+		};
+		watchTranscript(conversation, show, context).then(
+			(value) => {
+				if (closed) return void value.stop();
+				attached = value;
+				setWatch(value);
 			},
 			(error) => onError(String(error)),
 		);
 		return () => {
 			closed = true;
-			state?.dispose();
+			void attached?.stop();
 		};
 	}, [conversation, onError]);
-	return useMemo(() => (view ? toThread(view) : undefined), [view]);
+	const thread = useMemo(() => (view ? toThread(view) : undefined), [view]);
+	return { thread, loadEarlier: watch?.loadEarlier };
 }
 
 /** The messages are already in the assistant-ui format. A stable function keeps assistant-ui's message cache. */
@@ -157,7 +166,7 @@ type ChatProps = Omit<Actions, "exportAgain" | "selectNodes"> & {
 export function Chat(props: ChatProps) {
 	const { thread: conversation, file } = props;
 	const [failure, setFailure] = useState<string>();
-	const thread = useThread(conversation, setFailure);
+	const { thread, loadEarlier } = useThread(conversation, setFailure);
 	const [sendError, setSendError] = useState<string>();
 	/** The editor of the composer, for Reply: it is outside the composer. */
 	const editor = useRef<LexicalEditor>(undefined);
@@ -198,6 +207,8 @@ export function Chat(props: ChatProps) {
 		convertMessage: asIs,
 		isRunning: thread?.isRunning,
 		isLoading: thread === undefined,
+		hasEarlier: thread?.hasEarlier,
+		onLoadEarlier: loadEarlier,
 		onNew: async (message) => {
 			const text = textOf(message);
 			try {
@@ -240,8 +251,20 @@ export function Chat(props: ChatProps) {
 						<AuiIf condition={(state) => state.thread.isEmpty}>
 							<p className="m-auto text-lg text-secondary">Ask FigPal to read or change this file.</p>
 						</AuiIf>
+						{/* A long chat opens with its newest messages. */}
+						<AuiIf condition={(state) => state.thread.hasEarlier}>
+							<ThreadPrimitive.LoadEarlier asChild>
+								<Button variant="secondary" className="self-center">
+									Load earlier
+								</Button>
+							</ThreadPrimitive.LoadEarlier>
+						</AuiIf>
 						<ThreadPrimitive.Messages>{renderMessage}</ThreadPrimitive.Messages>
-						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-2 bg-default pb-2">
+						{/* The free space of a short chat; -mb-4 takes back the gap that this div adds. Not a margin of the footer:
+						    assistant-ui adds that margin to the footer height, measures it again only when the footer changes size, and
+						    then took the chat for "at the bottom" after a scroll up: new content and "Load earlier" scrolled it to the end. */}
+						<div className="-mb-4 mt-auto" />
+						<ThreadPrimitive.ViewportFooter className="sticky bottom-0 flex flex-col gap-2 bg-default pb-2">
 							{retry && <p className="text-secondary">The model call failed and runs again soon: {retry.error}</p>}
 							{sendError && <p className="text-danger">{sendError}</p>}
 							{thread && <WaitingMessages queue={thread.queue} />}
@@ -983,7 +1006,8 @@ function SubagentTranscript({ id }: { id: ConversationId }) {
 			(error) => setFailure(String(error)),
 		);
 	}, [openConversation, id]);
-	const thread = useThread(conversation, setFailure);
+	// It loads all entries: it has no user message of FigPal (see watchTranscript).
+	const { thread } = useThread(conversation, setFailure);
 	const runtime = useExternalStoreRuntime<ThreadMessageLike>({
 		messages: thread?.messages ?? [],
 		convertMessage: asIs,

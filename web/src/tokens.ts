@@ -2,7 +2,7 @@
 // formatters are copied from figma-console-mcp (vendor/figma-console-mcp/tokens). The export is read-only, so the chat
 // can run it again without the agent after a restart.
 
-import { type Static, Type } from "@earendil-works/pi-ai";
+import { arr, bool, obj, opt, type Static, str } from "@earendil-works/pi-schema";
 import type { Attachment } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { filesNote } from "./files";
@@ -11,26 +11,29 @@ import { type FigmaVariablesPayload, convertFigmaVariablesToDocument } from "./v
 import { format } from "./vendor/figma-console-mcp/tokens/formatters/index";
 
 /** The parameters of figma_export_tokens. Less is not offered: upstream has only a stub. */
-export const TOKEN_EXPORT = Type.Object({
-	format: literals([
-		"dtcg",
-		"tokens-studio",
-		"css-vars",
-		"tailwind-v4",
-		"tailwind-v3",
-		"scss",
-		"ts-module",
-		"json-flat",
-		"json-nested",
-		"style-dictionary-v3",
-	] as const),
-	collections: Type.Optional(Type.Array(Type.String(), { description: "Names or IDs. Default: all." })),
-	modes: Type.Optional(Type.Array(Type.String(), { description: "Mode names. Default: all." })),
-	prefix: Type.Optional(Type.String({ description: "Before each name: css-vars, scss, tailwind-v4, json-flat, ts-module." })),
-	split_by_mode: Type.Optional(Type.Boolean({ description: "One file for each mode: dtcg, css-vars, tailwind-v4, scss, style-dictionary-v3." })),
-	split_by_collection: Type.Optional(Type.Boolean()),
-	dtcg_dialect: Type.Optional(literals(["legacy", "2025"] as const, { description: "2025: DTCG 2025.10 colors and dimensions (Style Dictionary v5), in dtcg and json." })),
-});
+export const TOKEN_EXPORT = obj(
+	{
+		format: literals([
+			"dtcg",
+			"tokens-studio",
+			"css-vars",
+			"tailwind-v4",
+			"tailwind-v3",
+			"scss",
+			"ts-module",
+			"json-flat",
+			"json-nested",
+			"style-dictionary-v3",
+		] as const),
+		collections: opt(arr(str(), { description: "Names or IDs. Default: all." })),
+		modes: opt(arr(str(), { description: "Mode names. Default: all." })),
+		prefix: opt(str({ description: "Before each name: css-vars, scss, tailwind-v4, json-flat, ts-module." })),
+		split_by_mode: opt(bool({ description: "One file for each mode: dtcg, css-vars, tailwind-v4, scss, style-dictionary-v3." })),
+		split_by_collection: opt(bool()),
+		dtcg_dialect: opt(literals(["legacy", "2025"] as const, { description: "2025: DTCG 2025.10 colors and dimensions (Style Dictionary v5), in dtcg and json." })),
+	},
+	{ open: true },
+);
 export type TokenExport = Static<typeof TOKEN_EXPORT>;
 
 /** The model gets the start of the first file, to describe it. */

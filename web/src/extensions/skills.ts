@@ -1,8 +1,8 @@
 // The `skills` extension: the enabled skills in the prompt, and tools that read them from the global store.
 
 import { boundOutput } from "@earendil-works/chord/output";
-import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section, type ToolDiagnostic } from "@earendil-works/pi-durable";
+import { int, obj, opt, str } from "@earendil-works/pi-schema";
 import type { GrepResult } from "../skills/grep";
 import { listSkills, type SkillFile, skillFiles } from "../skills/store";
 
@@ -94,11 +94,14 @@ export function skillsExtension({ grep: search = grepInWorker }: { grep?: Grep }
 				name: "skill_read",
 				description:
 					"Reads a file of a skill. Without path: SKILL.md and the list of the other files. A long file comes in parts.",
-				parameters: Type.Object({
-					name: Type.String(),
-					path: Type.Optional(Type.String({ description: "Default SKILL.md." })),
-					start_line: Type.Optional(Type.Integer({ minimum: 1, description: "Line to start at. Default 1." })),
-				}),
+				parameters: obj(
+					{
+						name: str(),
+						path: opt(str({ description: "Default SKILL.md." })),
+						start_line: opt(int({ minimum: 1, description: "Line to start at. Default 1." })),
+					},
+					{ open: true },
+				),
 				replay: "safe",
 				execute: async ({ name, path = "SKILL.md", start_line = 1 }) => {
 					const files = await enabledSkillFiles(name);
@@ -115,11 +118,7 @@ export function skillsExtension({ grep: search = grepInWorker }: { grep?: Grep }
 			defineTool({
 				name: "skill_grep",
 				description: "Finds lines that match a regular expression in the files of a skill. Gives path:line: text.",
-				parameters: Type.Object({
-					name: Type.String(),
-					pattern: Type.String(),
-					path: Type.Optional(Type.String({ description: "Search only this file." })),
-				}),
+				parameters: obj({ name: str(), pattern: str(), path: opt(str({ description: "Search only this file." })) }, { open: true }),
 				// The Web Worker stops a slow pattern, so a rerun after a restart cannot block the UI.
 				replay: "safe",
 				execute: async ({ name, pattern, path }) => {

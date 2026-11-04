@@ -5,7 +5,7 @@ import type { CompleteAttachment } from "@assistant-ui/react";
 import type { Api, CredentialStore, ImageContent, Model, Provider, StreamOptions, TextContent, TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { createRegistry, Harness, type InputSubmissionDraft, type Storage } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type InputSubmissionDraft, type Report, type Storage } from "@earendil-works/pi-durable";
 import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
 import type { FileInfo } from "@figpal/shared";
 import type { Bridge } from "./bridge";
@@ -95,7 +95,7 @@ export async function startAgent(storage: Storage, options: AgentOptions): Promi
 		else registry.uninstall(extension);
 	});
 	// pi-durable reports failures of the storage, tasks and extensions here, and nowhere else.
-	const onReport = (error: unknown, info: unknown) => console.error("FigPal agent:", info, error);
+	const onReport = (report: Report) => console.error("FigPal agent:", report);
 	const harness = await Harness.open(storage, { models: options.models, registry, onReport }, context);
 	harness.resume();
 	return harness;

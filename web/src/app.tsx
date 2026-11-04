@@ -1,8 +1,7 @@
 // Start-up and everything around the chat: the threads, the accounts and the settings.
 
-import type { AttachedReplicatedState } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { AgentChange, Conversation, ConversationId, EntryId, Harness, SubmissionId } from "@earendil-works/pi-durable";
+import type { AgentChange, Conversation, ConversationId, DocumentWatch, EntryId, Harness, SubmissionId } from "@earendil-works/pi-durable";
 import type { FileInfo } from "@figpal/shared";
 import {
 	Button,
@@ -210,16 +209,20 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const hasThread = thread !== undefined;
 	useEffect(() => {
 		if (!harness || !hasThread) return;
-		let state: AttachedReplicatedState<Readonly<List> | null> | undefined;
+		let watch: DocumentWatch<List> | undefined;
 		let closed = false;
-		harness.documentState(Threads, context).then((attached) => {
-			if (closed) return attached?.dispose();
-			state = attached;
-			attached?.subscribe((value) => setList(value ?? undefined));
+		harness.watchDoc(Threads, context).then((attached) => {
+			if (closed) return void attached?.stop();
+			watch = attached;
+			if (!attached) return;
+			setList(attached.value);
+			attached.start(async (call) => {
+				if (call.kind === "value") setList(call.value);
+			});
 		}, fail);
 		return () => {
 			closed = true;
-			state?.dispose();
+			void watch?.stop();
 		};
 	}, [harness, hasThread, fail]);
 
