@@ -29,7 +29,8 @@ export default async function background(t: Context) {
 	await hide.hover();
 	await t.screenshot(session, "background");
 	await hide.click();
-	await session.frame.getByRole("button", { name: /Make a card/ }).first().click();
+	// The title in the header opens the chat list (its name can be the AI name already).
+	await session.frame.locator("header button").first().click();
 	for (let i = 0; i < 50 && requests.length < 2; i++) await session.page.waitForTimeout(100);
 	t.check(
 		"the panel hides with a notice, and the notice says when the agent is done",

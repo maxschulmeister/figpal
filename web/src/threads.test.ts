@@ -4,7 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it, vi } from "vitest";
-import { currentThread, archiveThread, forkThread, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, sortedThreads, Threads } from "./threads";
+import { currentThread, archiveThread, forkThread, archivedThreads, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, sortedThreads, Threads } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -222,17 +222,30 @@ describe("threads", () => {
 		expect((await list()).current).toBe(fork.id);
 	});
 
-	it("archives a thread: it leaves the list, and opens the newest other thread", async () => {
+	it("archives a thread: it leaves the list for Archived, and the newest other thread opens", async () => {
 		const { harness, list } = await open();
 		const first = await currentThread(harness, AGENT);
 		const second = await newThread(harness, AGENT);
 		const next = await archiveThread(harness, second.id, AGENT);
 		expect(next.id).toBe(first.id);
-		expect(await list()).toMatchObject({ threads: [{ id: first.id }], current: first.id });
+		expect(sortedThreads(await list()).map((info) => info.id)).toEqual([first.id]);
+		expect(archivedThreads(await list()).map((info) => info.id)).toEqual([second.id]);
+		expect((await list()).current).toBe(first.id);
 		// Without a thread, a new one opens.
 		const last = await archiveThread(harness, first.id, AGENT);
-		expect((await list()).threads.map((info) => info.id)).toEqual([last.id]);
-		expect((await selectThread(harness, last.id)).id).toBe(last.id);
+		expect(sortedThreads(await list()).map((info) => info.id)).toEqual([last.id]);
+	});
+
+	// User request: archived chats can come back.
+	it("opening an archived thread brings it back", async () => {
+		const { harness, list } = await open();
+		const first = await currentThread(harness, AGENT);
+		await newThread(harness, AGENT);
+		await archiveThread(harness, first.id, AGENT);
+		await selectThread(harness, first.id);
+		expect(sortedThreads(await list()).map((info) => info.id)).toContain(first.id);
+		expect(archivedThreads(await list())).toEqual([]);
+		expect((await list()).current).toBe(first.id);
 	});
 
 	it("keeps the open thread when another thread is archived", async () => {
@@ -241,9 +254,9 @@ describe("threads", () => {
 		const second = await newThread(harness, AGENT);
 		const third = await newThread(harness, AGENT);
 		await selectThread(harness, second.id);
-		// The open thread (second) is not the first in the list (third).
 		const opened = await archiveThread(harness, first.id, AGENT);
 		expect(opened.id).toBe(second.id);
-		expect(await list()).toMatchObject({ threads: [{ id: third.id }, { id: second.id }], current: second.id });
+		expect(sortedThreads(await list()).map((info) => info.id).sort()).toEqual([second.id, third.id].sort());
+		expect((await list()).current).toBe(second.id);
 	});
 });

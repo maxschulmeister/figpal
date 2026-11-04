@@ -284,7 +284,9 @@ export function App({ bridge }: { bridge: Bridge }) {
 					<Button variant="text" className="min-w-0 shrink gap-1" onClick={() => setShowThreads(true)}>
 						<span className="truncate">{threadTitle(current)}</span>
 						{/* Another chat is done and not read. */}
-						{list?.threads.some((info) => info.unread && info.id !== thread?.id) && <UnreadDot label="Other chats are unread" />}
+						{list?.threads.some((info) => info.unread && !info.archived && info.id !== thread?.id) && (
+							<UnreadDot label="Other chats are unread" />
+						)}
 						<ChevronDownIcon size="4" />
 					</Button>
 				)}

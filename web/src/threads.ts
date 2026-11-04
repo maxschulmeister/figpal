@@ -16,8 +16,11 @@ import {
 	type Submission,
 } from "@earendil-works/pi-durable";
 
-/** `unread`: its work ended while another thread was open (user request: a dot in the chat list). */
-export type ThreadInfo = { id: ConversationId; title: string; updatedAt: number; unread?: true };
+/**
+ * `unread`: its work ended while another thread was open (user request: a dot in the chat list). `archived`: in the
+ * Archived part of the list, until it opens again.
+ */
+export type ThreadInfo = { id: ConversationId; title: string; updatedAt: number; unread?: true; archived?: true };
 /** Newest first. `current` is the thread that is open. */
 export type ThreadList = { threads: ThreadInfo[]; current?: ConversationId };
 
@@ -77,7 +80,11 @@ export async function selectThread(harness: Harness, id: ConversationId): Promis
 		const list = await tx.doc(Threads);
 		list.current = id;
 		const info = list.threads.find((item) => item.id === id);
-		if (info) delete info.unread;
+		// Opening a thread reads it, and brings it back from Archived.
+		if (info) {
+			delete info.unread;
+			delete info.archived;
+		}
 	}, context);
 	return thread;
 }
@@ -93,9 +100,15 @@ export async function noteDone(harness: Harness, id: ConversationId): Promise<vo
 	}, context);
 }
 
-/** The order of the chat list (user request): unread threads first, then the newest activity. */
+/** The order of the chat list (user request): unread threads first, then the newest activity. Not the archived ones. */
 export const sortedThreads = (list: ThreadList): ThreadInfo[] =>
-	[...list.threads].sort((a, b) => Number(b.unread ?? false) - Number(a.unread ?? false) || b.updatedAt - a.updatedAt);
+	list.threads
+		.filter((info) => !info.archived)
+		.sort((a, b) => Number(b.unread ?? false) - Number(a.unread ?? false) || b.updatedAt - a.updatedAt);
+
+/** The archived threads, the newest activity first. */
+export const archivedThreads = (list: ThreadList): ThreadInfo[] =>
+	list.threads.filter((info) => info.archived).sort((a, b) => b.updatedAt - a.updatedAt);
 
 export async function renameThread(harness: Harness, id: ConversationId, title: string): Promise<void> {
 	await harness.commit(async (tx) => {
@@ -162,14 +175,15 @@ export async function nameThread(harness: Harness, submission: Submission, text:
 }
 
 /**
- * Archives a thread: removes it from the list and returns the open thread. If the archived thread was open, the newest other one
- * opens, or a new one. pi-durable cannot delete a conversation, so its entries stay in the storage.
+ * Archives a thread: it moves to the Archived part of the list, and a running answer stops. Returns the open thread: if
+ * the archived thread was open, the first other one opens, or a new one. Opening it again brings it back.
  */
 export async function archiveThread(harness: Harness, id: ConversationId, agent: AgentChange): Promise<Conversation> {
 	await (await conversation(harness, id)).abort(context);
 	const next = await harness.commit(async (tx) => {
 		const list = await tx.doc(Threads);
-		list.threads = list.threads.filter((info) => info.id !== id);
+		const info = list.threads.find((item) => item.id === id);
+		if (info) info.archived = true;
 		if (list.current === id) list.current = sortedThreads(list)[0]?.id;
 		return list.current;
 	}, context);

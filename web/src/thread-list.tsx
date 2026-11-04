@@ -1,9 +1,9 @@
-// The threads of the file: open, rename, archive.
+// The threads of the file: open, rename, archive. Archived threads are at the end, folded; opening one brings it back.
 
 import type { ConversationId } from "@earendil-works/pi-durable";
-import { AlertDialog, Button, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Text } from "figma-kit";
+import { Button, Collapsible, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Text } from "figma-kit";
 import { type FormEvent, useState } from "react";
-import { type ThreadInfo, type ThreadList as List, sortedThreads } from "./threads";
+import { archivedThreads, type ThreadInfo, type ThreadList as List, sortedThreads } from "./threads";
 
 const relativeTime = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "short" });
 
@@ -35,7 +35,7 @@ export function UnreadDot({ label }: { label: string }) {
 
 export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 	const [renaming, setRenaming] = useState<ThreadInfo>();
-	const [archiving, setArchiving] = useState<ThreadInfo>();
+	const archived = archivedThreads(list);
 
 	return (
 		<>
@@ -64,7 +64,7 @@ export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 								<DropdownMenu.Positioner sideOffset={4} align="end">
 									<DropdownMenu.Popup style={{ minWidth: 140 }}>
 										<DropdownMenu.Item onClick={() => setRenaming(thread)}>Rename…</DropdownMenu.Item>
-										<DropdownMenu.Item onClick={() => setArchiving(thread)}>Archive…</DropdownMenu.Item>
+										<DropdownMenu.Item onClick={() => onArchive(thread.id)}>Archive</DropdownMenu.Item>
 									</DropdownMenu.Popup>
 								</DropdownMenu.Positioner>
 							</DropdownMenu.Portal>
@@ -79,21 +79,27 @@ export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 					onRename={(title) => onRename(renaming.id, title)}
 				/>
 			)}
-			<AlertDialog.Root open={archiving !== undefined} onOpenChange={(open) => open || setArchiving(undefined)}>
-				<AlertDialog.Portal>
-					<AlertDialog.Backdrop />
-					<AlertDialog.Popup placement="center">
-						<AlertDialog.Title>Archive “{threadTitle(archiving)}”?</AlertDialog.Title>
-						<AlertDialog.Description>The chat leaves the list of this file. A running answer stops.</AlertDialog.Description>
-						<AlertDialog.Actions>
-							<AlertDialog.Close render={<Button />}>Cancel</AlertDialog.Close>
-							<AlertDialog.Close render={<Button variant="primary" />} onClick={() => archiving && onArchive(archiving.id)}>
-								Archive
-							</AlertDialog.Close>
-						</AlertDialog.Actions>
-					</AlertDialog.Popup>
-				</AlertDialog.Portal>
-			</AlertDialog.Root>
+			{archived.length > 0 && (
+				<Collapsible.Root className="px-2 pb-2">
+					<Collapsible.Trigger>Archived ({archived.length})</Collapsible.Trigger>
+					<Collapsible.Panel>
+						<ul className="flex flex-col">
+							{archived.map((thread) => (
+								<li key={thread.id} className="hover:bg-hover">
+									<button
+										type="button"
+										className="flex w-full min-w-0 items-baseline gap-2 py-2 pr-8 pl-6 text-left"
+										onClick={() => onOpen(thread.id)}
+									>
+										<Text className="truncate text-secondary">{threadTitle(thread)}</Text>
+										<Text className="ml-auto shrink-0 text-secondary">{age(thread.updatedAt)}</Text>
+									</button>
+								</li>
+							))}
+						</ul>
+					</Collapsible.Panel>
+				</Collapsible.Root>
+			)}
 		</>
 	);
 }
