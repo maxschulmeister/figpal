@@ -82,14 +82,20 @@ export async function selectThread(harness: Harness, id: ConversationId): Promis
 	return thread;
 }
 
-/** The work of a thread ended: unread if another thread is open. */
+/** The work of a thread ended: new activity, and unread if another thread is open. */
 export async function noteDone(harness: Harness, id: ConversationId): Promise<void> {
 	await harness.commit(async (tx) => {
 		const list = await tx.doc(Threads);
 		const info = list.threads.find((item) => item.id === id);
-		if (info && list.current !== id) info.unread = true;
+		if (!info) return;
+		info.updatedAt = Date.now();
+		if (list.current !== id) info.unread = true;
 	}, context);
 }
+
+/** The order of the chat list (user request): unread threads first, then the newest activity. */
+export const sortedThreads = (list: ThreadList): ThreadInfo[] =>
+	[...list.threads].sort((a, b) => Number(b.unread ?? false) - Number(a.unread ?? false) || b.updatedAt - a.updatedAt);
 
 export async function renameThread(harness: Harness, id: ConversationId, title: string): Promise<void> {
 	await harness.commit(async (tx) => {
@@ -164,7 +170,7 @@ export async function archiveThread(harness: Harness, id: ConversationId, agent:
 	const next = await harness.commit(async (tx) => {
 		const list = await tx.doc(Threads);
 		list.threads = list.threads.filter((info) => info.id !== id);
-		if (list.current === id) list.current = list.threads[0]?.id;
+		if (list.current === id) list.current = sortedThreads(list)[0]?.id;
 		return list.current;
 	}, context);
 	return next === undefined ? newThread(harness, agent) : conversation(harness, next);

@@ -27,6 +27,9 @@ export default async function unread(t: Context) {
 	const row = frame.locator("main li", { hasText: /Make a card|Test chat/ }).getByRole("button").first();
 	await t.screenshot(session, "unread-list");
 	t.check("the chat list shows the done chat as unread", /unread/i.test((await row.textContent()) ?? ""), (await row.textContent()) ?? "");
+	// User request: unread chats first, then by activity. The new chat is newer, but read.
+	const order = await frame.locator("main li").allTextContents();
+	t.check("the unread chat comes first", /unread/i.test(order[0] ?? "") && order.length === 2, JSON.stringify(order));
 	await row.click();
 	await frame.getByText("Done.").waitFor();
 	await page.waitForTimeout(300);

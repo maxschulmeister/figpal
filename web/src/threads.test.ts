@@ -4,7 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it, vi } from "vitest";
-import { currentThread, archiveThread, forkThread, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, Threads } from "./threads";
+import { currentThread, archiveThread, forkThread, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, sortedThreads, Threads } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -188,6 +188,23 @@ describe("threads", () => {
 
 		await selectThread(harness, first.id);
 		expect((await info(first.id)).unread).toBeUndefined();
+	});
+
+	// User request: unread chats first, then by activity (the last message, or the end of the last work).
+	it("sorts the list: unread first, then the newest activity", () => {
+		const thread = (id: number, updatedAt: number, unread?: true) => ({ id: id as ConversationId, title: `${id}`, updatedAt, ...(unread && { unread }) });
+		const list = { threads: [thread(1, 300), thread(2, 100, true), thread(3, 200), thread(4, 50, true)] };
+		expect(sortedThreads(list).map((info) => info.id)).toEqual([2, 4, 1, 3]);
+	});
+
+	it("counts the end of the work as activity", async () => {
+		const { harness, list } = await open();
+		const first = await currentThread(harness, AGENT);
+		await noteMessage(harness, first.id, "Make a card");
+		const before = (await list()).threads[0]!.updatedAt;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		await noteDone(harness, first.id);
+		expect((await list()).threads[0]!.updatedAt).toBeGreaterThan(before);
 	});
 
 	it("forks a thread: the fork has the history up to the entry, and becomes current", async () => {

@@ -3,7 +3,7 @@
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { AlertDialog, Button, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Text } from "figma-kit";
 import { type FormEvent, useState } from "react";
-import type { ThreadInfo, ThreadList as List } from "./threads";
+import { type ThreadInfo, type ThreadList as List, sortedThreads } from "./threads";
 
 const relativeTime = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "short" });
 
@@ -40,7 +40,7 @@ export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 	return (
 		<>
 			<ul className="flex flex-col py-1">
-				{list.threads.map((thread) => (
+				{sortedThreads(list).map((thread) => (
 					<li
 						key={thread.id}
 						className={`group flex items-center gap-2 pr-2 hover:bg-hover ${thread.id === list.current ? "bg-selected" : ""}`}
