@@ -665,6 +665,8 @@ Checks:
 
 - Chat list groups (user request, like T3 Code's sidebar, without Snoozed): Done (unread), Working, Settled, Archived (folded), each with the newest activity first (`threadGroups`, which replaces `sortedThreads` and `archivedThreads`). Working is not saved: `doneWatcher` gives the threads with work at each change (`onWorking`), also work that a restart continues; it reports after `noteDone`, so a thread goes from Working to Done without Settled between. A thread that works is in Working, also when it is unread. A group without threads has no heading; each group is a region named by its heading. The e2e check `unread` follows one chat from Working to Done to Settled. No reviews (a change that the user asked for).
 
+- Chat list groups, part 2 (user request): Done has no heading and is at the top; Working, Settled and Archived are at the bottom of the list, like T3 Code's sidebar, each with a heading that folds ("Settled (3)"). Working and Settled are open at first, Archived folded; the app keeps the state while FigPal is open (not saved). figma-kit's Collapsible needed two changes: the panel without its 16 px indent (the rows line up and the list did not scroll sideways), and the padding around the 100% wide trigger, not on it (else the list scrolled sideways after a click). The bottom groups keep 24 px free below them, so the ⋯ of the last row is not under the resize grip. e2e: `unread` checks the layout and the folding; `archive` checks that the list never scrolls sideways.
+
 ## Open questions
 
 None at the moment.
