@@ -16,7 +16,8 @@ import {
 	type Submission,
 } from "@earendil-works/pi-durable";
 
-export type ThreadInfo = { id: ConversationId; title: string; updatedAt: number };
+/** `unread`: its work ended while another thread was open (user request: a dot in the chat list). */
+export type ThreadInfo = { id: ConversationId; title: string; updatedAt: number; unread?: true };
 /** Newest first. `current` is the thread that is open. */
 export type ThreadList = { threads: ThreadInfo[]; current?: ConversationId };
 
@@ -73,9 +74,21 @@ export function forkThread(from: Conversation, at: EntryId, title: string): Prom
 export async function selectThread(harness: Harness, id: ConversationId): Promise<Conversation> {
 	const thread = await conversation(harness, id);
 	await harness.commit(async (tx) => {
-		(await tx.doc(Threads)).current = id;
+		const list = await tx.doc(Threads);
+		list.current = id;
+		const info = list.threads.find((item) => item.id === id);
+		if (info) delete info.unread;
 	}, context);
 	return thread;
+}
+
+/** The work of a thread ended: unread if another thread is open. */
+export async function noteDone(harness: Harness, id: ConversationId): Promise<void> {
+	await harness.commit(async (tx) => {
+		const list = await tx.doc(Threads);
+		const info = list.threads.find((item) => item.id === id);
+		if (info && list.current !== id) info.unread = true;
+	}, context);
 }
 
 export async function renameThread(harness: Harness, id: ConversationId, title: string): Promise<void> {

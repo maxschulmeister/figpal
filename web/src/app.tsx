@@ -34,13 +34,14 @@ import { connectLocal, type LocalFiles, type LocalState } from "./local";
 import { LocalHelperSettings } from "./local-panel";
 import { installDefaultSkills } from "./skills/defaults";
 import { EnabledModels, TextModel } from "./enabled-models";
-import { ThreadList, threadTitle } from "./thread-list";
+import { ThreadList, threadTitle, UnreadDot } from "./thread-list";
 import {
 	currentThread,
 	archiveThread,
 	forkThread,
 	nameThread,
 	newThread,
+	noteDone,
 	noteMessage,
 	renameThread,
 	selectThread,
@@ -282,6 +283,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 					// figma-kit's Button does not shrink: a long title would push the icons out of the window.
 					<Button variant="text" className="min-w-0 shrink gap-1" onClick={() => setShowThreads(true)}>
 						<span className="truncate">{threadTitle(current)}</span>
+						{/* Another chat is done and not read. */}
+						{list?.threads.some((info) => info.unread && info.id !== thread?.id) && <UnreadDot label="Other chats are unread" />}
 						<ChevronDownIcon size="4" />
 					</Button>
 				)}
@@ -344,6 +347,11 @@ export function App({ bridge }: { bridge: Bridge }) {
 										const thinking = model && clampThinkingLevel(model, settings.textThinking);
 										if (model && thinking) await nameThread(harness, submission, label, { models, model, thinking });
 									})
+									.catch(report);
+								// When the work ends, the chat is unread if another chat is open then.
+								thread
+									.waitForIdle(context)
+									.then(() => noteDone(harness, thread.id))
 									.catch(report);
 							}}
 							abortSubmission={(id) => harness.abortSubmission(Number(id) as SubmissionId, context, thread.id)}

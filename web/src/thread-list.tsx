@@ -24,6 +24,15 @@ type Props = {
 	onArchive(id: ConversationId): void;
 };
 
+/** A blue dot for a chat that is done and not read. The label is for screen readers. */
+export function UnreadDot({ label }: { label: string }) {
+	return (
+		<span className="size-1.5 shrink-0 self-center rounded-full bg-[var(--figma-color-bg-brand)]">
+			<span className="sr-only">{label}</span>
+		</span>
+	);
+}
+
 export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 	const [renaming, setRenaming] = useState<ThreadInfo>();
 	const [archiving, setArchiving] = useState<ThreadInfo>();
@@ -42,6 +51,7 @@ export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 							onClick={() => onOpen(thread.id)}
 						>
 							<Text className="truncate">{threadTitle(thread)}</Text>
+							{thread.unread && <UnreadDot label="Unread" />}
 							<Text className="ml-auto shrink-0 text-secondary">{age(thread.updatedAt)}</Text>
 						</button>
 						<DropdownMenu.Root>

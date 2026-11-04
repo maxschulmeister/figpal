@@ -1,10 +1,10 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { type FauxResponseStep, fauxAssistantMessage, fauxProvider, fauxText, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { type Conversation, createRegistry, Harness } from "@earendil-works/pi-durable";
+import { type Conversation, type ConversationId, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it } from "vitest";
-import { currentThread, archiveThread, forkThread, nameThread, newThread, noteMessage, renameThread, selectThread, Threads } from "./threads";
+import { currentThread, archiveThread, forkThread, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, Threads } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -159,6 +159,26 @@ describe("threads", () => {
 			await name();
 			expect((await list()).threads[0]!.title).toBe(QUESTION);
 		});
+	});
+
+	// User request: a dot in the chat list for chats that are done and not read.
+	it("marks a thread unread when its work ends while another thread is open, until it opens", async () => {
+		const { harness, list } = await open();
+		const first = await currentThread(harness, AGENT);
+		await say(first, "Make a card");
+		await noteDone(harness, first.id);
+		expect((await list()).threads[0]!.unread).toBeUndefined();
+
+		const working = first.submit({ type: "input", content: "Make it blue" }, context);
+		const second = await newThread(harness, AGENT);
+		await (await working).wait(context);
+		await noteDone(harness, first.id);
+		const info = (id: ConversationId) => list().then((value) => value.threads.find((thread) => thread.id === id)!);
+		expect((await info(first.id)).unread).toBe(true);
+		expect((await info(second.id)).unread).toBeUndefined();
+
+		await selectThread(harness, first.id);
+		expect((await info(first.id)).unread).toBeUndefined();
 	});
 
 	it("forks a thread: the fork has the history up to the entry, and becomes current", async () => {
