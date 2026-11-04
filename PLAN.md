@@ -663,6 +663,8 @@ Checks:
 
 - Simplify review of the scroll fix, unread chats and the chat list (gpt-6.1-sol, xhigh, through pi; 3 reviewers): (1) all three found that archiving the open chat opened the next one without reading it, so its dot stayed: `openIn` now does the open step for `selectThread` and `archiveThread`; (2) each message added a waiter, so N `noteDone` commits at one end of the work, and (3) work that a restart continues was never marked: `doneWatcher` keeps one waiter for each chat, and at the start watches the chats with unsettled submissions (`harness.inspect()`). Tests for each.
 
+- Chat list groups (user request, like T3 Code's sidebar, without Snoozed): Done (unread), Working, Settled, Archived (folded), each with the newest activity first (`threadGroups`, which replaces `sortedThreads` and `archivedThreads`). Working is not saved: `doneWatcher` gives the threads with work at each change (`onWorking`), also work that a restart continues; it reports after `noteDone`, so a thread goes from Working to Done without Settled between. A thread that works is in Working, also when it is unread. A group without threads has no heading; each group is a region named by its heading. The e2e check `unread` follows one chat from Working to Done to Settled. No reviews (a change that the user asked for).
+
 ## Open questions
 
 None at the moment.
