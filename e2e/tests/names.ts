@@ -1,5 +1,5 @@
-// AI chat names (user request, like T3 Code): after the first answer, a small model names the chat from the question
-// and the answer. Settings → Models → Text generation model picks the model; Automatic is the cheapest model of the
+// AI chat names (user request, like T3 Code): after the first message, a small model names the chat from the message
+// (user request: not after the first answer). Settings → Models → Text generation model picks the model; Automatic is the cheapest model of the
 // chat's provider.
 
 import { type Context, type ModelRequest, text } from "../harness.ts";
@@ -25,8 +25,12 @@ export default async function names(t: Context) {
 	await frame.getByRole("button", { name: "Card padding check" }).waitFor();
 	const first = naming[0];
 	t.check(
-		"after the first answer, the cheapest model of the chat's provider names the chat, without tools",
-		first?.model === "claude-haiku-5-5" && !first.tools?.length && JSON.stringify(first.messages).includes("The padding is 12 px.") && first.thinking?.type === "disabled",
+		"after the first message, the cheapest model of the chat's provider names the chat from the message, without tools",
+		first?.model === "claude-haiku-5-5" &&
+			!first.tools?.length &&
+			JSON.stringify(first.messages).includes("Check the card") &&
+			!JSON.stringify(first.messages).includes("The padding is 12 px.") &&
+			first.thinking?.type === "disabled",
 		JSON.stringify({ model: first?.model, tools: first?.tools?.length, thinking: first?.thinking }),
 	);
 	await session.ask("Now make it blue", "The padding is 12 px.");

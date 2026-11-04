@@ -35,7 +35,7 @@ const TITLE_LENGTH = 60;
 const firstLine = (text: string) => text.trim().split("\n")[0]!.slice(0, TITLE_LENGTH) || "New chat";
 
 const NAME_PROMPT =
-	"Name this chat between a user and FigPal, an assistant in Figma. Text in [brackets] names Figma layers. Reply with the name only: 2 to 6 words, in the language of the user, without quotes and without a full stop.";
+	"Name this chat between a user and FigPal, an assistant in Figma, from its first message (from FigPal's answer if the message has only files). Text in [brackets] names Figma layers. Reply with the name only: 2 to 6 words, in the language of the user, without quotes and without a full stop.";
 
 /** Adds a new conversation to the list and opens it, in the commit that creates the conversation. */
 const asNewThread = (title: string): ConversationInit => async (tx, id) => {
@@ -118,20 +118,24 @@ export function noteMessage(harness: Harness, id: ConversationId, text: string):
 export type Namer = { models: Models; model: Model<Api>; thinking: ModelThinkingLevel };
 
 /**
- * After the answer to the first message (`submission`): a short name from the message and the answer, by the text
- * generation model. The name changes only while it is the first line of the message, so a name that the user gave
- * stays. If the answer stopped or the model fails, the first line stays.
+ * After the first message (`submission`): a short name from the message, by the text generation model (user request:
+ * after the message, not after the answer). A message with only attachments has no text: then the name comes from
+ * the answer. The name changes only while it is the first line of the message, so a name that the user gave stays.
+ * If the model fails, or the answer to only attachments stopped, the first line stays.
  */
 export async function nameThread(harness: Harness, submission: Submission, text: string, { models, model, thinking }: Namer): Promise<void> {
-	const settled = await submission.wait(context);
-	if (settled.status !== "done" || settled.type !== "input") return;
-	const id = settled.conversationId;
+	const id = (await submission.status(context)).conversationId;
 	const unnamed = (list: ThreadList | undefined) => list?.threads.find((thread) => thread.id === id)?.title === firstLine(text);
+	let content = `Message: ${text.slice(0, 1000)}`;
+	if (!text.trim()) {
+		const settled = await submission.wait(context);
+		if (settled.status !== "done" || settled.type !== "input") return;
+		const entry = await harness.commit((tx) => tx.entry(AssistantEntry, settled.answer), context);
+		const answer = contentText((entry?.model?.[0] as AssistantMessage | undefined)?.content ?? [], "").slice(0, 2000);
+		if (!answer) return;
+		content = `Message: (only files)\n\nAnswer: ${answer}`;
+	}
 	if (!unnamed(await harness.snapshot(Threads, context))) return;
-	const entry = await harness.commit((tx) => tx.entry(AssistantEntry, settled.answer), context);
-	const answer = contentText((entry?.model?.[0] as AssistantMessage | undefined)?.content ?? [], "").slice(0, 2000);
-	if (!answer) return;
-	const content = `Message: ${text.slice(0, 1000)}\n\nAnswer: ${answer}`;
 	const reply = await models.completeSimple(
 		model,
 		{ systemPrompt: NAME_PROMPT, messages: [{ role: "user", content, timestamp: Date.now() }] },
