@@ -29,7 +29,8 @@ export default async function unread(t: Context) {
 		return JSON.stringify(names);
 	};
 	await header.click();
-	await group("Working").waitFor();
+	// The AI name comes soon after the message; the harness gives "Test chat".
+	await group("Working").getByText("Test chat").waitFor();
 	t.check("while it works, the first chat is in Working", (await chats()) === JSON.stringify({ Done: [], Working: ["Test chat"], Settled: ["New chat"] }), await chats());
 	await t.screenshot(session, "groups-working");
 
