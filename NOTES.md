@@ -40,9 +40,6 @@ Profiles with their own instructions, model, thinking level and skills, for the 
 - Storage: `figpal:global` already has an empty `agents` store (version 3).
 - Done instead of the small option (one "Instructions" field): Settings → Rules, for all files and for this file. Profiles stay open.
 
-## Archive and delete threads (from PLAN.md, not in Phase 7)
+## Delete threads (from PLAN.md, not in Phase 7)
 
-Now "Archive" hides a thread (it said "Delete" until 2026-11-02, user request): pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`). The user suggested two actions (2026-10-31).
-
-- Archive: done, but there is no way yet to show archived threads again.
-- Delete: remove the entries, so that they do not fill the browser storage. This needs pi-durable support, or a "Delete all threads of this file" action.
+Archive is done (2026-11-03): archived threads are at the end of the chat list, and opening one brings it back. Open: delete, to remove the entries so that they do not fill the browser storage. pi-durable 1.4.0 cannot delete one conversation, only the whole storage of a file (`IndexedDbStorage.delete`): this needs pi-durable support, or a "Delete all threads of this file" action.

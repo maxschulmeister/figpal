@@ -659,6 +659,8 @@ Checks:
 
 - Unread chats (user request: "an indicator in the chat list for any chats that are done and unread"): when the work of a chat ends (`waitForIdle` after each message) and another chat is open, `noteDone` marks it `unread` in the thread list (saved, so it survives a reload); opening it (`selectThread`) clears it. A blue dot (`--figma-color-bg-brand`) after the title in the list, and next to the chat title in the header while another chat is unread; screen readers get "Unread". Not marked: a run that a restart continues (no message was sent in this window). New e2e check `unread`. No reviews (a change that the user asked for).
 
+- Chat list (user requests, 2026-11-03): (1) The AI name comes after the first message, from the message only (not after the first answer); a message with only attachments has no text, so its answer names the chat, as before. (2) The list shows unread chats first, then the newest activity (`sortedThreads`); the end of the work (`noteDone`) counts as activity. (3) Archived chats: Archive sets `archived` instead of removing the chat; the chats are in a folded "Archived (N)" part at the end of the list; opening one (`selectThread`) brings it back. Archive can be undone now, so it has no dialog (a running answer still stops). Chats that were archived before stay gone (until today they were "deleted"). Custom names: already there (⋯ → Rename…). Delete stays open (pi-durable 1.4.0 cannot delete one conversation). No reviews (changes that the user asked for).
+
 ## Open questions
 
 None at the moment.
