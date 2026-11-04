@@ -4,7 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it, vi } from "vitest";
-import { currentThread, archiveThread, forkThread, archivedThreads, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, sortedThreads, Threads } from "./threads";
+import { currentThread, archiveThread, doneWatcher, forkThread, archivedThreads, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, sortedThreads, Threads } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -234,6 +234,57 @@ describe("threads", () => {
 		// Without a thread, a new one opens.
 		const last = await archiveThread(harness, first.id, AGENT);
 		expect(sortedThreads(await list()).map((info) => info.id)).toEqual([last.id]);
+	});
+
+	describe("doneWatcher", () => {
+		/** Work in the first thread that ends at release(), while a second thread is open. */
+		async function working() {
+			const opened = await open();
+			let release: (() => void) | undefined;
+			opened.faux.setResponses([() => new Promise((resolve) => (release = () => resolve(fauxAssistantMessage(fauxText("OK")))))]);
+			const first = await currentThread(opened.harness, AGENT);
+			const submission = await first.submit({ type: "input", content: "Make a card" }, context);
+			await newThread(opened.harness, AGENT);
+			await vi.waitFor(() => expect(release).toBeDefined());
+			const unread = async () => (await opened.list()).threads.find((info) => info.id === first.id)!.unread;
+			const done = async () => {
+				release!();
+				await submission.wait(context);
+				await vi.waitFor(async () => expect(await unread()).toBe(true));
+			};
+			return { ...opened, first, done };
+		}
+
+		// Review: work that a restart continues has no message from this window.
+		it("watches the threads that have work when it starts", async () => {
+			const { harness, done } = await working();
+			doneWatcher(harness, (error) => expect.unreachable(String(error)));
+			await done();
+		});
+
+		// Review: each message added a waiter; eleven messages gave eleven commits at one end of the work.
+		it("notes the end of the work once for many messages", async () => {
+			const { harness, first, done } = await working();
+			const watch = doneWatcher(harness, (error) => expect.unreachable(String(error)));
+			for (let i = 0; i < 5; i++) watch(first.id);
+			const commits = vi.spyOn(harness, "commit");
+			await done();
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(commits).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	// Review: the thread that opens after an archive is read, as with selectThread.
+	it("reads the thread that opens when the open thread is archived", async () => {
+		const { harness, list } = await open();
+		const first = await currentThread(harness, AGENT);
+		await say(first, "Make a card");
+		const second = await newThread(harness, AGENT);
+		await noteDone(harness, first.id);
+		expect((await list()).threads.find((info) => info.id === first.id)!.unread).toBe(true);
+		const next = await archiveThread(harness, second.id, AGENT);
+		expect(next.id).toBe(first.id);
+		expect((await list()).threads.find((info) => info.id === first.id)!.unread).toBeUndefined();
 	});
 
 	// User request: archived chats can come back.

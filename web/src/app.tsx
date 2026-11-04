@@ -41,7 +41,7 @@ import {
 	forkThread,
 	nameThread,
 	newThread,
-	noteDone,
+	doneWatcher,
 	noteMessage,
 	renameThread,
 	selectThread,
@@ -186,6 +186,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [fileId, fileKey, models, bridge, credentials, refreshConnected, fail, localLink]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
+	// When the work of a chat ends, it is unread if another chat is open then (also work that a restart continues).
+	const watchDone = useMemo(() => harness && doneWatcher(harness, report), [harness]);
 
 	const openConversation = useCallback(
 		async (id: ConversationId) => (harness ? harness.conversation(id, context) : undefined),
@@ -350,11 +352,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 										if (model && thinking) await nameThread(harness, submission, label, { models, model, thinking });
 									})
 									.catch(report);
-								// When the work ends, the chat is unread if another chat is open then.
-								thread
-									.waitForIdle(context)
-									.then(() => noteDone(harness, thread.id))
-									.catch(report);
+								watchDone?.(thread.id);
 							}}
 							abortSubmission={(id) => harness.abortSubmission(Number(id) as SubmissionId, context, thread.id)}
 							textSize={settings.textSize}

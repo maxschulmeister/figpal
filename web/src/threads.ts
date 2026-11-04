@@ -74,18 +74,18 @@ export function forkThread(from: Conversation, at: EntryId, title: string): Prom
 	return from.fork(at, { ownership: { kind: "ownerless" }, init: asNewThread(`${title || "Chat"} (fork)`) }, context);
 }
 
+/** Opens a thread in the list: it is read, and back from Archived. */
+function openIn(list: ThreadList, id: ConversationId | undefined): void {
+	list.current = id;
+	const info = list.threads.find((item) => item.id === id);
+	if (!info) return;
+	delete info.unread;
+	delete info.archived;
+}
+
 export async function selectThread(harness: Harness, id: ConversationId): Promise<Conversation> {
 	const thread = await conversation(harness, id);
-	await harness.commit(async (tx) => {
-		const list = await tx.doc(Threads);
-		list.current = id;
-		const info = list.threads.find((item) => item.id === id);
-		// Opening a thread reads it, and brings it back from Archived.
-		if (info) {
-			delete info.unread;
-			delete info.archived;
-		}
-	}, context);
+	await harness.commit(async (tx) => openIn(await tx.doc(Threads), id), context);
 	return thread;
 }
 
@@ -98,6 +98,29 @@ export async function noteDone(harness: Harness, id: ConversationId): Promise<vo
 		info.updatedAt = Date.now();
 		if (list.current !== id) info.unread = true;
 	}, context);
+}
+
+/**
+ * Calls noteDone when the work of a thread ends, with one waiter for each thread: a message while the thread works
+ * adds none. At the start, it watches the threads with unsettled submissions: a restart continues their work. Returns
+ * `watch`, for each message that the user sends.
+ */
+export function doneWatcher(harness: Harness, report: (error: unknown) => void): (id: ConversationId) => void {
+	const waiting = new Set<ConversationId>();
+	const watch = (id: ConversationId) => {
+		if (waiting.has(id)) return;
+		waiting.add(id);
+		void conversation(harness, id)
+			.then((thread) => thread.waitForIdle(context))
+			// Before noteDone: a message after the end starts a new waiter.
+			.finally(() => waiting.delete(id))
+			.then(() => noteDone(harness, id))
+			.catch(report);
+	};
+	harness.inspect(context).then(({ submissions }) => {
+		for (const submission of submissions) watch(submission.conversationId);
+	}, report);
+	return watch;
 }
 
 /** The order of the chat list (user request): unread threads first, then the newest activity. Not the archived ones. */
@@ -184,7 +207,7 @@ export async function archiveThread(harness: Harness, id: ConversationId, agent:
 		const list = await tx.doc(Threads);
 		const info = list.threads.find((item) => item.id === id);
 		if (info) info.archived = true;
-		if (list.current === id) list.current = sortedThreads(list)[0]?.id;
+		if (list.current === id) openIn(list, sortedThreads(list)[0]?.id);
 		return list.current;
 	}, context);
 	return next === undefined ? newThread(harness, agent) : conversation(harness, next);
