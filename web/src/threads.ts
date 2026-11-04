@@ -103,19 +103,26 @@ export async function noteDone(harness: Harness, id: ConversationId): Promise<vo
 /**
  * Calls noteDone when the work of a thread ends, with one waiter for each thread: a message while the thread works
  * adds none. At the start, it watches the threads with unsettled submissions: a restart continues their work. Returns
- * `watch`, for each message that the user sends.
+ * `watch`, for each message that the user sends. `onWorking` gets the threads with work at each change.
  */
-export function doneWatcher(harness: Harness, report: (error: unknown) => void): (id: ConversationId) => void {
+export function doneWatcher(
+	harness: Harness,
+	report: (error: unknown) => void,
+	onWorking: (ids: ReadonlySet<ConversationId>) => void = () => {},
+): (id: ConversationId) => void {
 	const waiting = new Set<ConversationId>();
 	const watch = (id: ConversationId) => {
 		if (waiting.has(id)) return;
 		waiting.add(id);
+		onWorking(new Set(waiting));
 		void conversation(harness, id)
 			.then((thread) => thread.waitForIdle(context))
 			// Before noteDone: a message after the end starts a new waiter.
 			.finally(() => waiting.delete(id))
 			.then(() => noteDone(harness, id))
-			.catch(report);
+			.catch(report)
+			// After noteDone: the thread goes from working to done, not to settled first.
+			.finally(() => onWorking(new Set(waiting)));
 	};
 	harness.inspect(context).then(({ submissions }) => {
 		for (const submission of submissions) watch(submission.conversationId);
@@ -123,15 +130,20 @@ export function doneWatcher(harness: Harness, report: (error: unknown) => void):
 	return watch;
 }
 
-/** The order of the chat list (user request): unread threads first, then the newest activity. Not the archived ones. */
-export const sortedThreads = (list: ThreadList): ThreadInfo[] =>
-	list.threads
-		.filter((info) => !info.archived)
-		.sort((a, b) => Number(b.unread ?? false) - Number(a.unread ?? false) || b.updatedAt - a.updatedAt);
+export type ThreadGroups = Record<"done" | "working" | "settled" | "archived", ThreadInfo[]>;
 
-/** The archived threads, the newest activity first. */
-export const archivedThreads = (list: ThreadList): ThreadInfo[] =>
-	list.threads.filter((info) => info.archived).sort((a, b) => b.updatedAt - a.updatedAt);
+/**
+ * The groups of the chat list (user request, like T3 Code's sidebar), each with the newest activity first: done
+ * (unread), working (`working`: the threads with work now, from doneWatcher), settled, archived. A thread that works
+ * is in working, also when it is unread.
+ */
+export function threadGroups(list: ThreadList, working: ReadonlySet<ConversationId>): ThreadGroups {
+	const groups: ThreadGroups = { done: [], working: [], settled: [], archived: [] };
+	for (const info of [...list.threads].sort((a, b) => b.updatedAt - a.updatedAt)) {
+		groups[info.archived ? "archived" : working.has(info.id) ? "working" : info.unread ? "done" : "settled"].push(info);
+	}
+	return groups;
+}
 
 export async function renameThread(harness: Harness, id: ConversationId, title: string): Promise<void> {
 	await harness.commit(async (tx) => {
@@ -207,7 +219,10 @@ export async function archiveThread(harness: Harness, id: ConversationId, agent:
 		const list = await tx.doc(Threads);
 		const info = list.threads.find((item) => item.id === id);
 		if (info) info.archived = true;
-		if (list.current === id) openIn(list, sortedThreads(list)[0]?.id);
+		if (list.current === id) {
+			const { done, settled } = threadGroups(list, new Set());
+			openIn(list, (done[0] ?? settled[0])?.id);
+		}
 		return list.current;
 	}, context);
 	return next === undefined ? newThread(harness, agent) : conversation(harness, next);

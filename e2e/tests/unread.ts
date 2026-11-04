@@ -1,5 +1,6 @@
-// Unread chats (user request): a chat whose answer ends while another chat is open gets a dot in the chat list, and
-// the header shows a dot, until the user opens the chat.
+// Unread chats and the groups of the chat list (user requests): a chat whose answer ends while another chat is open
+// gets a dot in the list and in the header, until the user opens it. The list has the groups Done, Working, Settled
+// and Archived, like T3 Code's sidebar.
 
 import { type Context, text } from "../harness.ts";
 
@@ -7,7 +8,7 @@ export default async function unread(t: Context) {
 	const session = await t.open({
 		// A slow answer: the user opens a new chat while the first one works.
 		model: async () => {
-			await new Promise((resolve) => setTimeout(resolve, 1500));
+			await new Promise((resolve) => setTimeout(resolve, 3000));
 			return text("Done.");
 		},
 	});
@@ -19,22 +20,30 @@ export default async function unread(t: Context) {
 	await frame.getByRole("button", { name: "Stop" }).waitFor();
 	await frame.locator('header [aria-label="New chat"]').click();
 
-	// The header: the title of the open chat, with a dot for the other chat.
+	// The chat of each group, by the name of its group.
 	const header = frame.locator("header button").first();
-	await frame.locator("header button", { hasText: "unread" }).waitFor({ timeout: 10_000 });
-	await t.screenshot(session, "unread-header");
+	const group = (name: string) => frame.getByRole("region", { name });
+	const chats = async () => {
+		const names: Record<string, string[]> = {};
+		for (const name of ["Done", "Working", "Settled"]) names[name] = (await group(name).getByRole("listitem").allTextContents()).map((row) => row.replace(/this minute|Unread/g, ""));
+		return JSON.stringify(names);
+	};
 	await header.click();
-	const row = frame.locator("main li", { hasText: /Make a card|Test chat/ }).getByRole("button").first();
+	await group("Working").waitFor();
+	t.check("while it works, the first chat is in Working", (await chats()) === JSON.stringify({ Done: [], Working: ["Test chat"], Settled: ["New chat"] }), await chats());
+	await t.screenshot(session, "groups-working");
+
+	await group("Done").waitFor({ timeout: 10_000 });
+	t.check("when it is done, it moves to Done, with a dot", (await chats()) === JSON.stringify({ Done: ["Test chat"], Working: [], Settled: ["New chat"] }), await chats());
+	t.check("the done chat has the dot", /Unread/.test((await group("Done").getByRole("listitem").textContent()) ?? ""), "");
 	await t.screenshot(session, "unread-list");
-	t.check("the chat list shows the done chat as unread", /unread/i.test((await row.textContent()) ?? ""), (await row.textContent()) ?? "");
-	// User request: unread chats first, then by activity. The new chat is newer, but read.
-	const order = await frame.locator("main li").allTextContents();
-	t.check("the unread chat comes first", /unread/i.test(order[0] ?? "") && order.length === 2, JSON.stringify(order));
-	await row.click();
+	await frame.getByRole("button", { name: "Back to the chat" }).click();
+	t.check("the header shows a dot for it", /unread/i.test((await header.textContent()) ?? ""), (await header.textContent()) ?? "");
+
+	await header.click();
+	await group("Done").getByRole("button").first().click();
 	await frame.getByText("Done.").waitFor();
-	await page.waitForTimeout(300);
 	t.check("after it opens, it is read: no dot in the header", !/unread/i.test((await header.textContent()) ?? ""), (await header.textContent()) ?? "");
 	await header.click();
-	const rows = await frame.locator("main li").allTextContents();
-	t.check("and none in the list", !rows.some((value) => /unread/i.test(value)), JSON.stringify(rows));
+	t.check("and it is in Settled", (await chats()) === JSON.stringify({ Done: [], Working: [], Settled: ["Test chat", "New chat"] }), await chats());
 }

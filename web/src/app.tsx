@@ -187,7 +187,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
 	// When the work of a chat ends, it is unread if another chat is open then (also work that a restart continues).
-	const watchDone = useMemo(() => harness && doneWatcher(harness, report), [harness]);
+	const [working, setWorking] = useState<ReadonlySet<ConversationId>>(new Set());
+	const watchDone = useMemo(() => harness && doneWatcher(harness, report, setWorking), [harness]);
 
 	const openConversation = useCallback(
 		async (id: ConversationId) => (harness ? harness.conversation(id, context) : undefined),
@@ -315,6 +316,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 				{showThreads && list ? (
 					<ThreadList
 						list={list}
+						working={working}
 						onOpen={(id: ConversationId) =>
 							id === thread?.id ? setShowThreads(false) : run(() => selectThread(harness, id))
 						}

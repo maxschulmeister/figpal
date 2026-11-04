@@ -1,9 +1,10 @@
-// The threads of the file: open, rename, archive. Archived threads are at the end, folded; opening one brings it back.
+// The threads of the file: open, rename, archive. In groups (user request, like T3 Code's sidebar): Done, Working,
+// Settled, and Archived at the end, folded; opening an archived thread brings it back.
 
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { Button, Collapsible, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Text } from "figma-kit";
 import { type FormEvent, useState } from "react";
-import { archivedThreads, type ThreadInfo, type ThreadList as List, sortedThreads } from "./threads";
+import { type ThreadInfo, type ThreadList as List, threadGroups } from "./threads";
 
 const relativeTime = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "short" });
 
@@ -19,6 +20,8 @@ export const threadTitle = (thread: ThreadInfo | undefined) => thread?.title || 
 
 type Props = {
 	list: List;
+	/** The threads with work now: the Working group. */
+	working: ReadonlySet<ConversationId>;
 	onOpen(id: ConversationId): void;
 	onRename(id: ConversationId, title: string): void;
 	onArchive(id: ConversationId): void;
@@ -33,45 +36,42 @@ export function UnreadDot({ label }: { label: string }) {
 	);
 }
 
-export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
+const GROUPS = [
+	["done", "Done"],
+	["working", "Working"],
+	["settled", "Settled"],
+] as const;
+
+export function ThreadList({ list, working, onOpen, onRename, onArchive }: Props) {
 	const [renaming, setRenaming] = useState<ThreadInfo>();
-	const archived = archivedThreads(list);
+	const groups = threadGroups(list, working);
 
 	return (
 		<>
-			<ul className="flex flex-col py-1">
-				{sortedThreads(list).map((thread) => (
-					<li
-						key={thread.id}
-						className={`group flex items-center gap-2 pr-2 hover:bg-hover ${thread.id === list.current ? "bg-selected" : ""}`}
-					>
-						<button
-							type="button"
-							className="flex min-w-0 flex-1 items-baseline gap-2 py-2 pl-4 text-left"
-							onClick={() => onOpen(thread.id)}
-						>
-							<Text className="truncate">{threadTitle(thread)}</Text>
-							{thread.unread && <UnreadDot label="Unread" />}
-							<Text className="ml-auto shrink-0 text-secondary">{age(thread.updatedAt)}</Text>
-						</button>
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger
-								render={<IconButton aria-label={`More for ${threadTitle(thread)}`} className="opacity-0 group-hover:opacity-100 data-[popup-open]:opacity-100 focus-visible:opacity-100" />}
-							>
-								<EllipsisIcon />
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Positioner sideOffset={4} align="end">
-									<DropdownMenu.Popup style={{ minWidth: 140 }}>
-										<DropdownMenu.Item onClick={() => setRenaming(thread)}>Rename…</DropdownMenu.Item>
-										<DropdownMenu.Item onClick={() => onArchive(thread.id)}>Archive</DropdownMenu.Item>
-									</DropdownMenu.Popup>
-								</DropdownMenu.Positioner>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
-					</li>
-				))}
-			</ul>
+			<div className="flex flex-col gap-1 py-1">
+				{GROUPS.map(
+					([key, label]) =>
+						groups[key].length > 0 && (
+							<section key={key} aria-labelledby={`chats-${key}`}>
+								<Text id={`chats-${key}`} className="block px-4 pt-2 pb-1 text-secondary">
+									{label}
+								</Text>
+								<ul className="flex flex-col">
+									{groups[key].map((thread) => (
+										<ThreadRow
+											key={thread.id}
+											thread={thread}
+											open={thread.id === list.current}
+											onOpen={onOpen}
+											onRename={setRenaming}
+											onArchive={onArchive}
+										/>
+									))}
+								</ul>
+							</section>
+						),
+				)}
+			</div>
 			{renaming && (
 				<RenameDialog
 					thread={renaming}
@@ -79,12 +79,12 @@ export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 					onRename={(title) => onRename(renaming.id, title)}
 				/>
 			)}
-			{archived.length > 0 && (
+			{groups.archived.length > 0 && (
 				<Collapsible.Root className="px-2 pb-2">
-					<Collapsible.Trigger>Archived ({archived.length})</Collapsible.Trigger>
+					<Collapsible.Trigger>Archived ({groups.archived.length})</Collapsible.Trigger>
 					<Collapsible.Panel>
 						<ul className="flex flex-col">
-							{archived.map((thread) => (
+							{groups.archived.map((thread) => (
 								<li key={thread.id} className="hover:bg-hover">
 									<button
 										type="button"
@@ -101,6 +101,42 @@ export function ThreadList({ list, onOpen, onRename, onArchive }: Props) {
 				</Collapsible.Root>
 			)}
 		</>
+	);
+}
+
+type RowProps = {
+	thread: ThreadInfo;
+	/** The thread that the chat shows. */
+	open: boolean;
+	onOpen(id: ConversationId): void;
+	onRename(thread: ThreadInfo): void;
+	onArchive(id: ConversationId): void;
+};
+
+function ThreadRow({ thread, open, onOpen, onRename, onArchive }: RowProps) {
+	return (
+		<li className={`group flex items-center gap-2 pr-2 hover:bg-hover ${open ? "bg-selected" : ""}`}>
+			<button type="button" className="flex min-w-0 flex-1 items-baseline gap-2 py-2 pl-4 text-left" onClick={() => onOpen(thread.id)}>
+				<Text className="truncate">{threadTitle(thread)}</Text>
+				{thread.unread && <UnreadDot label="Unread" />}
+				<Text className="ml-auto shrink-0 text-secondary">{age(thread.updatedAt)}</Text>
+			</button>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger
+					render={<IconButton aria-label={`More for ${threadTitle(thread)}`} className="opacity-0 group-hover:opacity-100 data-[popup-open]:opacity-100 focus-visible:opacity-100" />}
+				>
+					<EllipsisIcon />
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Portal>
+					<DropdownMenu.Positioner sideOffset={4} align="end">
+						<DropdownMenu.Popup style={{ minWidth: 140 }}>
+							<DropdownMenu.Item onClick={() => onRename(thread)}>Rename…</DropdownMenu.Item>
+							<DropdownMenu.Item onClick={() => onArchive(thread.id)}>Archive</DropdownMenu.Item>
+						</DropdownMenu.Popup>
+					</DropdownMenu.Positioner>
+				</DropdownMenu.Portal>
+			</DropdownMenu.Root>
+		</li>
 	);
 }
 
