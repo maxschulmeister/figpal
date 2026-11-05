@@ -5,7 +5,7 @@
 	"license": "AGPL-3.0-or-later",
 	"type": "module",
 	"bin": { "figpal": "dist/cli.js" },
-	"files": ["dist"],
+	"files": ["dist", "README.md"],
 	"os": ["darwin"],
 	"engines": { "node": ">=22" },
 	"repository": { "type": "git", "url": "git+https://github.com/maxschulmeister/figpal.git", "directory": "local" },

@@ -1,7 +1,8 @@
 import { BROWSER_HEADERS, ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type ProxyOptions } from "vite";
+import { defineConfig, type Plugin, type ProxyOptions } from "vite";
+import { licenses } from "../local/licenses.ts";
 
 /** As the FigPal command (local/ui-server.ts): no browser headers upstream, and the user-agent that the page wanted. */
 const asServerRequest: ProxyOptions["configure"] = (proxy) => {
@@ -22,7 +23,16 @@ const proxy = Object.fromEntries(
 	}),
 );
 
+/** licenses.md in the build: the bundled libraries with their licenses (THIRD_PARTY_NOTICES.md). */
+const licenseFile: Plugin = {
+	name: "figpal-licenses",
+	apply: "build",
+	generateBundle() {
+		this.emitFile({ type: "asset", fileName: "licenses.md", source: licenses("Licenses of the libraries in FigPal's UI", this.getModuleIds()) });
+	},
+};
+
 export default defineConfig({
-	plugins: [react(), tailwindcss()],
+	plugins: [react(), tailwindcss(), licenseFile],
 	server: { port: 5173, strictPort: true, proxy },
 });
