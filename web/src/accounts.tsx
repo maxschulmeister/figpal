@@ -1,9 +1,10 @@
-// The accounts: the Claude token and the ChatGPT login (on the first screen and in the settings), and the Figma token.
+// The accounts: the Claude token, the ChatGPT login and the other providers with API keys (on the first screen and in
+// the settings), and the Figma token.
 
-import type { CredentialStore } from "@earendil-works/pi-ai";
+import type { AuthPrompt, CredentialStore, Provider } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";
-import { Button, Input, Paragraph, Text } from "figma-kit";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { Button, ChevronDownIcon, Combobox, Input, Paragraph, Text } from "figma-kit";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 const CHATGPT_ID = "openai-codex";
 
@@ -20,13 +21,176 @@ type AccountsProps = {
 };
 
 export function Accounts(props: AccountsProps) {
-	// FigPal needs one model account: without any, both say so in red.
-	const required = !props.connected.has(CLAUDE.id) && !props.connected.has(CHATGPT_ID);
+	// The other providers of the models: pi-ai's providers with an API key (agent.ts).
+	const others = props.models.getProviders().filter((provider) => provider.id !== CLAUDE.id && provider.id !== CHATGPT_ID);
+	// FigPal needs one model account: without any, Claude and ChatGPT say so in red.
+	const required = !props.models.getProviders().some((provider) => props.connected.has(provider.id));
 	return (
 		<div className="flex flex-col gap-5">
 			<TokenAccount {...props} kind={CLAUDE} required={required} />
 			<ChatGptAccount {...props} required={required} />
+			{others
+				.filter((provider) => props.connected.has(provider.id))
+				.map((provider) => (
+					<KeyAccount key={provider.id} provider={provider} {...props} />
+				))}
+			<AddProvider providers={others.filter((provider) => !props.connected.has(provider.id))} {...props} />
 		</div>
+	);
+}
+
+/** A provider with a saved API key. */
+function KeyAccount({ provider, credentials, onChange }: Pick<AccountsProps, "credentials" | "onChange"> & { provider: Provider }) {
+	const [error, setError] = useState<string>();
+	return (
+		<Account name={provider.name} status={status(true, ["Connected", "Not connected"])}>
+			<div className="flex gap-2">
+				<Button onClick={() => credentials.delete(provider.id).then(onChange, (reason) => setError(errorText(reason)))}>Remove</Button>
+			</div>
+			{error && <Text className="text-danger">{error}</Text>}
+		</Account>
+	);
+}
+
+type ProviderOption = { value: string; label: string };
+
+/** The other providers: a search in the list, then pi-ai's setup of the chosen one. */
+function AddProvider({ providers, models, onChange }: Pick<AccountsProps, "models" | "onChange"> & { providers: Provider[] }) {
+	const [chosen, setChosen] = useState<Provider>();
+	if (chosen)
+		return (
+			<KeySetup
+				provider={chosen}
+				models={models}
+				onEnd={(saved) => {
+					setChosen(undefined);
+					if (saved) onChange();
+				}}
+			/>
+		);
+	const options = providers.map((provider): ProviderOption => ({ value: provider.id, label: provider.name })).sort((a, b) => a.label.localeCompare(b.label));
+	return (
+		<section className="flex flex-col gap-2">
+			<Text weight="strong">Other providers</Text>
+			<Text className="text-secondary">Use an API key of another provider. The provider bills you for what you use.</Text>
+			<Combobox.Root
+				items={options}
+				value={null}
+				onValueChange={(option: ProviderOption | null) => setChosen(providers.find((provider) => provider.id === option?.value))}
+			>
+				<Combobox.Trigger aria-label="Add a provider" className="self-start">
+					<Combobox.Value>{() => "Add a provider"}</Combobox.Value>
+					<Combobox.Icon>
+						<ChevronDownIcon />
+					</Combobox.Icon>
+				</Combobox.Trigger>
+				<Combobox.Portal>
+					<Combobox.Positioner>
+						<Combobox.Popup>
+							<Combobox.InputGroup>
+								<Combobox.SearchInput aria-label="Search providers" placeholder="Search providers" />
+							</Combobox.InputGroup>
+							<Combobox.Empty>No providers found.</Combobox.Empty>
+							<Combobox.List>
+								{(option: ProviderOption) => (
+									<Combobox.Item key={option.value} value={option}>
+										{option.label}
+									</Combobox.Item>
+								)}
+							</Combobox.List>
+						</Combobox.Popup>
+					</Combobox.Positioner>
+				</Combobox.Portal>
+			</Combobox.Root>
+		</section>
+	);
+}
+
+type Question = { prompt: AuthPrompt; answer(value: string): void };
+
+/**
+ * pi-ai's setup of a provider (`models.login`): it asks its questions one at a time, for example the key, then an
+ * account ID. pi-ai saves the key at the end. `onEnd(true)` after the save, `onEnd(false)` after Cancel.
+ */
+function KeySetup({ provider, models, onEnd }: { provider: Provider; models: Models; onEnd(saved: boolean): void }) {
+	const [question, setQuestion] = useState<Question>();
+	const [value, setValue] = useState("");
+	const [error, setError] = useState<string>();
+	const [controller] = useState(() => new AbortController());
+	const end = useRef(onEnd);
+	end.current = onEnd;
+
+	useEffect(() => {
+		const { signal } = controller;
+		models
+			.login(provider.id, "api_key", {
+				signal,
+				prompt: (prompt) =>
+					new Promise((resolve, reject) => {
+						signal.addEventListener("abort", () => reject(signal.reason));
+						setValue("");
+						setQuestion({ prompt, answer: resolve });
+					}),
+				notify: () => {},
+			})
+			.then(
+				() => end.current(true),
+				(reason) => {
+					if (!signal.aborted) setError(errorText(reason));
+				},
+			);
+		return () => controller.abort();
+	}, [provider, models, controller]);
+
+	const cancel = () => {
+		controller.abort();
+		onEnd(false);
+	};
+	const submit = (event: FormEvent) => {
+		event.preventDefault();
+		// A key copied from a web page can have spaces at its ends.
+		question?.answer(value.trim());
+	};
+	const prompt = question?.prompt;
+	return (
+		<Account name={provider.name} status={status(false, ["Connected", "Not connected"])}>
+			{prompt?.type === "select" ? (
+				<>
+					<Paragraph>{prompt.message}</Paragraph>
+					<div className="flex flex-wrap gap-2">
+						{prompt.options.map((option) => (
+							<Button key={option.id} onClick={() => question!.answer(option.id)}>
+								{option.label}
+							</Button>
+						))}
+						<Button onClick={cancel}>Cancel</Button>
+					</div>
+				</>
+			) : (
+				<form className="flex flex-col gap-2" onSubmit={submit}>
+					{prompt && <Paragraph>{prompt.message}</Paragraph>}
+					<Input
+						key={prompt?.message}
+						type={prompt?.type === "secret" ? "password" : "text"}
+						aria-label={prompt?.message ?? provider.name}
+						placeholder={prompt?.placeholder}
+						value={value}
+						disabled={!prompt}
+						autoFocus
+						onChange={(event) => setValue(event.target.value)}
+					/>
+					<div className="flex justify-end gap-2">
+						<Button type="button" onClick={cancel}>
+							Cancel
+						</Button>
+						<Button type="submit" variant="primary" disabled={!value.trim()}>
+							Continue
+						</Button>
+					</div>
+				</form>
+			)}
+			{error && <Text className="text-danger">{error}</Text>}
+		</Account>
 	);
 }
 
@@ -62,7 +226,7 @@ const CLAUDE: TokenKind = {
 	placeholder: "sk-ant-oat01-…",
 	help: (
 		<>
-			In Terminal, run <code>claude setup-token</code>. Then paste the token here.
+			In Terminal, run <code>claude setup-token</code>. Then paste the token here. An Anthropic API key also works.
 		</>
 	),
 };

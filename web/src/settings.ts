@@ -37,11 +37,24 @@ export const THINKING_LABELS: Record<ModelThinkingLevel, string> = {
 export const TEXT_SIZES = ["small", "medium", "large"] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];
 
-/** The providers of FigPal, in this order, with the model of new threads until the user picks one. */
-export const PROVIDERS = [
-	{ id: "anthropic", label: "Claude", defaultModel: "claude-sonnet-5-5" },
-	{ id: "openai-codex", label: "ChatGPT", defaultModel: "gpt-6.1-sol" },
-] as const;
+/** FigPal's names of its two accounts. They come first; the other providers follow by pi-ai's name. */
+const ACCOUNTS: Record<string, string> = { anthropic: "Claude", "openai-codex": "ChatGPT" };
+
+/** The model of new threads until the user picks one. Other providers: their first model. */
+const DEFAULT_MODELS: Record<string, string> = {
+	anthropic: "claude-sonnet-5-5",
+	"openai-codex": "gpt-6.1-sol",
+	openai: "gpt-6.1-sol",
+	azure: "gpt-6.1-sol",
+	google: "gemini-pro-latest",
+	"google-vertex": "gemini-3.1-pro-preview",
+	openrouter: "~anthropic/claude-sonnet-latest",
+	xai: "grok-4.7",
+	mistral: "mistral-large-latest",
+	deepseek: "deepseek-v4-pro",
+};
+
+export type ProviderLabel = { id: string; label: string };
 
 /** "provider/modelId" as a model reference. */
 export function parseModelRef(text: string): ModelRef | undefined {
@@ -49,14 +62,33 @@ export function parseModelRef(text: string): ModelRef | undefined {
 	return slash > 0 && slash < text.length - 1 ? { provider: text.slice(0, slash), modelId: text.slice(slash + 1) } : undefined;
 }
 
-export type ModelGroup = { provider: (typeof PROVIDERS)[number]; models: Model<Api>[] };
+export type ModelGroup = { provider: ProviderLabel; models: Model<Api>[] };
 
-/** The models of the connected providers. A dated ID repeats a model that is also in the list without a date. */
-export const modelGroups = (models: Models, connected: ReadonlySet<string>): ModelGroup[] =>
-	PROVIDERS.filter((provider) => connected.has(provider.id)).map((provider) => ({
-		provider,
-		models: models.getModels(provider.id).filter((model) => !/-\d{8}$/.test(model.id)),
-	}));
+/**
+ * The models of the connected providers: Claude and ChatGPT first, then the others by name. A dated ID repeats a
+ * model that is also in the list without a date.
+ */
+export function modelGroups(models: Models, connected: ReadonlySet<string>): ModelGroup[] {
+	const order = Object.keys(ACCOUNTS);
+	const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
+	return models
+		.getProviders()
+		.filter((provider) => connected.has(provider.id))
+		.map((provider) => ({
+			provider: { id: provider.id, label: ACCOUNTS[provider.id] ?? provider.name },
+			models: models.getModels(provider.id).filter((model) => !/-\d{8}$/.test(model.id)),
+		}))
+		.filter((group) => group.models.length)
+		.sort((a, b) => rank(a.provider.id) - rank(b.provider.id) || a.provider.label.localeCompare(b.provider.label));
+}
+
+/** The model of a new chat when the saved one cannot be used: the default of the first connected provider. */
+export function defaultModel(models: Models, connected: ReadonlySet<string>): ModelRef | undefined {
+	const group = modelGroups(models, connected)[0];
+	if (!group) return undefined;
+	const model = group.models.find((item) => item.id === DEFAULT_MODELS[group.provider.id]) ?? group.models[0]!;
+	return { provider: group.provider.id, modelId: model.id };
+}
 
 /**
  * The model that names chats: the chosen model if its provider is connected, else the cheapest model of the chat's
@@ -94,7 +126,7 @@ export function enabledModelGroups(models: Models, connected: ReadonlySet<string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-	model: { provider: PROVIDERS[0].id, modelId: PROVIDERS[0].defaultModel },
+	model: { provider: "anthropic", modelId: DEFAULT_MODELS.anthropic! },
 	thinkingLevel: "medium",
 	enabledModels: [],
 	outsideAgents: false,

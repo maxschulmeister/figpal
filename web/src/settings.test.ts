@@ -3,7 +3,8 @@ import type { Bridge } from "./bridge";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { chatgptProvider } from "./providers/chatgpt";
-import { DEFAULT_SETTINGS, enabledModelGroups, loadSettings, saveSettings, textModel, textThinkingLevels } from "./settings";
+import { apiKeyProviders } from "./providers/catalog";
+import { DEFAULT_SETTINGS, defaultModel, enabledModelGroups, loadSettings, modelGroups, saveSettings, textModel, textThinkingLevels } from "./settings";
 
 function storage(value?: unknown) {
 	const data = new Map<string, unknown>(value === undefined ? [] : [["figpal.settings", value]]);
@@ -97,6 +98,26 @@ describe("settings", () => {
 		it("are all models when no chosen model is of a connected provider: the menu is never empty", () => {
 			const onlyClaude = new Set(["anthropic"]);
 			expect(names(["openai-codex/gpt-6.1-sol"], onlyClaude)).toEqual(names([], onlyClaude));
+		});
+	});
+
+	describe("providers with API keys", () => {
+		const models = createModels();
+		for (const provider of apiKeyProviders()) models.setProvider(provider);
+		models.setProvider(anthropicProvider());
+		models.setProvider(chatgptProvider());
+
+		it("group their models after Claude and ChatGPT, by name, with FigPal's names for these two", () => {
+			const groups = modelGroups(models, new Set(["mistral", "openai-codex", "google", "anthropic", "figma"]));
+			expect(groups.map(({ provider }) => provider.label)).toEqual(["Claude", "ChatGPT", "Google", "Mistral"]);
+		});
+
+		it("give a new chat FigPal's default model of the first connected provider, else its first model", () => {
+			expect(defaultModel(models, new Set(["mistral", "google"]))).toEqual({ provider: "google", modelId: "gemini-pro-latest" });
+			expect(defaultModel(models, new Set(["anthropic", "google"]))).toEqual({ provider: "anthropic", modelId: "claude-sonnet-5-5" });
+			const first = models.getModels("groq")[0]!.id;
+			expect(defaultModel(models, new Set(["groq"]))).toEqual({ provider: "groq", modelId: first });
+			expect(defaultModel(models, new Set(["figma"]))).toBeUndefined();
 		});
 	});
 

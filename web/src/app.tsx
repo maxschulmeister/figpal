@@ -26,8 +26,8 @@ import { BackupSettings } from "./backup-panel";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
-import { clampThinkingLevel } from "@earendil-works/pi-ai/models";
-import { enabledModelGroups, loadSettings, PROVIDERS, type Settings, saveSettings, TEXT_SIZES, type TextSize, textModel } from "./settings";
+import { clampThinkingLevel, type Models } from "@earendil-works/pi-ai/models";
+import { defaultModel, enabledModelGroups, loadSettings, type Settings, saveSettings, TEXT_SIZES, type TextSize, textModel } from "./settings";
 import { chipLabels } from "./node-chips";
 import { RulesPanel } from "./rules-panel";
 import { SkillsPanel } from "./skills-panel";
@@ -62,10 +62,10 @@ type Phase =
 const INIT_TIMEOUT_MS = 5000;
 
 /** The agent of a new thread: the saved model, or the default model of the first connected provider. */
-function newThreadAgent({ model, thinkingLevel }: Settings, connected: ReadonlySet<string>): AgentChange | undefined {
-	if (connected.has(model.provider)) return { model, thinkingLevel };
-	const provider = PROVIDERS.find((item) => connected.has(item.id));
-	return provider && { model: { provider: provider.id, modelId: provider.defaultModel }, thinkingLevel };
+function newThreadAgent({ model, thinkingLevel }: Settings, models: Models, connected: ReadonlySet<string>): AgentChange | undefined {
+	if (connected.has(model.provider) && models.getModel(model.provider, model.modelId)) return { model, thinkingLevel };
+	const fallback = defaultModel(models, connected);
+	return fallback && { model: fallback, thinkingLevel };
 }
 
 /** Errors of actions after the start: the chat stays open. */
@@ -209,7 +209,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 	);
 	const ready = harness !== undefined && settings !== undefined && connected !== undefined;
 	// Undefined until a provider is connected, so that the first thread gets a model that works.
-	const agent = useMemo(() => settings && connected && newThreadAgent(settings, connected), [settings, connected]);
+	const agent = useMemo(() => settings && connected && newThreadAgent(settings, models, connected), [settings, models, connected]);
 
 	// The open thread, once. Later changes come from the thread actions.
 	useEffect(() => {

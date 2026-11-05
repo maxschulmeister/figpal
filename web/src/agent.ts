@@ -1,4 +1,5 @@
-// The FigPal agent: a pi-durable Harness for one Figma file, with Claude through the Anthropic route.
+// The FigPal agent: a pi-durable Harness for one Figma file, and its models: Claude, ChatGPT and the providers of pi-ai
+// with API keys, all through routes of the FigPal command.
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { CompleteAttachment } from "@assistant-ui/react";
@@ -17,26 +18,23 @@ import { rulesExtension } from "./extensions/rules";
 import { webExtension } from "./extensions/web";
 import type { LocalFiles } from "./local";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
+import { apiKeyProviders, forwardFetch, SEARCH_TOOLS } from "./providers/catalog";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { chipsForModel, clean, describeNode } from "./node-chips";
 import { wrapAnthropicProvider } from "./providers/pi-black";
 import { UserText } from "./transcript";
 
 /**
- * Sends the requests of `provider` to the route at `baseUrl`, with extra stream options, and adds the provider's own
- * web search tool (spike 0.8). pi-ai keeps the answer text, not the search results or the citations.
+ * Sends the requests of `provider` with extra stream options, to the route at `baseUrl` if given, and adds the
+ * provider's own web search tool. pi-ai keeps the answer text, not the search results or the citations.
  */
-function throughRoute(
-	provider: Provider,
-	baseUrl: string,
-	searchTool: object,
-	extra: Pick<StreamOptions, "fetch" | "transport">,
-): Provider {
+function throughRoute(provider: Provider, extra: Pick<StreamOptions, "fetch" | "transport">, baseUrl?: string): Provider {
+	const searchTool = SEARCH_TOOLS[provider.id];
 	const withSearch = (context: TranscriptContext, options: StreamOptions | undefined): StreamOptions => {
 		// A request without tools is a compaction summary: a search there costs time, and its text would go into the
 		// summary that later turns trust. The tools are in the system messages for every provider.
 		const hasTools = context.messages.some((message) => message.role === "system" && message.toolsAdded?.length);
-		if (!hasTools) return { ...options, ...extra };
+		if (!hasTools || !searchTool) return { ...options, ...extra };
 		return {
 			...options,
 			...extra,
@@ -48,21 +46,25 @@ function throughRoute(
 	};
 	return {
 		...provider,
-		stream: (model, context, options) => provider.stream({ ...model, baseUrl } as Model<Api>, context, withSearch(context, options)),
-		streamSimple: (model, context, options) => provider.streamSimple({ ...model, baseUrl }, context, withSearch(context, options)),
+		stream: (model, context, options) =>
+			provider.stream((baseUrl ? { ...model, baseUrl } : model) as Model<Api>, context, withSearch(context, options)),
+		streamSimple: (model, context, options) => provider.streamSimple(baseUrl ? { ...model, baseUrl } : model, context, withSearch(context, options)),
 	};
 }
 
-/** Claude and ChatGPT. Both go through routes on the page origin: their APIs refuse these browser requests. */
+/**
+ * Claude, ChatGPT and the providers with API keys. Their requests go through routes on the page origin (the FigPal
+ * command): their APIs refuse browser requests, or Claude subscription requests must look like server requests.
+ */
 export function createAgentModels(credentials: CredentialStore, origin: string): Models {
 	const models = createModels({ credentials });
+	const forward = forwardFetch(origin);
+	for (const provider of apiKeyProviders()) models.setProvider(throughRoute(provider, { fetch: forward }));
 	// Around Pi Black, so that Pi Black wraps fetchAsServer.
 	const claude = wrapAnthropicProvider(anthropicProvider());
-	const claudeSearch = { type: "web_search_20250305", name: "web_search", max_uses: 5 };
-	models.setProvider(throughRoute(claude, `${origin}${ANTHROPIC_ROUTE}`, claudeSearch, { fetch: fetchAsServer }));
+	models.setProvider(throughRoute(claude, { fetch: fetchAsServer }, `${origin}${ANTHROPIC_ROUTE}`));
 	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
-	const chatgptSearch = { type: "web_search" };
-	models.setProvider(throughRoute(chatgptProvider(), `${origin}${CHATGPT_ROUTE}`, chatgptSearch, { transport: "sse" }));
+	models.setProvider(throughRoute(chatgptProvider(), { transport: "sse" }, `${origin}${CHATGPT_ROUTE}`));
 	return models;
 }
 

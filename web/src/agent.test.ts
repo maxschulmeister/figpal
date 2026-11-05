@@ -112,6 +112,33 @@ describe("createAgentModels", () => {
 		await models.streamSimple(models.getModel("openai-codex", "gpt-6.1-sol")!, { messages }, options).result();
 		expect(bodies[3]?.tools).toBeUndefined();
 	});
+
+	// Most providers refuse browser requests: the FigPal command forwards them (local/ui-server.ts).
+	it("sends the requests of the other providers with their keys through the forward route; OpenAI gets its own web search", async () => {
+		const requests: { url: string; headers: Headers; body: { tools?: unknown[] } }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async (input, init) => {
+				const request = new Request(input, init);
+				requests.push({ url: request.url, headers: request.headers, body: JSON.parse(await request.text()) });
+				return new Response("unavailable", { status: 503 });
+			}),
+		);
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("mistral", async () => ({ type: "api_key", key: "mistral-key" }));
+		await credentials.modify("openai", async () => ({ type: "api_key", key: "sk-openai" }));
+		const models = createAgentModels(credentials, "http://127.0.0.1:9310");
+		const agentRequest = { messages: [{ role: "user" as const, content: "Hi", timestamp: 1 }], tools: [{ name: "figma_execute", description: "Runs code.", parameters: obj({}, { open: true }) }] };
+		await models.streamSimple(models.getModel("mistral", "mistral-large-latest")!, agentRequest, { maxRetries: 0 }).result();
+		await models.streamSimple(models.getModel("openai", "gpt-6.1-sol")!, agentRequest, { maxRetries: 0 }).result();
+
+		expect(requests[0]!.url).toMatch(/^http:\/\/127\.0\.0\.1:9310\/api\/forward\/api\.mistral\.ai\//);
+		expect(requests[0]!.headers.get("authorization")).toBe("Bearer mistral-key");
+		expect(requests[0]!.body.tools).not.toContainEqual({ type: "web_search" });
+		expect(requests[1]!.url).toBe("http://127.0.0.1:9310/api/forward/api.openai.com/v1/responses");
+		expect(requests[1]!.headers.get("authorization")).toBe("Bearer sk-openai");
+		expect(requests[1]!.body.tools).toContainEqual({ type: "web_search" });
+	});
 });
 
 
