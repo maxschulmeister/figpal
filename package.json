@@ -11,8 +11,9 @@
 		"typecheck": "pnpm -r typecheck",
 		"lint": "biome lint",
 		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh",
-		"local:install": "node local/install.ts",
-		"local:uninstall": "node local/install.ts --uninstall"
+		"package": "pnpm build && pnpm --filter figpal build",
+		"local:install": "pnpm package && node local/dist/cli.js install",
+		"local:uninstall": "node local/cli.ts uninstall"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.4",

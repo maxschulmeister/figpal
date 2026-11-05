@@ -1,19 +1,26 @@
 {
-	"name": "@figpal/local",
-	"private": true,
+	"name": "figpal",
+	"version": "0.1.0",
+	"description": "An AI agent in Figma Desktop. On macOS: npx figpal@latest install",
+	"license": "AGPL-3.0-or-later",
 	"type": "module",
+	"bin": { "figpal": "dist/cli.js" },
+	"files": ["dist"],
+	"os": ["darwin"],
+	"engines": { "node": ">=22" },
+	"repository": { "type": "git", "url": "git+https://github.com/maxschulmeister/figpal.git", "directory": "local" },
 	"scripts": {
+		"build": "node build.ts",
 		"start": "node cli.ts",
 		"typecheck": "tsc -p ."
 	},
-	"dependencies": {
+	"devDependencies": {
 		"@figpal/shared": "workspace:*",
 		"@modelcontextprotocol/sdk": "^1.32.2",
+		"@types/node": "26.6.6",
+		"@types/ws": "^8.18.2",
+		"esbuild": "^0.28.2",
 		"ws": "^8.22.1",
 		"zod": "^4.6.7"
-	},
-	"devDependencies": {
-		"@types/node": "26.6.6",
-		"@types/ws": "^8.18.2"
 	}
 }
