@@ -34,6 +34,8 @@ export type Options = {
 	canvas?: boolean;
 	/** Before the page loads, for example more routes. */
 	setup?: (page: Page) => Promise<unknown>;
+	/** The ID of the file. Default: a new file for each session. */
+	fileId?: string;
 };
 
 const sse = (events: object[]) => events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
@@ -74,7 +76,7 @@ export const resultText = (result: ToolResult) =>
 	Array.isArray(result.content) ? result.content.map((block: { text?: string }) => block.text ?? "").join("") : result.content;
 
 /** A fake Figma page: the panel, and the file's events. */
-function parent(ui: string, dark: boolean, canvas: boolean): string {
+function parent(ui: string, dark: boolean, canvas: boolean, fileId: string): string {
 	return `<!doctype html><body style="margin:0">
 <iframe id="f" src="${ui}/#figma-theme=${dark ? "figma-dark" : "figma-light"}" style="width:420px;height:${canvas ? 600 : 680}px;border:0"></iframe>
 ${canvas ? '<div id="canvas" style="height:60px;background:#eee">canvas</div>' : ""}
@@ -87,7 +89,7 @@ window.addEventListener("message", async (event) => {
 	const { pluginMessage: m, pluginId } = event.data || {};
 	window.__pluginId = pluginId;
 	if (m.kind === "ready") window.__post({ kind: "event", type: "init", file: ${JSON.stringify({
-		fileId: `e2e-${Date.now()}`,
+		fileId,
 		fileKey: "KEY1",
 		fileName: "E2E",
 		editorType: "figma",
@@ -283,7 +285,7 @@ export class Context {
 			session.model.push(request);
 			await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: await model(request) });
 		});
-		await page.route(PARENT_URL, (route) => route.fulfill({ contentType: "text/html", body: parent(this.ui, this.dark, options.canvas ?? false) }));
+		await page.route(PARENT_URL, (route) => route.fulfill({ contentType: "text/html", body: parent(this.ui, this.dark, options.canvas ?? false, options.fileId ?? `e2e-${Date.now()}`) }));
 		await options.setup?.(page);
 		await page.goto(PARENT_URL);
 		await session.ready();

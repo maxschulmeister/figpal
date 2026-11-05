@@ -21,6 +21,8 @@ import {
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, errorText, FIGMA, TokenAccount } from "./accounts";
 import { createAgentModels, openAgent } from "./agent";
+import { applyStagedImport } from "./backup";
+import { BackupSettings } from "./backup-panel";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
@@ -52,6 +54,8 @@ import {
 type Phase =
 	| { kind: "starting" }
 	| { kind: "failed"; message: string }
+	/** A backup goes in before FigPal opens its storage. `blocked`: FigPal in another file has a database open. */
+	| { kind: "importing"; blocked: boolean }
 	| { kind: "locked" }
 	| { kind: "ready"; harness: Harness };
 
@@ -163,8 +167,6 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const fileKey = file?.fileKey ?? null;
 	useEffect(() => {
 		if (!fileId) return;
-		// In the background: the Skills tab shows an error.
-		installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
 		void refreshConnected();
 		loadSettings(bridge).then(setSettings, fail);
 		const local = {
@@ -175,14 +177,23 @@ export function App({ bridge }: { bridge: Bridge }) {
 				listener(localLink.folders);
 			},
 		};
-		openAgent(fileId, { models, bridge, credentials, fileKey, subagentModels: () => allowedModels.current, local }).then(
-			// The first failure stays: a later result must not hide it.
-			(harness) =>
-				setPhase((current) =>
-					current.kind === "failed" ? current : harness === "locked" ? { kind: "locked" } : { kind: "ready", harness },
-				),
-			fail,
-		);
+		applyStagedImport({
+			onStart: () => setPhase({ kind: "importing", blocked: false }),
+			onBlocked: () => setPhase({ kind: "importing", blocked: true }),
+		})
+			.then(() => {
+				// In the background: the Skills tab shows an error.
+				installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
+				return openAgent(fileId, { models, bridge, credentials, fileKey, subagentModels: () => allowedModels.current, local });
+			})
+			.then(
+				// The first failure stays: a later result must not hide it.
+				(harness) =>
+					setPhase((current) =>
+						current.kind === "failed" ? current : harness === "locked" ? { kind: "locked" } : { kind: "ready", harness },
+					),
+				fail,
+			);
 	}, [fileId, fileKey, models, bridge, credentials, refreshConnected, fail, localLink]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
@@ -228,6 +239,8 @@ export function App({ bridge }: { bridge: Bridge }) {
 	}, [harness, hasThread, fail]);
 
 	if (phase.kind === "failed") return <Notice>{phase.message}</Notice>;
+	if (phase.kind === "importing")
+		return <Notice>{phase.blocked ? "Close FigPal in your other files. Then the import continues." : "Importing your backup…"}</Notice>;
 	if (phase.kind === "locked")
 		return <Notice>FigPal is open for this file in another window. Close it, then run FigPal again.</Notice>;
 	if (!ready || !file) return null;
@@ -453,6 +466,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 									onChange={updateSettings}
 									onChangeFolders={(change) => localLink.connection?.changeFolders(change) ?? Promise.resolve()}
 								/>
+								<BackupSettings />
 							</Tabs.Panel>
 						</Tabs.Root>
 					</Dialog.Popup>

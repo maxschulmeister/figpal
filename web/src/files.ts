@@ -22,10 +22,14 @@ export function keepFiles(attachments: Attachment[]): FileRef[] {
 export const fileById = (id: string) => files.get(id);
 
 export function downloadFile(file: Attachment) {
-	const url = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: file.mime }));
+	downloadBlob(new Blob([file.bytes as BlobPart], { type: file.mime }), file.name);
+}
+
+export function downloadBlob(blob: Blob, name: string) {
+	const url = URL.createObjectURL(blob);
 	const link = document.createElement("a");
 	link.href = url;
-	link.download = file.name;
+	link.download = name;
 	link.click();
 	// The download reads the URL after the click.
 	setTimeout(() => URL.revokeObjectURL(url), 60_000);
