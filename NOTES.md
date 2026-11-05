@@ -5,11 +5,11 @@
 Done (Phase 7): the local helper `local/cli.ts` gives local files (`--folder`) and access from outside (`figpal mcp`). Open:
 
 - **Remote threads:** a pi instance on another machine can start a thread in the plugin and follow it.
-- **Publish on npm (user, 2026-11-02):** then `npx` starts the helper, without a clone of the repo, for example `claude mcp add figpal -- npx -y <package> mcp`.
+- **Publish on npm (user, 2026-11-02):** done in Phase 8 (the package `figpal`; the first publish is open).
 
 ### Optional Node host (from PLAN.md)
 
-Use it only if you need repo access, long runs while Figma is closed, or a provider that no browser path supports.
+Use it only if you need repo access, long runs while Figma is closed, or a provider that no browser path supports (Amazon Bedrock: its AWS SDK needs Node, Phase 8).
 
 - The same extensions run in Node with SQLite storage. Only the transport changes (WebSocket instead of `postMessage`).
 - It adds pi-durable `createCodingTools` with a `NodeExecutionEnv` for each repo, and the figma-console-mcp codebase extraction (`src/core/extraction`).
@@ -21,7 +21,14 @@ Use it only if you need repo access, long runs while Figma is closed, or a provi
 
 ## Domain migration and export/import (deferred by the user, 2026-11-01)
 
-Conversations, settings and skills are stored for the origin `figpal.maxschulmeister.dev`. A new domain starts empty. Export and import of the data move it. Check: migrate data between two test subdomains.
+Done in Phase 8: Settings → Access → Backup exports and imports the chats and skills (not the keys). The browser check `backup` moves them between two browsers.
+
+## After the public launch (Phase 8)
+
+- **Windows:** Figma Desktop also runs on Windows. The install needs a Task Scheduler task at logon (with restart on failure and no console window), a folder picker (a PowerShell dialog instead of `osascript`), a `figpal.cmd`, and a CI run on Windows.
+- **"Get a key" links** for the providers in Settings → Models: pi-ai has no URLs, and wrong links are worse than none.
+- **A standalone `figpal`** (Node SEA) for users without Node: four builds and macOS signing.
+- **Web search for more providers:** Gemini (`googleSearch`), xAI and OpenRouter have their own tools, with other rules (for example, no function tools in the same request).
 
 ## Agent profiles (from PLAN.md, not in Phase 7)
 

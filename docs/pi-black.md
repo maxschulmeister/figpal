@@ -37,7 +37,7 @@ On 2026-10-30, an unauthenticated OPTIONS request to `api.anthropic.com/v1/messa
 
 Live checks in Figma Desktop (2026-10-30): a message with a `claude setup-token` token (spike 0.3) and native search (spike 0.8) pass, local and remote.
 
-Chromium replaces the page-set `user-agent` header (checked in Chrome 156). Anthropic also refuses browser requests for subscription accounts ("CORS requests are not allowed for this Organization"). So the page sends Claude requests through `/api/anthropic` (dev server and Caddy) (`web/src/providers/anthropic-route.ts`). The route removes the browser headers and sets the user-agent from `x-figpal-user-agent`.
+Chromium replaces the page-set `user-agent` header (checked in Chrome 156). Anthropic also refuses browser requests for subscription accounts ("CORS requests are not allowed for this Organization"). So the page sends Claude requests through `/api/anthropic` (the FigPal command and the dev server) (`web/src/providers/anthropic-route.ts`). The route removes the browser headers and sets the user-agent from `x-figpal-user-agent`.
 
 The existing Vite warning for pi-ai's `node:fs` import is unchanged. The browser port adds no Node imports.
 

@@ -2,7 +2,7 @@
 
 FigPal is a Figma plugin with an AI agent in it. The agent runs on pi-durable inside the plugin UI. It reads and changes the open file through the Figma Plugin API. Threads stay in storage and continue after you close and open the plugin again.
 
-FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpal`. UI: `https://figpal.maxschulmeister.dev` (static files on the VPS, only reachable through Tailscale). Repo: `github.com/maxschulmeister/figpal` (private).
+FigPal is a development plugin for Figma Desktop only. Plugin ID: `figpal`. UI: `http://127.0.0.1:9310`, served by the FigPal command on the user's Mac (the npm package `figpal`, Phase 8). Before Phase 8: `https://figpal.maxschulmeister.dev` (static files on the VPS, only reachable through Tailscale). Repo: `github.com/maxschulmeister/figpal`.
 
 The old FigPal (a code generator that you start from quick actions) is on branch `backup/original-main`. A tarball of the old folder is at `~/Documents/figpal-backup-20261029-222910.tar.gz` (it includes `.env`).
 
@@ -86,11 +86,13 @@ VPS facts (read-only checks):
 
 - Ubuntu 24.04. Host Caddy v2.11 handles TLS on ports 80 and 443. Dokploy (Docker Swarm, Traefik) runs other apps.
 - `*.maxschulmeister.dev` points to the VPS. The records are DNS-only (Cloudflare does not proxy them).
-- CoreDNS listens on the Tailscale IP `100.110.230.14`. Its `hosts` block resolves private names (for example `system.maxschulmeister.dev`) to that IP for tailnet devices.
+- CoreDNS listens on the Tailscale IP the Tailscale IP of the VPS. Its `hosts` block resolves private names (for example `system.maxschulmeister.dev`) to that IP for tailnet devices.
 - Caddy blocks for private names use `@tailscale remote_ip 100.64.0.0/10 fd7a:115c:a1e0::/48`. Other requests get `404`.
-- This Mac resolves `system.maxschulmeister.dev` to `100.110.230.14` and gets `200`.
+- This Mac resolves `system.maxschulmeister.dev` to the Tailscale IP of the VPS and gets `200`.
 
 ## Architecture
+
+Phase 8 replaced the VPS: the FigPal command on the Mac serves the UI and the routes (`local/ui-server.ts`). The diagram and the hosting section below show the state before Phase 8.
 
 ```
 Figma Desktop
@@ -108,7 +110,7 @@ Figma Desktop
        └─ models: Anthropic direct · ChatGPT direct or through a Caddy route
 
 VPS (reached through Tailscale)
-├─ CoreDNS: figpal.maxschulmeister.dev → 100.110.230.14 for tailnet devices
+├─ CoreDNS: figpal.maxschulmeister.dev → its Tailscale IP for tailnet devices
 └─ host Caddy: figpal.maxschulmeister.dev, @tailscale only, else 404
     ├─ file_server /srv/figpal   (built UI)
     └─ optional reverse_proxy routes, same origin:
@@ -224,13 +226,13 @@ figpal/
 - Images: the agent finds an image URL with web search, and `figma_execute` calls `figma.createImageAsync(url)` (`allowedDomains: ["*"]`). No image search tool and no API keys (decision 2026-10-31).
 - Not built (decision 2026-10-31): the Tavily fallback, `web_fetch`, and image bytes from the UI to `figma.createImage`.
 
-### Hosting (`deploy/`)
+### Hosting (`deploy/`, removed in Phase 8)
 
 Static files only. The host Caddy serves them. Only tailnet devices can reach them. The server stores no user data: threads stay in Figma Desktop's IndexedDB on the Mac.
 
 Setup on the VPS (one time, in Phase 0, with your approval):
 
-1. CoreDNS: add `100.110.230.14 figpal.maxschulmeister.dev` to the `hosts` block in `/etc/coredns/Corefile`. Restart CoreDNS.
+1. CoreDNS: add `<Tailscale IP> figpal.maxschulmeister.dev` to the `hosts` block in `/etc/coredns/Corefile`. Restart CoreDNS.
 2. Caddy: add this block to `/etc/caddy/Caddyfile`, next to `system.maxschulmeister.dev`. Do not add it to `dokploy-apps.caddy`, because `caddy-dokploy-sync` writes that file. Run `caddy validate`, then reload Caddy. The block below is the outline. The current block, with the proxy routes and correct cache headers, is `deploy/Caddyfile.figpal`.
 
 ```caddyfile
@@ -252,7 +254,7 @@ figpal.maxschulmeister.dev {
 
 3. Create `/srv/figpal`.
 
-Deployment: `pnpm deploy:web` builds `web/` and runs `rsync -az --delete web/dist/ root@maxschulmeister.dev:/srv/figpal/`.
+Deployment: `pnpm deploy:web` builds `web/` and copies `web/dist/` to `/srv/figpal/` on the VPS with rsync (removed in Phase 8).
 
 Headers:
 
@@ -342,7 +344,7 @@ Build the minimum: a plugin that goes to a local and a hosted page, with one har
 | 0.10 | `figma.fileKey` | Available in a development plugin with `enablePrivatePluginApi`. |
 | 0.11 | Hidden UI | After `figma.ui.hide()`, the iframe keeps running and a run continues. |
 | 0.12 | `frame-ancestors https://www.figma.com` | Figma Desktop still shows the page. If not, remove the header. |
-| 0.13 | Tailscale DNS in Figma Desktop | Figma Desktop (Electron) resolves `figpal.maxschulmeister.dev` to `100.110.230.14` and loads the page. A request from outside the tailnet gets `404`. |
+| 0.13 | Tailscale DNS in Figma Desktop | Figma Desktop (Electron) resolves `figpal.maxschulmeister.dev` to the Tailscale IP of the VPS and loads the page. A request from outside the tailnet gets `404`. |
 | 0.14 | Tailscale off | The plugin shows the "Connect Tailscale" page. It does not hang. |
 | 0.15 | skills.sh | Record if search and download need the Caddy route. Test the GitHub fallback. |
 | 0.16 | Theme colors | Record if Figma adds the `--figma-color-*` variables to the hosted iframe. |
@@ -473,6 +475,8 @@ Work, in this order:
 5. License, notices, README, CI, a secret scan of the history. VPS details out of the repo.
 
 Checks: a clean macOS user account with only Node: `npx figpal install`, import the manifest, connect a key, the manual checks of Phases 1–7; an agent with `figpal mcp`.
+
+Status (2026-11-05, branch `feature/public-launch`, not merged): code done for steps 1–5, with unit tests and browser checks (`backup`, `start`, `providers`). The old UI on the VPS has the backup (deployed from commit `99830d9`). Open: the checks in Figma Desktop (the first page asks `http://127.0.0.1:9310/health`: `networkAccess` and Local Network Access in Figma Desktop), the move of the user's data, the clean-account check, the npm publish, and the removal of the VPS site. Not done: Amazon Bedrock (see the decision log).
 
 ## Risks
 
@@ -701,6 +705,19 @@ Checks: a clean macOS user account with only Node: `npx figpal install`, import 
 
 - Settle by choice (user request): reading a chat no longer settles it; only ⋯ → Settle does (`ThreadInfo.settled`, `settleThread`). Unread is only the dot now. A settled chat has ⋯ → Unsettle, like T3 Code's Un-settle, and a new message also takes it out of Settled (`noteMessage`), so its next answer shows in Done. A chat that works is in Working, also when it is settled. Chats from before have no flag, so they show in Done until the user settles them. No reviews (a change that the user asked for). e2e: `unread` settles and unsettles a chat; `archive` checks the menu.
 
+2026-11-05 (Phase 8, public launch):
+
+- Backup (Settings → Access → Backup): a JSONL file with one line for each record of the databases `figpal:…` (pi-durable keeps JSON records: it also has a JSONL storage), the schema in a line before the records of each database. A value that JSON would change (bytes, Map, Set, Blob) stops the export. The keys stay out. Import: the UI checks the whole file, keeps it in the database `figpal-import`, and starts again; at the start, before FigPal opens its storage, each database of the file replaces the database of the same name (FigPal in another file blocks it: the page says so). The staged file goes also after a failure. Settings and rules do not move: they are in clientStorage (plugin ID) and in the files. The old UI got the backup in one last deploy (commit `99830d9`, checked against the deployed page with `pnpm e2e backup --ui …`).
+- The FigPal command serves the UI on `http://127.0.0.1:9310` (`local/ui-server.ts`): `127.0.0.1`, not `localhost`, because the server listens there; a fixed port, because the data belongs to the origin. Static files as the Caddy block served them (the page revalidates, `/assets` is immutable, the same CSP); a file that is not there gets 404, not the page. `/health` says `{ app: "figpal", version }`. It serves the UI only when it has a UI folder (`ui/` next to `cli.js` in the package, or `--ui`), so the commands of the tests in the repo do not take the port. `--ui-port` for tests.
+- Routes: one table in `shared/src/routes.ts` for the command and Vite (the browser checks). All routes remove the browser headers and set the user-agent from `x-figpal-user-agent`. `/api/forward/<host>/<path>` goes to `https://<host>/<path>`, for the providers with API keys. Only the UI can use them: a request with another origin, or with `Sec-Fetch-Site` other than `same-origin`, gets 403 (a same-origin GET has no Origin header); the Host header must be `127.0.0.1` or `localhost` with the port (DNS rebinding). No list of hosts: only the UI can use the route, and its code can call any host anyway.
+- The first page of the plugin asks `/health` (`fetch` with `no-cors`: a refused connection fails at once), and until FigPal answers it shows "FigPal is not running" with `npx figpal@latest install` and Copy, and asks again every 2 s. It sends `loading` before it goes to the UI; code.js starts its 10 s wait for `ready` then, not at the start (the wait for the command has no limit). The offline page says "FigPal did not start" with Try again. The manifest has `devAllowedDomains: ["http://127.0.0.1:9310"]`. Settings → Access lost the "Local helper" section: the command serves the UI, so it runs when the UI shows.
+- npm package `figpal` (`local/`, AGPL-3.0, `os: darwin`, Node 22 or later): `local/build.ts` bundles `cli.ts` with esbuild (one file; a `require` for the CommonJS of `ws`), and adds the UI, the plugin (with `main: "code.js"`), the license, the notices and `licenses.md`. `pnpm package` builds it; `pnpm local:install` installs it from the repo. Checked with `npm pack`: the unpacked package serves the UI and answers MCP.
+- `figpal install` (`local/install.ts`): copies `cli.js`, the UI and the plugin to `~/Library/Application Support/FigPal` (npx keeps its files in a cache; Figma and the LaunchAgent need fixed paths), keeps the UI files of earlier builds for 30 days (an open window loads parts of its build later), writes the LaunchAgent (the same label `dev.figpal.local`, so it replaces the helper of `pnpm local:install`), the `figpal` command next to node (it removes a link there first: a write through the link of `npm install -g figpal` would change npm's file), and Claude Code's MCP server. It uses the node of the PATH when that is the same program, so that a Homebrew update keeps the LaunchAgent working. It stops before any change when another program uses the port (`lsof` names it), and waits until the new version answers. The first install puts the manifest path on the clipboard. `figpal uninstall` removes all of it; the shared folders and the chats stay. The system calls are a parameter (`System`): the tests run the whole install in a folder. It did not run on the user's Mac in this session: it replaces the running helper.
+- Providers: all providers of pi-ai with an API key setup and chat models (`apiKeyProviders`), without Claude and ChatGPT (their own cards; the Claude card also takes an Anthropic API key) and Amazon Bedrock: its AWS SDK uses Node's HTTP handler, so it would need the model calls in the command (not built; user decision open). Settings → Models → "Add a provider" (a combobox with a search) runs pi-ai's own setup (`models.login(id, "api_key")`): its questions show one at a time. FigPal adds the endpoint question for Azure (pi-ai reads it from the environment in Node) and answers "api-key" for Vertex (a browser cannot read ADC or a credentials file). The requests go through `/api/forward` with pi-ai's `fetch` option (all chat APIs take it, except Bedrock). Web search: Claude, ChatGPT and OpenAI (Responses) keep the provider's own tool; the web section tells other models that they cannot search, so that they do not make up results. The model of a new chat: the saved one, else FigPal's default of the first connected provider (Claude, ChatGPT, then by name), else that provider's first model. The main bundle grew from 2.1 to 3.1 MB (pi-ai's catalogs); it loads from the Mac.
+- License: AGPL-3.0 (`LICENSE`), `THIRD_PARTY_NOTICES.md`, and `licenses.md` in each build with the bundled libraries and their license texts (`local/licenses.ts`; Vite's own license file fails with EISDIR on a package with a license folder).
+- CI: `.github/workflows/checks.yml` (macOS: typecheck, lint, tests, package, browser checks) and `release.yml` (a tag `v<version>` publishes `figpal` with provenance; needs the secret `NPM_TOKEN`).
+- The repo: `deploy/` and `deploy:web` are gone; the docs no longer name the Tailscale IP or the SSH user. The history still has them. A pattern scan of the history (all branches) found no keys or `.env` files; run gitleaks before the repo goes public.
+
 ## Open questions
 
-None at the moment.
+- Amazon Bedrock: build the model calls in the FigPal command, or leave it out?
