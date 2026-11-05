@@ -21,7 +21,7 @@ The old FigPal (a code generator that you start from quick actions) is on branch
 
 - Access to a code repository (code ↔ design). See [Later](#later-optional-node-host).
 - Figma's own AI features (`generate_image`, Figma Make). The Plugin API does not give access to them.
-- Publication. FigPal stays a development plugin.
+- The Figma Community. FigPal stays a development plugin: users get it from GitHub and npm (Phase 8).
 - Figma in a browser. Figma Desktop is the only target.
 
 ## Decisions
@@ -450,6 +450,29 @@ Checks:
 
 - Measure the token size of the tool schemas and the rules (goal: less than 3k; result: about 3,130 with the rules for skills, limit 3,200).
 - The agent finishes a task while the UI is hidden.
+
+### Phase 8: public launch
+
+Decisions (user, 2026-11-05):
+
+- **Where:** GitHub and npm (the package `figpal`), not the Figma Community. Figma's review guidelines refuse "a general-purpose AI chat interface in Figma, including … bring their own API key" and plugins that "expose an MCP server". Users import the manifest in Figma Desktop, as a development plugin.
+- **No hosting:** the npm package has the UI, the plugin and the local helper. The helper serves the UI and the routes on `http://127.0.0.1:9310`. This reverses "No local UI" (2026-11-03). Without a public server, the routes are not open relays, and `code.js` and the UI always come from the same version. The VPS site goes after the user moved his data.
+- **macOS only.** Windows (Figma Desktop also runs there) is later.
+- **Accounts:** the Claude token (Pi Black) and Sign in with ChatGPT stay. The README says that the use of a subscription is unofficial and that API keys are the alternative.
+- **Models:** all providers of pi-ai, with API keys, also those that need more fields (Azure, Cloudflare, Bedrock, Vertex), in a settings UI for many providers.
+- **License:** AGPL-3.0. apca-w3 and colorparsley (AGPL) stay.
+- **The local helper and MCP** are part of the launch.
+- **The user's data moves:** export on the old UI, import in the new one. The user enters the keys again: the file has no secrets.
+
+Work, in this order:
+
+1. Export and import of the chats and skills. One last deploy of the old UI, for the export.
+2. The helper serves the UI and the routes. The plugin loads the local UI, and tells the user how to start FigPal when the helper does not run.
+3. The npm package: `npx figpal install` and `npx figpal uninstall`.
+4. All providers.
+5. License, notices, README, CI, a secret scan of the history. VPS details out of the repo.
+
+Checks: a clean macOS user account with only Node: `npx figpal install`, import the manifest, connect a key, the manual checks of Phases 1–7; an agent with `figpal mcp`.
 
 ## Risks
 
