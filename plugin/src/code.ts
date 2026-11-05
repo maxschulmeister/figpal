@@ -133,8 +133,8 @@ const running = () => fetch(${JSON.stringify(`${UI_ORIGIN}/health`)}, { mode: "n
 const copy = document.getElementById("copy");
 copy.onclick = () => {
 	const command = document.getElementById("command");
-	navigator.clipboard.writeText(command.textContent).catch(() => {
-		// The plugin window can block the clipboard API: the older way works there.
+	// The plugin window can block the clipboard API, or not have it: the older way works there.
+	Promise.resolve().then(() => navigator.clipboard.writeText(command.textContent)).catch(() => {
 		getSelection().selectAllChildren(command);
 		document.execCommand("copy");
 	});
