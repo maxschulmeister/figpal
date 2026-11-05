@@ -6,7 +6,7 @@ Status: **done** (2026-10-30). All checks pass on the remote UI in Figma Desktop
 
 Phase 1 replaced the spike page with the chat. To run the spike page again, check out commit `bdd8cd5`.
 
-VPS setup (done): the CoreDNS line in `deploy/coredns-hosts.txt`, the Caddy block in `deploy/Caddyfile.figpal`, the folder `/srv/figpal`. Backups: `/etc/caddy/Caddyfile.bak-figpal-20261029-230459`, `/etc/coredns/Corefile.bak-figpal-20261029-230549`.
+VPS setup (done; Phase 8 replaced the VPS with the FigPal command on the Mac): a CoreDNS line, a Caddy block, the folder `/srv/figpal`.
 
 Before and after the VPS change, a read-only check compared all Caddy sites (status codes), the Stalwart ports (25, 465, 993, 4190: greetings and certificate) and CoreDNS answers. The only differences were the new `figpal` site and DNS name. The adapted Caddy JSON was the same as before, except the new route and new internal group names. The `layer4` (Stalwart) and TLS configuration did not change.
 
@@ -38,9 +38,9 @@ Before and after the VPS change, a read-only check compared all Caddy sites (sta
 
 ### Local Network Access
 
-Chrome blocks a page on a public origin (`www.figma.com`) when it opens a local address in an iframe: `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` for `http://localhost:5173` in the Chrome test. The Tailscale IP `100.110.230.14` is in `100.64.0.0/10`, which is also a local address for this feature. A cross-origin iframe gets the permission only with `allow="local-network-access"` on the iframe, and Figma controls the plugin iframe.
+Chrome blocks a page on a public origin (`www.figma.com`) when it opens a local address in an iframe: `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` for `http://localhost:5173` in the Chrome test. The Tailscale IP the Tailscale IP of the VPS is in `100.64.0.0/10`, which is also a local address for this feature. A cross-origin iframe gets the permission only with `allow="local-network-access"` on the iframe, and Figma controls the plugin iframe.
 
-Figma Desktop 126 runs Electron 43 (Chromium 150). Figma Desktop loaded `http://localhost:5173` (local run) and `https://figpal.maxschulmeister.dev` on `100.110.230.14` (remote run, 0.13). So Figma Desktop does not block local addresses.
+Figma Desktop 126 runs Electron 43 (Chromium 150). Figma Desktop loaded `http://localhost:5173` (local run) and `https://figpal.maxschulmeister.dev` on the Tailscale IP of the VPS (remote run, 0.13). So Figma Desktop does not block local addresses.
 
 If a later Figma Desktop version blocks the Tailscale address: serve the static files on the public IP (they contain no secrets), or use a bundled UI with a separate storage page (option B in the decision log).
 

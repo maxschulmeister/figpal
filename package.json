@@ -10,7 +10,6 @@
 		"e2e": "node e2e/run.ts",
 		"typecheck": "pnpm -r typecheck",
 		"lint": "biome lint",
-		"deploy:web": "pnpm --filter @figpal/web build && ./deploy/deploy.sh",
 		"package": "pnpm build && pnpm --filter figpal build",
 		"local:install": "pnpm package && node local/dist/cli.js install",
 		"local:uninstall": "node local/cli.ts uninstall"
