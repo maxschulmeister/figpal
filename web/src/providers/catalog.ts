@@ -1,7 +1,7 @@
 // The providers of pi-ai that FigPal offers with an API key (Settings → Models → Add a provider), FigPal's changes to
 // their setup in a browser, and the fetch that sends their requests through the FigPal command.
 
-import type { ApiKeyAuth, Provider } from "@earendil-works/pi-ai";
+import type { Api, ApiKeyAuth, Model, Provider } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { FORWARD_ROUTE } from "@figpal/shared/routes";
 
@@ -46,12 +46,26 @@ export function apiKeyProviders(): Provider[] {
 		.map(inBrowser);
 }
 
+/**
+ * The providers whose adapters refuse a custom fetch (pi-ai's Google adapters), and the server of each model: their
+ * requests go to the forward route through the base URL. Vertex with an API key uses Google's global endpoint.
+ */
+export const BASE_URL_ROUTES: Record<string, (model: Model<Api>) => string> = {
+	google: (model) => model.baseUrl,
+	"google-vertex": () => "https://aiplatform.googleapis.com",
+};
+
+/** The URL on the forward route of `origin` for an https URL of another host. Other URLs stay. */
+export function forwardUrl(origin: string, url: string): string {
+	const { protocol, host, pathname, search } = new URL(url);
+	if (protocol !== "https:" || `${protocol}//${host}` === origin) return url;
+	// No "/" at the end: pi-ai adds the paths to a base URL.
+	return `${origin}${FORWARD_ROUTE}/${host}${pathname === "/" ? "" : pathname}${search}`;
+}
+
 /** A fetch that sends https requests to other hosts through the forward route of `origin`. */
 export function forwardFetch(origin: string): typeof fetch {
-	const forward = (url: string) => {
-		const { protocol, host, pathname, search } = new URL(url);
-		return protocol === "https:" && `${protocol}//${host}` !== origin ? `${origin}${FORWARD_ROUTE}/${host}${pathname}${search}` : url;
-	};
+	const forward = (url: string) => forwardUrl(origin, url);
 	return (input, init) =>
 		input instanceof Request ? fetch(new Request(forward(input.url), input), init) : fetch(forward(String(input)), init);
 }

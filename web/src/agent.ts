@@ -18,17 +18,17 @@ import { rulesExtension } from "./extensions/rules";
 import { webExtension } from "./extensions/web";
 import type { LocalFiles } from "./local";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
-import { apiKeyProviders, forwardFetch, SEARCH_TOOLS } from "./providers/catalog";
+import { apiKeyProviders, BASE_URL_ROUTES, forwardFetch, forwardUrl, SEARCH_TOOLS } from "./providers/catalog";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { chipsForModel, clean, describeNode } from "./node-chips";
 import { wrapAnthropicProvider } from "./providers/pi-black";
 import { UserText } from "./transcript";
 
 /**
- * Sends the requests of `provider` with extra stream options, to the route at `baseUrl` if given, and adds the
- * provider's own web search tool. pi-ai keeps the answer text, not the search results or the citations.
+ * Sends the requests of `provider` with extra stream options, to the route at `baseUrl` (of each model) if given, and
+ * adds the provider's own web search tool. pi-ai keeps the answer text, not the search results or the citations.
  */
-function throughRoute(provider: Provider, extra: Pick<StreamOptions, "fetch" | "transport">, baseUrl?: string): Provider {
+function throughRoute(provider: Provider, extra: Pick<StreamOptions, "fetch" | "transport">, baseUrl?: (model: Model<Api>) => string): Provider {
 	const searchTool = SEARCH_TOOLS[provider.id];
 	const withSearch = (context: TranscriptContext, options: StreamOptions | undefined): StreamOptions => {
 		// A request without tools is a compaction summary: a search there costs time, and its text would go into the
@@ -47,8 +47,9 @@ function throughRoute(provider: Provider, extra: Pick<StreamOptions, "fetch" | "
 	return {
 		...provider,
 		stream: (model, context, options) =>
-			provider.stream((baseUrl ? { ...model, baseUrl } : model) as Model<Api>, context, withSearch(context, options)),
-		streamSimple: (model, context, options) => provider.streamSimple(baseUrl ? { ...model, baseUrl } : model, context, withSearch(context, options)),
+			provider.stream((baseUrl ? { ...model, baseUrl: baseUrl(model) } : model) as Model<Api>, context, withSearch(context, options)),
+		streamSimple: (model, context, options) =>
+			provider.streamSimple(baseUrl ? { ...model, baseUrl: baseUrl(model) } : model, context, withSearch(context, options)),
 	};
 }
 
@@ -59,12 +60,15 @@ function throughRoute(provider: Provider, extra: Pick<StreamOptions, "fetch" | "
 export function createAgentModels(credentials: CredentialStore, origin: string): Models {
 	const models = createModels({ credentials });
 	const forward = forwardFetch(origin);
-	for (const provider of apiKeyProviders()) models.setProvider(throughRoute(provider, { fetch: forward }));
+	for (const provider of apiKeyProviders()) {
+		const server = BASE_URL_ROUTES[provider.id];
+		models.setProvider(server ? throughRoute(provider, {}, (model) => forwardUrl(origin, server(model))) : throughRoute(provider, { fetch: forward }));
+	}
 	// Around Pi Black, so that Pi Black wraps fetchAsServer.
 	const claude = wrapAnthropicProvider(anthropicProvider());
-	models.setProvider(throughRoute(claude, { fetch: fetchAsServer }, `${origin}${ANTHROPIC_ROUTE}`));
+	models.setProvider(throughRoute(claude, { fetch: fetchAsServer }, () => `${origin}${ANTHROPIC_ROUTE}`));
 	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
-	models.setProvider(throughRoute(chatgptProvider(), { transport: "sse" }, `${origin}${CHATGPT_ROUTE}`));
+	models.setProvider(throughRoute(chatgptProvider(), { transport: "sse" }, () => `${origin}${CHATGPT_ROUTE}`));
 	return models;
 }
 

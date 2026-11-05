@@ -11,7 +11,7 @@
 		"typecheck": "pnpm -r typecheck",
 		"lint": "biome lint",
 		"package": "pnpm build && pnpm --filter figpal build",
-		"local:install": "pnpm package && node local/dist/cli.js install",
+		"local:install": "pnpm package && node local/dist/cli.mjs install",
 		"local:uninstall": "node local/cli.ts uninstall"
 	},
 	"devDependencies": {

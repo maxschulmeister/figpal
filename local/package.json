@@ -4,7 +4,7 @@
 	"description": "An AI agent in Figma Desktop. On macOS: npx figpal@latest install",
 	"license": "AGPL-3.0-or-later",
 	"type": "module",
-	"bin": { "figpal": "dist/cli.js" },
+	"bin": { "figpal": "dist/cli.mjs" },
 	"files": ["dist", "README.md"],
 	"os": ["darwin"],
 	"engines": { "node": ">=22" },

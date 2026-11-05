@@ -139,6 +139,32 @@ describe("createAgentModels", () => {
 		expect(requests[1]!.headers.get("authorization")).toBe("Bearer sk-openai");
 		expect(requests[1]!.body.tools).toContainEqual({ type: "web_search" });
 	});
+
+	// pi-ai's Google adapters refuse a custom fetch: their base URL goes to the forward route. Vertex with an API key uses
+	// Google's global endpoint.
+	it("sends Google and Vertex requests through the forward route", async () => {
+		const urls: string[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async (input, init) => {
+				urls.push(new Request(input, init).url);
+				return new Response("unavailable", { status: 503 });
+			}),
+		);
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("google", async () => ({ type: "api_key", key: "google-key" }));
+		await credentials.modify("google-vertex", async () => ({ type: "api_key", key: "vertex-key" }));
+		const models = createAgentModels(credentials, "http://127.0.0.1:9310");
+		const messages = [{ role: "user" as const, content: "Hi", timestamp: 1 }];
+		const google = await models.streamSimple(models.getModel("google", "gemini-pro-latest")!, { messages }, { maxRetries: 0 }).result();
+		const vertex = await models.streamSimple(models.getModel("google-vertex", "gemini-3.1-pro-preview")!, { messages }, { maxRetries: 0 }).result();
+
+		expect([google.errorMessage, vertex.errorMessage].join()).not.toContain("Custom fetch");
+		expect(urls).toEqual([
+			"http://127.0.0.1:9310/api/forward/generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:streamGenerateContent?alt=sse",
+			"http://127.0.0.1:9310/api/forward/aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-pro-preview:streamGenerateContent?alt=sse",
+		]);
+	});
 });
 
 

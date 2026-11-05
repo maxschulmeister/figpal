@@ -8,10 +8,12 @@
 
 const PREFIX = "figpal:";
 const HEADER = { figpal: "backup", version: 1 } as const;
-/** Records for each read or write transaction. */
+/** Records for each write transaction. */
 const PAGE = 500;
 /** The import waits here while FigPal starts again: nothing has the databases open then. Not "figpal:": not exported. */
 const STAGE = "figpal-import";
+/** The import writes each database here first, next to the old one: a failure keeps the old data. Not exported. */
+const scratch = (name: string) => `figpal-import:${name}`;
 
 type Index = { name: string; keyPath: string | string[]; unique: boolean; multiEntry: boolean };
 type Store = { name: string; keyPath: string | string[] | null; autoIncrement: boolean; indexes: Index[] };
@@ -39,6 +41,24 @@ function open(factory: IDBFactory, name: string, version?: number, upgrade?: (da
 	return done(request);
 }
 
+/** Deletes a database. `onBlocked`: another FigPal window has it open, and the delete waits until it closes. */
+function remove(factory: IDBFactory, name: string, onBlocked?: () => void) {
+	const request = factory.deleteDatabase(name);
+	request.onblocked = () => onBlocked?.();
+	return done(request);
+}
+
+/** A new database `name` with the schema of `line`, in place of a database of that name. */
+async function create(factory: IDBFactory, name: string, line: DatabaseLine, onBlocked?: () => void) {
+	await remove(factory, name, onBlocked);
+	return open(factory, name, line.version, (created) => {
+		for (const store of line.stores) {
+			const made = created.createObjectStore(store.name, { keyPath: store.keyPath, autoIncrement: store.autoIncrement });
+			for (const { name, keyPath, unique, multiEntry } of store.indexes) made.createIndex(name, keyPath, { unique, multiEntry });
+		}
+	});
+}
+
 /** IndexedDB keeps more than JSON. A value that JSON would change must stop the export, not go out as "{}". */
 function json(value: unknown): string {
 	return JSON.stringify(value, (_key, item) => {
@@ -48,35 +68,30 @@ function json(value: unknown): string {
 	});
 }
 
-function schema(database: IDBDatabase): Store[] {
+/**
+ * The schema and all records of a database, in one transaction: one state of the data. Separate transactions could
+ * give a task without the entry that it names, when the agent writes during the export.
+ */
+async function snapshot(database: IDBDatabase): Promise<{ line: DatabaseLine; records: RecordLine[] }> {
 	const names = [...database.objectStoreNames];
-	if (!names.length) return [];
+	const line: DatabaseLine = { database: database.name, version: database.version, stores: [] };
+	if (!names.length) return { line, records: [] };
 	const transaction = database.transaction(names, "readonly");
-	return names.map((name) => {
+	const reads = names.map((name) => {
 		const store = transaction.objectStore(name);
 		const indexes = [...store.indexNames].map((indexName) => {
 			const { keyPath, unique, multiEntry } = store.index(indexName);
 			return { name: indexName, keyPath, unique, multiEntry };
 		});
-		return { name, keyPath: store.keyPath, autoIncrement: store.autoIncrement, indexes };
+		line.stores.push({ name, keyPath: store.keyPath, autoIncrement: store.autoIncrement, indexes });
+		return Promise.all([done(store.getAllKeys()), done(store.getAll())]);
 	});
-}
-
-/** The records of a store, a page at a time: a transaction ends while the code waits for something else. */
-async function* records(database: IDBDatabase, store: Store): AsyncGenerator<RecordLine> {
-	let after: IDBValidKey | undefined;
-	for (;;) {
-		const transaction = database.transaction(store.name, "readonly");
-		const range = after === undefined ? undefined : IDBKeyRange.lowerBound(after, true);
-		const [keys, values] = await Promise.all([
-			done(transaction.objectStore(store.name).getAllKeys(range, PAGE)),
-			done(transaction.objectStore(store.name).getAll(range, PAGE)),
-		]);
-		for (const [index, value] of values.entries())
-			yield store.keyPath === null ? { store: store.name, key: keys[index]!, value } : { store: store.name, value };
-		if (keys.length < PAGE) return;
-		after = keys.at(-1);
-	}
+	const results = await Promise.all(reads);
+	const records = line.stores.flatMap((store, index) => {
+		const [keys, values] = results[index]!;
+		return values.map((value, at): RecordLine => (store.keyPath === null ? { store: store.name, key: keys[at]!, value } : { store: store.name, value }));
+	});
+	return { line, records };
 }
 
 /** All FigPal databases of this origin, as a backup file. */
@@ -86,9 +101,8 @@ export async function exportData(factory: IDBFactory = indexedDB): Promise<Blob>
 	for (const name of names) {
 		const database = await open(factory, name);
 		try {
-			const stores = schema(database);
-			lines.push(json({ database: name, version: database.version, stores } satisfies DatabaseLine));
-			for (const store of stores) for await (const record of records(database, store)) lines.push(json(record));
+			const { line, records } = await snapshot(database);
+			lines.push(json(line), ...records.map(json));
 		} finally {
 			database.close();
 		}
@@ -99,6 +113,19 @@ export async function exportData(factory: IDBFactory = indexedDB): Promise<Blob>
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isKeyPath = (value: unknown): value is string | string[] =>
 	typeof value === "string" || (Array.isArray(value) && value.every((item) => typeof item === "string"));
+/** A key that JSON can hold: a number, a string, or a list of keys. */
+const isKey = (value: unknown): boolean =>
+	(typeof value === "number" && !Number.isNaN(value)) || typeof value === "string" || (Array.isArray(value) && value.every(isKey));
+/** The value at a key path such as "a.b"; "" is the value itself. */
+const at = (value: unknown, path: string) => (path ? path.split(".").reduce<unknown>((item, part) => (isRecord(item) ? item[part] : undefined), value) : value);
+
+/** A record has its key: in the line for a store without a key path, else in its value (a generated key can be absent). */
+function hasKey(store: Store, record: Record<string, unknown>): boolean {
+	if (store.keyPath === null) return isKey(record.key);
+	if ("key" in record) return false;
+	const paths = Array.isArray(store.keyPath) ? store.keyPath : [store.keyPath];
+	return store.autoIncrement || paths.every((path) => isKey(at(record.value, path)));
+}
 
 function isDatabaseLine(value: Record<string, unknown>): value is DatabaseLine {
 	return (
@@ -126,7 +153,7 @@ function isDatabaseLine(value: Record<string, unknown>): value is DatabaseLine {
 	);
 }
 
-/** The lines of a backup file, checked. The UI checks the whole file (`checkBackup`) before an import changes anything. */
+/** The lines of a backup file, checked. */
 async function* lines(file: Blob): AsyncGenerator<DatabaseLine | RecordLine> {
 	const notBackup = () => new Error("This file is not a FigPal backup.");
 	let number = 0;
@@ -152,7 +179,7 @@ async function* lines(file: Blob): AsyncGenerator<DatabaseLine | RecordLine> {
 		}
 		const record = isRecord(value) ? value : {};
 		const store = database?.stores.find((item) => item.name === record.store);
-		if (!store || !("value" in record) || (store.keyPath === null) !== ("key" in record)) throw new Error(`The backup is damaged (line ${number}).`);
+		if (!store || !("value" in record) || !hasKey(store, record)) throw new Error(`The backup is damaged (line ${number}).`);
 		return record as RecordLine;
 	};
 	const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
@@ -182,54 +209,73 @@ export async function checkBackup(file: Blob): Promise<BackupSummary> {
 	return summary;
 }
 
-/** Deletes a database. `onBlocked`: another FigPal window has it open, and the delete waits until it closes. */
-function remove(factory: IDBFactory, name: string, onBlocked?: () => void) {
-	const request = factory.deleteDatabase(name);
-	request.onblocked = () => onBlocked?.();
-	return done(request);
+/** Writes records in transactions of PAGE records. */
+async function fill(database: IDBDatabase, records: AsyncIterable<RecordLine> | Iterable<RecordLine>) {
+	let batch: RecordLine[] = [];
+	const write = async () => {
+		if (!batch.length) return;
+		const transaction = database.transaction([...new Set(batch.map((record) => record.store))], "readwrite");
+		for (const record of batch) transaction.objectStore(record.store).put(record.value, record.key);
+		batch = [];
+		await committed(transaction);
+	};
+	for await (const record of records) {
+		batch.push(record);
+		if (batch.length === PAGE) await write();
+	}
+	await write();
 }
 
-async function write(database: IDBDatabase, batch: RecordLine[]) {
-	if (!batch.length) return;
-	const transaction = database.transaction([...new Set(batch.map((record) => record.store))], "readwrite");
-	for (const record of batch) transaction.objectStore(record.store).put(record.value, record.key);
-	await committed(transaction);
+/** The record lines up to the next database line, which goes to `next`. */
+async function* recordsOf(source: AsyncIterator<DatabaseLine | RecordLine>, next: { line?: DatabaseLine }): AsyncGenerator<RecordLine> {
+	for (;;) {
+		const { value, done: end } = await source.next();
+		if (end) return;
+		if ("database" in value) {
+			next.line = value;
+			return;
+		}
+		yield value;
+	}
 }
 
 /**
  * Writes the databases of a backup. Each one replaces the database of the same name; other databases stay. Nothing
- * may have them open: run it before FigPal opens its storage (see `stageImport`).
+ * may have them open: run it before FigPal opens its storage (see `stageImport`). First all databases go into new
+ * databases next to the old ones; a damaged record or a full disk stops there, and the old data stays.
  */
 export async function importData(file: Blob, options: { factory?: IDBFactory; onBlocked?(): void } = {}): Promise<void> {
 	const factory = options.factory ?? indexedDB;
-	let database: IDBDatabase | undefined;
-	let batch: RecordLine[] = [];
+	const written: DatabaseLine[] = [];
 	try {
-		for await (const line of lines(file)) {
-			if ("store" in line) {
-				batch.push(line);
-				if (batch.length === PAGE) {
-					await write(database!, batch);
-					batch = [];
-				}
-				continue;
-			}
-			if (database) {
-				await write(database, batch);
-				batch = [];
+		const source = lines(file);
+		const next: { line?: DatabaseLine } = {};
+		await recordsOf(source, next).next();
+		while (next.line) {
+			const line = next.line;
+			next.line = undefined;
+			written.push(line);
+			const database = await create(factory, scratch(line.database), line);
+			try {
+				await fill(database, recordsOf(source, next));
+			} finally {
 				database.close();
 			}
-			await remove(factory, line.database, options.onBlocked);
-			database = await open(factory, line.database, line.version, (created) => {
-				for (const store of line.stores) {
-					const made = created.createObjectStore(store.name, { keyPath: store.keyPath, autoIncrement: store.autoIncrement });
-					for (const { name, keyPath, unique, multiEntry } of store.indexes) made.createIndex(name, keyPath, { unique, multiEntry });
-				}
-			});
 		}
-		if (database) await write(database, batch);
-	} finally {
-		database?.close();
+	} catch (error) {
+		for (const line of written) await remove(factory, scratch(line.database));
+		throw error;
+	}
+	for (const line of written) {
+		const source = await open(factory, scratch(line.database));
+		const { records } = await snapshot(source).finally(() => source.close());
+		const database = await create(factory, line.database, line, options.onBlocked);
+		try {
+			await fill(database, records);
+		} finally {
+			database.close();
+		}
+		await remove(factory, scratch(line.database));
 	}
 }
 
@@ -247,7 +293,7 @@ export async function stageImport(file: Blob, factory: IDBFactory = indexedDB): 
 
 /**
  * At the start, before FigPal opens its storage: imports a staged file, then deletes it, also after a failure (else
- * each start would fail again). `onStart` runs only when there is a file.
+ * each start would fail again; the old data stays then). `onStart` runs only when there is a file.
  */
 export async function applyStagedImport(options: { factory?: IDBFactory; onStart?(): void; onBlocked?(): void } = {}): Promise<boolean> {
 	const factory = options.factory ?? indexedDB;

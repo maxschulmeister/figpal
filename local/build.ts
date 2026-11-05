@@ -14,7 +14,8 @@ for (const built of ["../web/dist/index.html", "../plugin/dist/code.js", "../plu
 rmSync("dist", { recursive: true, force: true });
 const { metafile } = await esbuild.build({
 	entryPoints: ["cli.ts"],
-	outfile: "dist/cli.js",
+	// .mjs: install.ts copies it without package.json.
+	outfile: "dist/cli.mjs",
 	bundle: true,
 	platform: "node",
 	format: "esm",

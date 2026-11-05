@@ -129,16 +129,21 @@ const theme = new Promise((resolve) => {
 	new MutationObserver(() => resolve()).observe(root, { attributes: true, attributeFilter: ["class"] });
 	setTimeout(resolve, 500);
 });
-const running = () => fetch(${JSON.stringify(`${UI_ORIGIN}/health`)}, { mode: "no-cors", cache: "no-store" }).then(() => true, () => false);
+// A program on the port that does not answer counts as not running.
+const running = () =>
+	fetch(${JSON.stringify(`${UI_ORIGIN}/health`)}, { mode: "no-cors", cache: "no-store", signal: AbortSignal.timeout(2000) }).then(() => true, () => false);
 const copy = document.getElementById("copy");
 copy.onclick = () => {
 	const command = document.getElementById("command");
-	// The plugin window can block the clipboard API, or not have it: the older way works there.
-	Promise.resolve().then(() => navigator.clipboard.writeText(command.textContent)).catch(() => {
-		getSelection().selectAllChildren(command);
-		document.execCommand("copy");
-	});
-	copy.textContent = "Copied";
+	// The plugin window can block the clipboard API, or not have it: the older way works there. If both fail, the
+	// command stays selected for Cmd+C.
+	Promise.resolve()
+		.then(() => navigator.clipboard.writeText(command.textContent))
+		.catch(() => {
+			getSelection().selectAllChildren(command);
+			if (!document.execCommand("copy")) throw new Error("Not copied");
+		})
+		.then(() => (copy.textContent = "Copied"), () => (copy.textContent = "Press Cmd+C"));
 };
 (async () => {
 	await theme;

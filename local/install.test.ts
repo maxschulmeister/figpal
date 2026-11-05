@@ -9,7 +9,7 @@ const temp = (name: string) => mkdtempSync(join(tmpdir(), `figpal-${name}-`));
 /** The dist folder of the package: the command, a UI build and the plugin. */
 function pack(assets: string[]) {
 	const from = temp("pack");
-	writeFileSync(join(from, "cli.js"), "// cli");
+	writeFileSync(join(from, "cli.mjs"), "// cli");
 	mkdirSync(join(from, "ui", "assets"), { recursive: true });
 	writeFileSync(join(from, "ui", "index.html"), assets.join(","));
 	for (const name of assets) writeFileSync(join(from, "ui", "assets", name), name);
@@ -47,14 +47,14 @@ describe("install", () => {
 		const { where, system, runs, logs, copied, app } = mac();
 		await install(pack(["index-a.js"]), where, system);
 
-		expect(readFileSync(join(app, "cli.js"), "utf8")).toBe("// cli");
+		expect(readFileSync(join(app, "cli.mjs"), "utf8")).toBe("// cli");
 		expect(readFileSync(join(app, "ui", "assets", "index-a.js"), "utf8")).toBe("index-a.js");
 		const manifest = join(app, "plugin", "manifest.json");
 		expect(existsSync(manifest)).toBe(true);
 		const plist = readFileSync(join(where.home, "Library", "LaunchAgents", "dev.figpal.local.plist"), "utf8");
-		expect(plist).toContain(`<array><string>${where.node}</string><string>${join(app, "cli.js")}</string></array>`);
+		expect(plist).toContain(`<array><string>${where.node}</string><string>${join(app, "cli.mjs")}</string></array>`);
 		const bin = join(where.node, "..", "figpal");
-		expect(readFileSync(bin, "utf8")).toBe(command({ node: where.node, cli: join(app, "cli.js") }));
+		expect(readFileSync(bin, "utf8")).toBe(command({ node: where.node, cli: join(app, "cli.mjs") }));
 		expect(runs).toEqual([
 			"launchctl bootout gui/501/dev.figpal.local",
 			`launchctl bootstrap gui/501 ${join(where.home, "Library", "LaunchAgents", "dev.figpal.local.plist")}`,
@@ -90,9 +90,18 @@ describe("install", () => {
 		expect(existsSync(app)).toBe(false);
 	});
 
+	// `figpal install` of the installed command would copy its own files onto themselves, after it stopped FigPal.
+	it("refuses an install from the installed folder, before it stops FigPal", async () => {
+		const { where, system, runs, app } = mac();
+		await install(pack(["index-a.js"]), where, system);
+		runs.length = 0;
+		await expect(install(app, where, system)).rejects.toThrow("This is the installed FigPal. To update it, run npx figpal@latest install");
+		expect(runs).toEqual([]);
+	});
+
 	it("replaces a figpal link without a change to the file that it links to", async () => {
 		const { where, system } = mac();
-		const target = join(temp("global"), "cli.js");
+		const target = join(temp("global"), "cli.mjs");
 		writeFileSync(target, "// npm's figpal");
 		symlinkSync(target, join(where.node, "..", "figpal"));
 		await install(pack(["index-a.js"]), where, system);
@@ -123,10 +132,10 @@ describe("install", () => {
 	});
 
 	it("starts the command at login, and again when it stops", () => {
-		const plist = launchAgent({ node: "/opt/node", cli: "/Users/a & b/FigPal/cli.js", log: "/Users/a/Library/Logs/figpal.log" });
+		const plist = launchAgent({ node: "/opt/node", cli: "/Users/a & b/FigPal/cli.mjs", log: "/Users/a/Library/Logs/figpal.log" });
 		expect(plist).toContain("<string>dev.figpal.local</string>");
 		// The paths are XML: "&" must be escaped.
-		expect(plist).toContain("<array><string>/opt/node</string><string>/Users/a &amp; b/FigPal/cli.js</string></array>");
+		expect(plist).toContain("<array><string>/opt/node</string><string>/Users/a &amp; b/FigPal/cli.mjs</string></array>");
 		expect(plist).toContain("<key>RunAtLoad</key><true/>");
 		expect(plist).toContain("<key>KeepAlive</key><true/>");
 		expect(plist).toContain("<key>StandardErrorPath</key><string>/Users/a/Library/Logs/figpal.log</string>");
@@ -134,8 +143,8 @@ describe("install", () => {
 
 	// figpal: a short command, next to node (on the PATH where this node is). Agents run `figpal mcp`.
 	it("makes the figpal command", () => {
-		expect(command({ node: "/opt/node", cli: "/Users/a b/FigPal/cli.js" })).toBe(
-			`#!/bin/sh\n# The FigPal command (figpal install).\nexec '/opt/node' '/Users/a b/FigPal/cli.js' "$@"\n`,
+		expect(command({ node: "/opt/node", cli: "/Users/a b/FigPal/cli.mjs" })).toBe(
+			`#!/bin/sh\n# The FigPal command (figpal install).\nexec '/opt/node' '/Users/a b/FigPal/cli.mjs' "$@"\n`,
 		);
 	});
 });

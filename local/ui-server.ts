@@ -8,6 +8,7 @@ import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, request as httpRequest, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { extname, resolve, sep } from "node:path";
+import { pipeline } from "node:stream";
 import { BROWSER_HEADERS, FORWARD_ROUTE, ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
 
 export type UiServer = { port: number; close(): Promise<void> };
@@ -69,11 +70,13 @@ export async function startUiServer(options: {
 		const outgoing = (to.protocol === "https:" ? httpsRequest : httpRequest)(to, { method: incoming.method, headers }, (answer) => {
 			const copied = Object.entries(answer.headers).filter(([name, value]) => value !== undefined && !NOT_DOWNSTREAM.has(name));
 			response.writeHead(answer.statusCode ?? 502, Object.fromEntries(copied) as Record<string, string | string[]>);
-			answer.pipe(response);
+			// An answer that breaks off ends the response. An error without a handler would stop the process.
+			pipeline(answer, response, () => {});
 		});
 		outgoing.on("error", (error) => (response.headersSent ? response.destroy() : end(response, 502, `FigPal could not reach ${url.host}: ${error.message}`)));
 		// The user stopped the answer: stop the request upstream too.
 		response.on("close", () => outgoing.destroy());
+		incoming.on("error", () => outgoing.destroy());
 		incoming.pipe(outgoing);
 	};
 

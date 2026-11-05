@@ -37,6 +37,8 @@ function call(path: string, { method = "GET", headers = {}, body }: { method?: s
 			response.setEncoding("utf8");
 			response.on("data", (chunk) => (text += chunk));
 			response.on("end", () => resolve({ status: response.statusCode!, headers: response.headers, body: text }));
+			response.on("error", reject);
+			response.on("aborted", () => reject(new Error("The answer broke off.")));
 		});
 		outgoing.on("error", reject);
 		outgoing.end(body);
@@ -141,6 +143,22 @@ describe("UI server", () => {
 			"https://skills.sh/api/search?q=figma",
 			"https://api.mistral.ai/v1/chat/completions",
 		]);
+	});
+
+	// A provider can close the connection in the middle of an answer. Without a handler, the error stopped the process.
+	it("ends the answer when the server upstream breaks off, and keeps running", async () => {
+		const broken = createServer((_incoming, response) => {
+			response.writeHead(200, { "content-type": "text/event-stream" });
+			response.write("event: one\n\n");
+			setTimeout(() => response.socket?.destroy(), 20);
+		});
+		await new Promise<void>((resolve) => broken.listen(0, "127.0.0.1", resolve));
+		closers.push(() => broken.close());
+		const { port } = broken.address() as { port: number };
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route: (target) => new URL(target.pathname, `http://127.0.0.1:${port}`) });
+		await call("/api/forward/api.example.com/v1", { headers: { "sec-fetch-site": "same-origin" } }).catch(() => undefined);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect((await call("/health")).status).toBe(200);
 	});
 
 	it("refuses route requests of other web pages", async () => {

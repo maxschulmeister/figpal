@@ -6,7 +6,7 @@
 
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { INSTALL_COMMAND, UI_ORIGIN, UI_PORT } from "@figpal/shared";
 
 const LABEL = "dev.figpal.local";
@@ -14,6 +14,8 @@ const LABEL = "dev.figpal.local";
 const MARK = "# The FigPal command (figpal install).";
 /** Older installs (pnpm local:install) had this mark, and also the command figpal-mcp. */
 const OLD_MARK = "# FigPal's MCP helper (pnpm local:install).";
+/** The command: .mjs, so that Node runs it as an ES module without a package.json next to it (Node 22.0 to 22.6). */
+const CLI = "cli.mjs";
 /** The UI files of a build stay this long: an open FigPal window loads parts of its build later. */
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -39,7 +41,7 @@ function paths({ home, node, uid }: Where) {
 	const app = appFolder(home);
 	return {
 		app,
-		cli: join(app, "cli.js"),
+		cli: join(app, CLI),
 		manifest: join(app, "plugin", "manifest.json"),
 		plist: join(home, "Library", "LaunchAgents", `${LABEL}.plist`),
 		log: join(home, "Library", "Logs", "figpal.log"),
@@ -66,7 +68,7 @@ export function launchAgent(paths: { node: string; cli: string; log: string }): 
 
 const shell = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
 
-/** The figpal command: a shell script that runs the installed cli.js. */
+/** The figpal command: a shell script that runs the installed cli.mjs. */
 export function command(paths: { node: string; cli: string }): string {
 	return `#!/bin/sh\n${MARK}\nexec ${shell(paths.node)} ${shell(paths.cli)} "$@"\n`;
 }
@@ -80,7 +82,7 @@ export function stableNode(execPath: string, path = process.env.PATH ?? ""): str
 
 /** Copies the package's files. The UI files of earlier builds stay for 30 days. */
 function copyFiles(from: string, app: string) {
-	cpSync(join(from, "cli.js"), join(app, "cli.js"));
+	cpSync(join(from, CLI), join(app, CLI));
 	cpSync(join(from, "plugin"), join(app, "plugin"), { recursive: true });
 	// A copy has the time of the install, so the age of a file is the age of its build here.
 	cpSync(join(from, "ui"), join(app, "ui"), { recursive: true });
@@ -102,6 +104,8 @@ const ours = (file: string) => existsSync(file) && [MARK, OLD_MARK].some((mark) 
 
 export async function install(from: string, where: Where, system: System): Promise<void> {
 	const p = paths(where);
+	// The installed command would copy its own files onto themselves, after it stopped FigPal.
+	if (resolve(from) === resolve(p.app)) throw new Error(`This is the installed FigPal. To update it, run ${INSTALL_COMMAND}`);
 	if (!existsSync(join(from, "ui", "index.html")) || !existsSync(join(from, "plugin", "manifest.json")))
 		throw new Error(`${from} has no build of FigPal. In the FigPal repo, run pnpm local:install.`);
 	const before = await system.probe();

@@ -35,9 +35,14 @@ export default async function start(t: Context) {
 	const html = (await firstPage()).replace("<!doctype html>", `<!doctype html><script>setTimeout(() => (document.documentElement.className = "figma-dark"), 100)</script>`);
 	const browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ["--disable-features=LocalNetworkAccessChecks"] });
 	try {
-		const page = await browser.newPage({ viewport: { width: 420, height: 300 } });
-		let running = false;
-		await page.route(`${UI}/health`, (route) => (running ? route.fulfill({ contentType: "application/json", body: '{"app":"figpal"}' }) : route.abort("connectionrefused")));
+		// The parent page reads the clipboard: Copy must really copy.
+		const page = await browser.newPage({ viewport: { width: 420, height: 300 }, permissions: ["clipboard-read", "clipboard-write"] });
+		// A program on the port that never answers, then nothing on the port, then FigPal.
+		let state: "silent" | "refused" | "running" = "silent";
+		await page.route(`${UI}/health`, (route) => {
+			if (state === "running") return route.fulfill({ contentType: "application/json", body: '{"app":"figpal"}' });
+			if (state === "refused") return route.abort("connectionrefused");
+		});
 		await page.route(`${UI}/`, (route) => route.fulfill({ contentType: "text/html", body: "<title>FigPal UI</title>" }));
 		await page.route(PARENT, (route) =>
 			route.fulfill({
@@ -52,12 +57,15 @@ document.getElementById("f").srcdoc = ${JSON.stringify(html).replaceAll("</", "<
 		await page.goto(PARENT);
 		const frame = page.frameLocator("#f");
 		await frame.getByText("FigPal is not running.").waitFor({ timeout: 5000 });
-		t.check("without the FigPal command, the page gives the install command", (await frame.locator("code").textContent()) === "npx figpal@latest install", "");
+		t.check("when the port does not answer, the page gives the install command", (await frame.locator("code").textContent()) === "npx figpal@latest install", "");
+		state = "refused";
 		await frame.getByRole("button", { name: "Copy" }).click();
-		t.check("Copy copies it", (await frame.getByRole("button", { name: "Copied" }).count()) === 1, "");
+		await frame.getByRole("button", { name: "Copied" }).waitFor({ timeout: 2000 });
+		const copied = await page.evaluate(() => navigator.clipboard.readText());
+		t.check("Copy puts the command on the clipboard", copied === "npx figpal@latest install", copied);
 		await t.screenshot({ page } as never, "start");
 
-		running = true;
+		state = "running";
 		const deadline = Date.now() + 10_000;
 		let ui = page.frames().find((item) => item.url().startsWith(UI));
 		while (!ui && Date.now() < deadline) {

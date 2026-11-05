@@ -75,6 +75,20 @@ it("refuses a file that is not a backup, and names the damaged line of a backup"
 	await expect(checkBackup(new Blob([`${text}{"store":"skills"}\n`]))).rejects.toThrow(`The backup is damaged (line ${text.split("\n").length}).`);
 });
 
+// A record without its key fails in IndexedDB. Before, the import deleted the old database first, so it lost the data.
+it("refuses a record without its key, and an import that fails keeps the old data", async () => {
+	await newOrigin();
+	await saveSkill(skill("figma-use"), [{ path: "SKILL.md", contents: "# Figma use" }]);
+	const text = await (await exportData()).text();
+	const damaged = new Blob([`${text}{"store":"skills","value":{"description":"no name"}}\n`]);
+	await expect(checkBackup(damaged)).rejects.toThrow(`The backup is damaged (line ${text.split("\n").length}).`);
+
+	await saveSkill(skill("mine"), [{ path: "SKILL.md", contents: "# Mine" }]);
+	await expect(importData(damaged)).rejects.toThrow();
+	expect((await listSkills()).map((item) => item.name)).toEqual(["figma-use", "mine"]);
+	expect((await indexedDB.databases()).map(({ name }) => name)).toEqual(["figpal:global"]);
+});
+
 it("imports a staged file at the next start, once, and deletes it also when it is damaged", async () => {
 	await newOrigin();
 	await saveSkill(skill("figma-use"), [{ path: "SKILL.md", contents: "# Figma use" }]);
