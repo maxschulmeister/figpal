@@ -4,13 +4,13 @@
 import type { Context } from "../harness.ts";
 
 /** An answer in OpenAI's Chat Completions format, as DeepSeek streams it. */
-const chunks = (text: string) =>
-	[
+const chunks = (text: string) => {
+	const events = [
 		{ id: "c1", object: "chat.completion.chunk", created: 1, model: "deepseek-v4-pro", choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }] },
 		{ id: "c1", object: "chat.completion.chunk", created: 1, model: "deepseek-v4-pro", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } },
-	]
-		.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
-		.join("") + "data: [DONE]\n\n";
+	];
+	return `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`;
+};
 
 export default async function providers(t: Context) {
 	const requests: { url: string; authorization: string | null }[] = [];
@@ -42,7 +42,7 @@ export default async function providers(t: Context) {
 	);
 	// The model button has the name of the model.
 	const picker = frame.getByRole("button", { name: /DeepSeek/ });
-	t.check("the chat uses DeepSeek's model", (await picker.count()) === 1, await frame.locator("form").last().innerText());
+	t.check("the chat uses DeepSeek's model", (await picker.count()) === 1, (await frame.locator("form").last().textContent()) ?? "");
 
 	await frame.getByLabel("Settings").click();
 	await frame.getByText("DeepSeek", { exact: true }).waitFor();
