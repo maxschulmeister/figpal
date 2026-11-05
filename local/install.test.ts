@@ -20,7 +20,7 @@ function pack(assets: string[]) {
 }
 
 /** A Mac in a folder: a home, a node, and fake system calls. FigPal answers on its port after the LaunchAgent starts. */
-function mac(before: Probe = { kind: "free" }) {
+function mac(before: Probe = { kind: "free" }, refusedStarts = 0) {
 	const home = temp("home");
 	const bin = temp("bin");
 	const where = { home, node: join(bin, "node"), uid: 501, version: "1.0.0" };
@@ -31,7 +31,10 @@ function mac(before: Probe = { kind: "free" }) {
 	const system: System = {
 		run(command, args) {
 			runs.push([command, ...args].join(" "));
-			if (command === "launchctl" && args[0] === "bootstrap") started = true;
+			if (command === "launchctl" && args[0] === "bootstrap") {
+				if (refusedStarts-- > 0) return false;
+				started = true;
+			}
 			if (command === "launchctl" && args[0] === "bootout") started = false;
 			return true;
 		},
@@ -81,6 +84,14 @@ describe("install", () => {
 		expect(readFileSync(join(app, "ui", "index.html"), "utf8")).toBe("index-b.js");
 		expect(copied).toHaveLength(1);
 		expect(logs.join("\n")).not.toContain("manifest.json");
+	});
+
+	// User test: right after the stop of the old helper, macOS refused the start; a second install worked.
+	it("tries the start again while macOS still stops the old FigPal", async () => {
+		const { where, system, runs, logs } = mac({ kind: "free" }, 1);
+		await install(pack(["index-a.js"]), where, system);
+		expect(runs.filter((run) => run.startsWith("launchctl bootstrap"))).toHaveLength(2);
+		expect(logs[0]).toBe("FigPal 1.0.0 runs, and starts at login.");
 	});
 
 	it("stops before it changes anything when another program uses FigPal's port", async () => {

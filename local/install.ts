@@ -7,7 +7,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { INSTALL_COMMAND, UI_ORIGIN, UI_PORT } from "@figpal/shared";
+import { INSTALL_COMMAND, UI_PORT } from "@figpal/shared";
 
 const LABEL = "dev.figpal.local";
 /** The first line of figpal after #!: the uninstall removes only this file. */
@@ -117,7 +117,13 @@ export async function install(from: string, where: Where, system: System): Promi
 	copyFiles(from, p.app);
 	mkdirSync(dirname(p.plist), { recursive: true });
 	writeFileSync(p.plist, launchAgent({ node: where.node, cli: p.cli, log: p.log }));
-	if (!system.run("launchctl", ["bootstrap", p.service, p.plist])) throw new Error(`macOS did not start FigPal. See: launchctl bootstrap ${p.service} ${p.plist}`);
+	// Right after the stop of the old FigPal, macOS can refuse the start (user test): try again for 5 seconds.
+	let running = false;
+	for (let attempt = 0; attempt < 10 && !running; attempt++) {
+		if (attempt) await new Promise((resolve) => setTimeout(resolve, 500));
+		running = system.run("launchctl", ["bootstrap", p.service, p.plist]);
+	}
+	if (!running) throw new Error(`macOS did not start FigPal. See: launchctl bootstrap ${p.service} ${p.plist}`);
 	// A write to a link would change the file that it links to, for example the figpal of `npm install -g figpal`.
 	rmSync(p.bin, { force: true });
 	if (ours(join(dirname(p.bin), "figpal-mcp"))) rmSync(join(dirname(p.bin), "figpal-mcp"));
@@ -170,7 +176,8 @@ export const macSystem: System = {
 	copy: (text) => execFileSync("pbcopy", { input: text }),
 	async probe() {
 		// Nothing, or an answer that is not FigPal's JSON.
-		const health = (await fetch(`${UI_ORIGIN}/health`, { signal: AbortSignal.timeout(2000) })
+		// The address where the command listens: Node can try ::1 first for "localhost".
+		const health = (await fetch(`http://127.0.0.1:${UI_PORT}/health`, { signal: AbortSignal.timeout(2000) })
 			.then((response) => response.json())
 			.catch(() => undefined)) as { app?: unknown; version?: unknown } | undefined;
 		if (health?.app === "figpal") return { kind: "figpal", version: String(health.version) };

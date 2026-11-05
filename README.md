@@ -78,7 +78,7 @@ FigPal to Claude Code. For another agent, select it in **Settings → Access →
 
 ## Privacy and security
 
-- FigPal has no server. The FigPal command on your Mac serves the plugin's UI on `http://127.0.0.1:9310`. Model requests
+- FigPal has no server. The FigPal command on your Mac serves the plugin's UI on `http://localhost:9310`. Model requests
   go from your Mac to the provider, through the FigPal command.
 - Your keys, chats and skills stay in Figma Desktop's storage on your Mac.
 - The agent runs code in your Figma file. A file, a web page or a skill can contain instructions for the agent (prompt
@@ -102,7 +102,7 @@ Browser checks: `pnpm e2e` opens FigPal in Chrome, in a fake Figma page with a f
 `e2e/tests` in the light and the dark theme (about 4 minutes). It starts Vite on a free port and stops it at the end.
 
 - `pnpm e2e chips lint`: only these checks. `--light` or `--dark`: one theme.
-- `pnpm e2e --ui http://127.0.0.1:9310`: the installed UI.
+- `pnpm e2e --ui http://localhost:9310`: the installed UI.
 - Chrome must be installed; `CHROME=/path/to/chrome` sets another path. Screenshots go to `$TMPDIR/figpal-e2e`.
 
 [PLAN.md](PLAN.md) has the design and the decisions. [NOTES.md](NOTES.md) has the open ideas.

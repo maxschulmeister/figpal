@@ -9,7 +9,7 @@ import { runInNewContext } from "node:vm";
 import { chromium } from "playwright-core";
 import { CHROME, type Context } from "../harness.ts";
 
-const UI = "http://127.0.0.1:9310";
+const UI = "http://localhost:9310";
 const PARENT = "https://www.figma.com/figpal-start";
 
 /** The HTML of code.js's first `figma.showUI`. */

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import manifest from "../manifest.json" with { type: "json" };
 
 type OnMessage = (message: unknown, props: { origin: string }) => void;
 
 /** The origin of FigPal's UI: the FigPal command on this Mac. */
-const UI = "http://127.0.0.1:9310";
+const UI = "http://localhost:9310";
 
 /** Runs code.ts with a fake Plugin API. Returns the HTML of each `figma.showUI` call, and the UI channel. */
 async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: object = {}) {
@@ -51,7 +52,12 @@ describe("code.ts start", () => {
 	it("opens the UI of the FigPal command, also with an old saved choice of a UI", async () => {
 		const shown = await start(async () => "local");
 		expect(shown).toHaveLength(1);
-		expect(shown[0]).toContain("http://127.0.0.1:9310/");
+		expect(shown[0]).toContain("http://localhost:9310/");
+	});
+
+	// Figma refuses the manifest with an IP address: "'http://127.0.0.1:9310' must be a valid URL" (user test).
+	it("lets the manifest allow the UI origin by its host name", () => {
+		expect(manifest.networkAccess.devAllowedDomains).toEqual([UI]);
 	});
 
 	// The first page waits for the FigPal command as long as it must. The time limit starts when it loads the UI.

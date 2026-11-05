@@ -10,10 +10,12 @@ export const MAX_RULES = 4000;
 
 /**
  * Where the UI comes from: the FigPal command on this Mac (local/cli.ts). Figma Desktop keeps FigPal's chats and keys
- * for this origin: a new origin starts empty (Settings → Access → Backup moves them).
+ * for this origin: a new origin starts empty (Settings → Access → Backup moves them). "localhost", not "127.0.0.1":
+ * Figma refuses an IP address in the manifest's devAllowedDomains. The command listens on 127.0.0.1, and the browser
+ * finds it there for "localhost".
  */
 export const UI_PORT = 9310;
-export const UI_ORIGIN = `http://127.0.0.1:${UI_PORT}`;
+export const UI_ORIGIN = `http://localhost:${UI_PORT}`;
 /** Installs or updates FigPal, and starts it. */
 export const INSTALL_COMMAND = "npx figpal@latest install";
 

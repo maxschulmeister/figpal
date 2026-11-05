@@ -81,7 +81,7 @@ describe("the helper command", () => {
 		helper = spawn("node", [CLI, "--config", config, "--ui", ui, "--ui-port", "9397", "--port", "9398"]);
 		let log = "";
 		helper.stderr!.on("data", (data) => (log += String(data)));
-		await expect.poll(() => log, { timeout: 10_000 }).toContain("FigPal's UI: http://127.0.0.1:9397");
+		await expect.poll(() => log, { timeout: 10_000 }).toContain("FigPal's UI: http://localhost:9397");
 		const page = await fetch("http://127.0.0.1:9397/");
 		expect(await page.text()).toBe("<title>FigPal</title>");
 		expect(await (await fetch("http://127.0.0.1:9397/health")).json()).toEqual({ app: "figpal", version: "dev" });

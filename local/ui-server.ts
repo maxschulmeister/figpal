@@ -1,6 +1,6 @@
 // The HTTP server of the FigPal command: FigPal's UI, which the plugin window loads, and the routes that the UI needs on
-// its own origin (shared/src/routes.ts). It listens on 127.0.0.1 only, on a fixed port: Figma Desktop keeps FigPal's
-// chats and keys for this origin. Only the UI can use the routes: a web page cannot fake its origin, and the host name
+// its own origin (shared/src/routes.ts). It listens on 127.0.0.1 only (the UI's origin is http://localhost:9310), on a
+// fixed port: Figma Desktop keeps FigPal's chats and keys for this origin. Only the UI can use the routes: a web page cannot fake its origin, and the host name
 // must be this machine (against DNS rebinding).
 
 import { createReadStream } from "node:fs";

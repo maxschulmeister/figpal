@@ -5,7 +5,7 @@
 //                             command figpal next to node (npx figpal@latest install, also for updates; install.ts)
 //   figpal uninstall          removes all of it, but not the shared folders
 //
-//   figpal                    serves FigPal's UI and its routes on http://127.0.0.1:9310, which the plugin window
+//   figpal                    serves FigPal's UI and its routes on http://localhost:9310, which the plugin window
 //                             loads, from the folder ui/ next to this file (the package has it; the repo does not).
 //                             And the bridge: it shares the folders of ~/.config/figpal/local.json with FigPal's agent
 //                             (the user adds them in Settings → Access), and passes the requests of outside agents to
@@ -97,7 +97,7 @@ if (positionals[0] === "install" || positionals[0] === "uninstall") {
 } else {
 	// The origin of the UI has the port in it: Figma Desktop keeps the chats for that origin, so no other port.
 	const ui = existsSync(values.ui)
-		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://127.0.0.1:${uiPort}`, version: VERSION }).catch(
+		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://localhost:${uiPort}`, version: VERSION }).catch(
 				(error: NodeJS.ErrnoException) => {
 					if (error.code !== "EADDRINUSE") throw error;
 					console.error(`The port ${uiPort} is in use: FigPal runs already, or another program uses the port. FigPal needs it.`);
@@ -105,7 +105,7 @@ if (positionals[0] === "install" || positionals[0] === "uninstall") {
 				},
 			)
 		: undefined;
-	if (ui) console.error(`FigPal's UI: http://127.0.0.1:${ui.port} (${values.ui}).`);
+	if (ui) console.error(`FigPal's UI: http://localhost:${ui.port} (${values.ui}).`);
 	const helper = await startHelper({ origins, ports, folders: { config: values.config, home: homedir(), pick } });
 	console.error(`FigPal helper on port ${helper.port}. Folders: ${values.config}.`);
 	const stop = () => void Promise.all([helper.close(), ui?.close()]).then(() => process.exit(0));
