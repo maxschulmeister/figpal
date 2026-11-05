@@ -14,7 +14,7 @@ export default async function archive(t: Context) {
 	await frame.getByRole("button", { name: "More for Test chat" }).click();
 	await frame.getByRole("menuitem").first().waitFor();
 	const items = await frame.getByRole("menuitem").allTextContents();
-	t.check("the menu of a chat has Rename and Archive", JSON.stringify(items) === JSON.stringify(["Rename…", "Archive"]), JSON.stringify(items));
+	t.check("the menu of a chat has Rename, Settle and Archive", JSON.stringify(items) === JSON.stringify(["Rename…", "Settle", "Archive"]), JSON.stringify(items));
 	await frame.getByRole("menuitem", { name: "Archive" }).click();
 
 	const list = frame.locator("main ul").first();

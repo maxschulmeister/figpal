@@ -1,5 +1,6 @@
-// The threads of the file: open, rename, archive. In groups (user requests, like T3 Code's sidebar): Done at the top,
-// without a heading; Working, Settled and Archived at the bottom, each folds. Opening an archived thread brings it back.
+// The threads of the file: open, rename, settle, archive. In groups (user requests, like T3 Code's sidebar): Done at the
+// top, without a heading; Working, Settled and Archived at the bottom, each folds. Opening an archived thread brings it
+// back.
 
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { Button, Collapsible, Dialog, DropdownMenu, EllipsisIcon, IconButton, Input, Text } from "figma-kit";
@@ -27,6 +28,7 @@ type Props = {
 	onOpenGroup(group: FoldingGroup, open: boolean): void;
 	onOpen(id: ConversationId): void;
 	onRename(id: ConversationId, title: string): void;
+	onSettle(id: ConversationId, settled: boolean): void;
 	onArchive(id: ConversationId): void;
 };
 
@@ -49,7 +51,7 @@ export type FoldingGroup = (typeof FOLDING)[number][0];
 /** Which groups are open. Archived is folded at first. */
 export const OPEN_GROUPS: Record<FoldingGroup, boolean> = { working: true, settled: true, archived: false };
 
-export function ThreadList({ list, working, openGroups, onOpenGroup, onOpen, onRename, onArchive }: Props) {
+export function ThreadList({ list, working, openGroups, onOpenGroup, onOpen, onRename, onSettle, onArchive }: Props) {
 	const [renaming, setRenaming] = useState<ThreadInfo>();
 	const groups = threadGroups(list, working);
 	const row = (thread: ThreadInfo) =>
@@ -61,7 +63,15 @@ export function ThreadList({ list, working, openGroups, onOpenGroup, onOpen, onR
 				</button>
 			</li>
 		) : (
-			<ThreadRow key={thread.id} thread={thread} open={thread.id === list.current} onOpen={onOpen} onRename={setRenaming} onArchive={onArchive} />
+			<ThreadRow
+				key={thread.id}
+				thread={thread}
+				open={thread.id === list.current}
+				onOpen={onOpen}
+				onRename={setRenaming}
+				onSettle={onSettle}
+				onArchive={onArchive}
+			/>
 		);
 
 	return (
@@ -111,10 +121,11 @@ type RowProps = {
 	open: boolean;
 	onOpen(id: ConversationId): void;
 	onRename(thread: ThreadInfo): void;
+	onSettle(id: ConversationId, settled: boolean): void;
 	onArchive(id: ConversationId): void;
 };
 
-function ThreadRow({ thread, open, onOpen, onRename, onArchive }: RowProps) {
+function ThreadRow({ thread, open, onOpen, onRename, onSettle, onArchive }: RowProps) {
 	return (
 		<li className={`group flex items-center gap-2 pr-2 hover:bg-hover ${open ? "bg-selected" : ""}`}>
 			<button type="button" className="flex min-w-0 flex-1 items-baseline gap-2 py-2 pl-4 text-left" onClick={() => onOpen(thread.id)}>
@@ -132,6 +143,7 @@ function ThreadRow({ thread, open, onOpen, onRename, onArchive }: RowProps) {
 					<DropdownMenu.Positioner sideOffset={4} align="end">
 						<DropdownMenu.Popup style={{ minWidth: 140 }}>
 							<DropdownMenu.Item onClick={() => onRename(thread)}>Rename…</DropdownMenu.Item>
+							<DropdownMenu.Item onClick={() => onSettle(thread.id, !thread.settled)}>{thread.settled ? "Unsettle" : "Settle"}</DropdownMenu.Item>
 							<DropdownMenu.Item onClick={() => onArchive(thread.id)}>Archive</DropdownMenu.Item>
 						</DropdownMenu.Popup>
 					</DropdownMenu.Positioner>

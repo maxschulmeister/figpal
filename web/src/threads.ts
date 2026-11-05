@@ -17,10 +17,11 @@ import {
 } from "@earendil-works/pi-durable";
 
 /**
- * `unread`: its work ended while another thread was open (user request: a dot in the chat list). `archived`: in the
- * Archived part of the list, until it opens again.
+ * `unread`: its work ended while another thread was open (user request: a dot in the chat list). `settled`: the user
+ * settled it (user request: only by choice, not by reading it). `archived`: in the Archived part of the list, until it
+ * opens again.
  */
-export type ThreadInfo = { id: ConversationId; title: string; updatedAt: number; unread?: true; archived?: true };
+export type ThreadInfo = { id: ConversationId; title: string; updatedAt: number; unread?: true; settled?: true; archived?: true };
 /** Newest first. `current` is the thread that is open. */
 export type ThreadList = { threads: ThreadInfo[]; current?: ConversationId };
 
@@ -133,16 +134,26 @@ export function doneWatcher(
 export type ThreadGroups = Record<"done" | "working" | "settled" | "archived", ThreadInfo[]>;
 
 /**
- * The groups of the chat list (user request, like T3 Code's sidebar), each with the newest activity first: done
- * (unread), working (`working`: the threads with work now, from doneWatcher), settled, archived. A thread that works
- * is in working, also when it is unread.
+ * The groups of the chat list (user request, like T3 Code's sidebar), each with the newest activity first: done,
+ * working (`working`: the threads with work now, from doneWatcher), settled (by the user), archived. A thread that
+ * works is in working, also when it is settled.
  */
 export function threadGroups(list: ThreadList, working: ReadonlySet<ConversationId>): ThreadGroups {
 	const groups: ThreadGroups = { done: [], working: [], settled: [], archived: [] };
 	for (const info of [...list.threads].sort((a, b) => b.updatedAt - a.updatedAt)) {
-		groups[info.archived ? "archived" : working.has(info.id) ? "working" : info.unread ? "done" : "settled"].push(info);
+		groups[info.archived ? "archived" : working.has(info.id) ? "working" : info.settled ? "settled" : "done"].push(info);
 	}
 	return groups;
+}
+
+/** Settle in the menu of a thread moves it to Settled; Unsettle (`settled` false) moves it back to Done. */
+export async function settleThread(harness: Harness, id: ConversationId, settled: boolean): Promise<void> {
+	await harness.commit(async (tx) => {
+		const info = (await tx.doc(Threads)).threads.find((item) => item.id === id);
+		if (!info) return;
+		if (settled) info.settled = true;
+		else delete info.settled;
+	}, context);
 }
 
 export async function renameThread(harness: Harness, id: ConversationId, title: string): Promise<void> {
@@ -152,7 +163,7 @@ export async function renameThread(harness: Harness, id: ConversationId, title: 
 	}, context);
 }
 
-/** A message moves the thread to the top. The first message also names it: then the result is true. */
+/** A message moves the thread to the top, and out of Settled. The first message also names it: then the result is true. */
 export function noteMessage(harness: Harness, id: ConversationId, text: string): Promise<boolean> {
 	return harness.commit(async (tx) => {
 		const list = await tx.doc(Threads);
@@ -162,6 +173,7 @@ export function noteMessage(harness: Harness, id: ConversationId, text: string):
 		const first = !thread.title;
 		if (first) thread.title = firstLine(text);
 		thread.updatedAt = Date.now();
+		delete thread.settled;
 		list.threads.splice(index, 1);
 		list.threads.unshift(thread);
 		return first;

@@ -1,6 +1,7 @@
 // Unread chats and the groups of the chat list (user requests): a chat whose answer ends while another chat is open
 // gets a dot in the list and in the header, until the user opens it. The list has the groups Done, Working, Settled
-// and Archived, like T3 Code's sidebar: Done at the top without a heading, the others at the bottom, each folds.
+// and Archived, like T3 Code's sidebar: Done at the top without a heading, the others at the bottom, each folds. Only
+// Settle in the menu of a chat moves it to Settled, not reading it; Unsettle moves it back.
 
 import { type Context, text } from "../harness.ts";
 
@@ -31,16 +32,23 @@ export default async function unread(t: Context) {
 	await header.click();
 	// The AI name comes soon after the message; the harness gives "Test chat".
 	await group("Working").getByText("Test chat").waitFor();
-	t.check("while it works, the first chat is in Working", (await chats()) === JSON.stringify({ Done: [], Working: ["Test chat"], Settled: ["New chat"] }), await chats());
+	t.check("while it works, the first chat is in Working", (await chats()) === JSON.stringify({ Done: ["New chat"], Working: ["Test chat"], Settled: [] }), await chats());
 	await t.screenshot(session, "groups-working");
 
-	await group("Done").waitFor({ timeout: 10_000 });
-	t.check("when it is done, it moves to Done, with a dot", (await chats()) === JSON.stringify({ Done: ["Test chat"], Working: [], Settled: ["New chat"] }), await chats());
-	t.check("the done chat has the dot", /Unread/.test((await group("Done").getByRole("listitem").textContent()) ?? ""), "");
+	await group("Done").getByText("Test chat").waitFor({ timeout: 10_000 });
+	t.check("when it is done, it moves to Done, with a dot", (await chats()) === JSON.stringify({ Done: ["Test chat", "New chat"], Working: [], Settled: [] }), await chats());
+	t.check("the done chat has the dot", /Unread/.test((await group("Done").getByRole("listitem").first().textContent()) ?? ""), "");
 	await t.screenshot(session, "unread-list");
 	await frame.getByRole("button", { name: "Back to the chat" }).click();
 	t.check("the header shows a dot for it", /unread/i.test((await header.textContent()) ?? ""), (await header.textContent()) ?? "");
 	await header.click();
+	const menu = async (chat: string, item: string) => {
+		await frame.getByRole("button", { name: `More for ${chat}` }).click();
+		await frame.getByRole("menuitem", { name: item, exact: true }).click();
+	};
+	await menu("New chat", "Settle");
+	await group("Settled").waitFor();
+	t.check("Settle in the menu moves a chat to Settled", (await chats()) === JSON.stringify({ Done: ["Test chat"], Working: [], Settled: ["New chat"] }), await chats());
 	const layout = await frame.locator("main").evaluate((main) => {
 		const box = (name: string) => main.querySelector(`[aria-label="${name}"]`)!.getBoundingClientRect();
 		return { headings: [...main.querySelectorAll("button")].map((button) => button.textContent).filter((text) => /^(Done|Working|Settled)/.test(text ?? "")), doneTop: Math.round(box("Done").top - main.getBoundingClientRect().top), settledBottom: Math.round(main.getBoundingClientRect().bottom - box("Settled").bottom) };
@@ -63,5 +71,12 @@ export default async function unread(t: Context) {
 	await frame.getByText("Done.").waitFor();
 	t.check("after it opens, it is read: no dot in the header", !/unread/i.test((await header.textContent()) ?? ""), (await header.textContent()) ?? "");
 	await header.click();
-	t.check("and it is in Settled", (await chats()) === JSON.stringify({ Done: [], Working: [], Settled: ["Test chat", "New chat"] }), await chats());
+	t.check("and it stays in Done", (await chats()) === JSON.stringify({ Done: ["Test chat"], Working: [], Settled: ["New chat"] }), await chats());
+	await frame.getByRole("button", { name: "More for New chat" }).click();
+	await frame.getByRole("menuitem").first().waitFor();
+	const items = await frame.getByRole("menuitem").allTextContents();
+	t.check("a settled chat has Unsettle in its menu", JSON.stringify(items) === JSON.stringify(["Rename…", "Unsettle", "Archive"]), JSON.stringify(items));
+	await frame.getByRole("menuitem", { name: "Unsettle" }).click();
+	await group("Settled").waitFor({ state: "detached" });
+	t.check("Unsettle moves it back to Done", (await chats()) === JSON.stringify({ Done: ["Test chat", "New chat"], Working: [], Settled: [] }), await chats());
 }

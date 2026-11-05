@@ -44,6 +44,7 @@ import {
 	noteMessage,
 	renameThread,
 	selectThread,
+	settleThread,
 	type ThreadList as List,
 	Threads,
 } from "./threads";
@@ -328,6 +329,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 							id === thread?.id ? setShowThreads(false) : run(() => selectThread(harness, id))
 						}
 						onRename={(id, title) => renameThread(harness, id, title).catch(report)}
+						onSettle={(id, settled) => settleThread(harness, id, settled).catch(report)}
 						// Keep the handle of the open thread, so that its chat does not load again.
 						onArchive={(id) =>
 							run(async () => {

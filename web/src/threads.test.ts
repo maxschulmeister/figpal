@@ -4,7 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { describe, expect, it, vi } from "vitest";
-import { currentThread, archiveThread, doneWatcher, forkThread, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, Threads, threadGroups } from "./threads";
+import { currentThread, archiveThread, doneWatcher, forkThread, nameThread, newThread, noteDone, noteMessage, renameThread, selectThread, settleThread, Threads, threadGroups } from "./threads";
 
 const AGENT = { model: { provider: "faux", modelId: "script" } };
 
@@ -190,14 +190,22 @@ describe("threads", () => {
 		expect((await info(first.id)).unread).toBeUndefined();
 	});
 
-	// User request, like T3 Code's sidebar: done (unread), working, settled, archived; each by the newest activity (the
-	// last message, or the end of the last work).
+	// User requests, like T3 Code's sidebar: done, working, settled, archived; each by the newest activity (the last
+	// message, or the end of the last work). Only the user settles a thread: a read thread stays in done.
 	it("groups the list: done, working, settled and archived, each with the newest activity first", () => {
-		const thread = (id: number, updatedAt: number, mark: { unread?: true; archived?: true } = {}) => ({ id: id as ConversationId, title: `${id}`, updatedAt, ...mark });
+		const thread = (id: number, updatedAt: number, mark: { unread?: true; settled?: true; archived?: true } = {}) => ({ id: id as ConversationId, title: `${id}`, updatedAt, ...mark });
 		const list = {
-			threads: [thread(1, 300), thread(2, 100, { unread: true }), thread(3, 200), thread(4, 50, { unread: true }), thread(5, 400), thread(6, 500, { archived: true }), thread(7, 600, { unread: true })],
+			threads: [
+				thread(1, 300, { settled: true }),
+				thread(2, 100, { unread: true }),
+				thread(3, 200, { settled: true }),
+				thread(4, 50),
+				thread(5, 400, { settled: true }),
+				thread(6, 500, { archived: true, settled: true }),
+				thread(7, 600, { unread: true }),
+			],
 		};
-		// 7 works again (a restart continued its work): working comes before unread.
+		// 5 and 7 work (a restart continued their work): working comes before settled and unread.
 		const groups = threadGroups(list, new Set([5, 7] as ConversationId[]));
 		const ids = (infos: { id: ConversationId }[]) => infos.map((info) => Number(info.id));
 		expect({ done: ids(groups.done), working: ids(groups.working), settled: ids(groups.settled), archived: ids(groups.archived) }).toEqual({
@@ -206,6 +214,30 @@ describe("threads", () => {
 			settled: [1, 3],
 			archived: [6],
 		});
+	});
+
+	// User request: only Settle in the menu settles a thread, not reading it. Unsettle (like T3 Code) and a new message
+	// take it back to done.
+	it("settles a thread only when the user settles it", async () => {
+		const { harness, list } = await open();
+		const first = await currentThread(harness, AGENT);
+		await say(first, "Make a card");
+		await newThread(harness, AGENT);
+		await noteDone(harness, first.id);
+		await selectThread(harness, first.id);
+		const group = async () => Object.entries(threadGroups(await list(), new Set())).find(([, infos]) => infos.some((info) => info.id === first.id))![0];
+		expect(await group()).toBe("done");
+
+		await settleThread(harness, first.id, true);
+		expect(await group()).toBe("settled");
+		await selectThread(harness, first.id);
+		expect(await group()).toBe("settled");
+		await settleThread(harness, first.id, false);
+		expect(await group()).toBe("done");
+
+		await settleThread(harness, first.id, true);
+		await noteMessage(harness, first.id, "Make it blue");
+		expect(await group()).toBe("done");
 	});
 
 	it("counts the end of the work as activity", async () => {
@@ -238,12 +270,12 @@ describe("threads", () => {
 		const second = await newThread(harness, AGENT);
 		const next = await archiveThread(harness, second.id, AGENT);
 		expect(next.id).toBe(first.id);
-		expect(threadGroups(await list(), new Set()).settled.map((info) => info.id)).toEqual([first.id]);
+		expect(threadGroups(await list(), new Set()).done.map((info) => info.id)).toEqual([first.id]);
 		expect(threadGroups(await list(), new Set()).archived.map((info) => info.id)).toEqual([second.id]);
 		expect((await list()).current).toBe(first.id);
 		// Without a thread, a new one opens.
 		const last = await archiveThread(harness, first.id, AGENT);
-		expect(threadGroups(await list(), new Set()).settled.map((info) => info.id)).toEqual([last.id]);
+		expect(threadGroups(await list(), new Set()).done.map((info) => info.id)).toEqual([last.id]);
 	});
 
 	describe("doneWatcher", () => {
@@ -314,7 +346,7 @@ describe("threads", () => {
 		await newThread(harness, AGENT);
 		await archiveThread(harness, first.id, AGENT);
 		await selectThread(harness, first.id);
-		expect(threadGroups(await list(), new Set()).settled.map((info) => info.id)).toContain(first.id);
+		expect(threadGroups(await list(), new Set()).done.map((info) => info.id)).toContain(first.id);
 		expect(threadGroups(await list(), new Set()).archived).toEqual([]);
 		expect((await list()).current).toBe(first.id);
 	});
@@ -327,7 +359,7 @@ describe("threads", () => {
 		await selectThread(harness, second.id);
 		const opened = await archiveThread(harness, first.id, AGENT);
 		expect(opened.id).toBe(second.id);
-		expect(threadGroups(await list(), new Set()).settled.map((info) => info.id).sort()).toEqual([second.id, third.id].sort());
+		expect(threadGroups(await list(), new Set()).done.map((info) => info.id).sort()).toEqual([second.id, third.id].sort());
 		expect((await list()).current).toBe(second.id);
 	});
 });
