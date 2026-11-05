@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, chromium, type Frame, type Page } from "playwright-core";
 
-const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+export const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PARENT_URL = "https://www.figma.com/figpal-e2e";
 /** Screenshots for a look by hand. */
 export const SCREENSHOTS = join(tmpdir(), "figpal-e2e");

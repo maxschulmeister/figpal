@@ -4,7 +4,7 @@
 // origin: a web page always sends its origin.
 
 import { basename, resolve } from "node:path";
-import { isRecord } from "@figpal/shared";
+import { INSTALL_COMMAND, isRecord } from "@figpal/shared";
 import type { AgentRequest, FolderChange, HelperToUi, UiToHelper, WireAttachment } from "@figpal/shared/local";
 import { isHelperToUi, isUiToHelper } from "@figpal/shared/local";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
@@ -127,7 +127,7 @@ export async function startHelper(options: {
 				if (!isAgentMessage(message)) {
 					// For example a newer `figpal mcp` with a new request: its agent must not wait forever.
 					if (isRecord(message) && typeof message.id === "string")
-						send(socket, { kind: "response", id: message.id, ok: false, error: "The FigPal bridge does not know this request. Run pnpm local:install again." } satisfies AgentAnswer);
+						send(socket, { kind: "response", id: message.id, ok: false, error: `The FigPal bridge does not know this request. In Terminal, run ${INSTALL_COMMAND}` } satisfies AgentAnswer);
 					return;
 				}
 				const { id, type, params, file } = message;

@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UI_ORIGIN } from "@figpal/shared";
@@ -72,6 +72,21 @@ const opens = (port: number, origin: string) =>
 	});
 
 describe("the helper command", () => {
+	// Phase 8: the FigPal command serves the UI, which the plugin window loads. In the repo there is no built UI next to
+	// cli.ts: there, only --ui serves one.
+	it("serves the UI of --ui, and says where", async () => {
+		const ui = mkdtempSync(join(tmpdir(), "figpal-ui-"));
+		writeFileSync(join(ui, "index.html"), "<title>FigPal</title>");
+		const config = join(mkdtempSync(join(tmpdir(), "figpal-cli-")), "local.json");
+		helper = spawn("node", [CLI, "--config", config, "--ui", ui, "--ui-port", "9397", "--port", "9398"]);
+		let log = "";
+		helper.stderr!.on("data", (data) => (log += String(data)));
+		await expect.poll(() => log, { timeout: 10_000 }).toContain("FigPal's UI: http://127.0.0.1:9397");
+		const page = await fetch("http://127.0.0.1:9397/");
+		expect(await page.text()).toBe("<title>FigPal</title>");
+		expect(await (await fetch("http://127.0.0.1:9397/health")).json()).toEqual({ app: "figpal", version: "dev" });
+	});
+
 	// A test helper must not answer the user's real FigPal: its folders and its picker are not the user's.
 	it("accepts only the origins of --origin, when it has them", async () => {
 		const port = await start(["--origin", "http://localhost:5199"]);

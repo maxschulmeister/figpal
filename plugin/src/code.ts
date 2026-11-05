@@ -1,10 +1,11 @@
-// Plugin main thread. Shows the UI (from the VPS) and runs its requests against the Plugin API.
+// Plugin main thread. Shows the UI (from the FigPal command on this Mac) and runs its requests against the Plugin API.
 
 import {
 	type Attachment,
 	EXECUTE_TIMEOUT_MS,
 	type ExportFormat,
 	type FileInfo,
+	INSTALL_COMMAND,
 	isUiToPlugin,
 	VIDEO_FORMATS,
 	MODEL_IMAGE_MAX_PX,
@@ -88,40 +89,72 @@ function showPanel(): void {
 
 let loadTimer = 0;
 
-function offlineHtml(): string {
-	// JSON has no single quotes, so the attributes use them.
-	const send = (message: UiToPlugin) => `parent.postMessage({ pluginMessage: ${JSON.stringify(message)} }, "*")`;
-	return `<!doctype html>
-<style>
+/** The pages of code.js have Figma's theme colors (`themeColors`), not the UI's styles. */
+const PAGE_STYLE = `<style>
 body { font: 12px/1.5 Inter, system-ui, sans-serif; margin: 16px; color: var(--figma-color-text); background: var(--figma-color-bg); }
-button { font: inherit; padding: 6px 12px; }
-</style>
-<p>Cannot reach FigPal at ${UI_URL}. Connect Tailscale and try again.</p>
+button { font: inherit; height: 24px; padding: 0 8px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: var(--figma-color-bg); }
+code { display: block; margin: 8px 0; padding: 4px 8px; border-radius: 5px; background: var(--figma-color-bg-secondary); user-select: all; }
+[hidden] { display: none; }
+</style>`;
+
+/** JSON has no single quotes, so the attributes use them. */
+const send = (message: UiToPlugin) => `parent.postMessage({ pluginMessage: ${JSON.stringify(message)} }, "*")`;
+
+function offlineHtml(): string {
+	return `<!doctype html>
+${PAGE_STYLE}
+<p>FigPal did not start.</p>
 <button onclick='${send({ kind: "retry" })}'>Try again</button>`;
 }
 
 /**
- * Figma adds the theme class (`figma-dark` or `figma-light`) to this first document after it starts. The UI page
- * does not get it, so wait for the class (at most 500 ms) and give it to the page in the URL hash.
+ * The first document. It goes to the UI when the FigPal command answers, and until then says how to start it, and asks
+ * again every 2 seconds. A refused connection fails at once.
+ *
+ * Figma adds the theme class (`figma-dark` or `figma-light`) to this document after it starts. The UI page does not
+ * get it, so wait for the class (at most 500 ms) and give it to the page in the URL hash.
  */
 function bootstrapHtml(): string {
-	return `<script>
-let done = false;
-const go = () => {
-	if (done) return;
-	done = true;
-	location.href = ${JSON.stringify(`${UI_URL}#${THEME_HASH_KEY}=`)} + encodeURIComponent(document.documentElement.className);
+	return `<!doctype html>
+${PAGE_STYLE}
+<div id="off" hidden>
+<p><strong>FigPal is not running.</strong> Run this command in Terminal. Then FigPal opens.</p>
+<code id="command">${INSTALL_COMMAND}</code>
+<button id="copy">Copy</button>
+</div>
+<script>
+const root = document.documentElement;
+const theme = new Promise((resolve) => {
+	if (root.className) return resolve();
+	new MutationObserver(() => resolve()).observe(root, { attributes: true, attributeFilter: ["class"] });
+	setTimeout(resolve, 500);
+});
+const running = () => fetch(${JSON.stringify(`${UI_ORIGIN}/health`)}, { mode: "no-cors", cache: "no-store" }).then(() => true, () => false);
+const copy = document.getElementById("copy");
+copy.onclick = () => {
+	const command = document.getElementById("command");
+	navigator.clipboard.writeText(command.textContent).catch(() => {
+		// The plugin window can block the clipboard API: the older way works there.
+		getSelection().selectAllChildren(command);
+		document.execCommand("copy");
+	});
+	copy.textContent = "Copied";
 };
-if (document.documentElement.className) go();
-new MutationObserver(go).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-setTimeout(go, 500);
+(async () => {
+	await theme;
+	while (!(await running())) {
+		document.getElementById("off").hidden = false;
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+	}
+	${send({ kind: "loading" })};
+	location.href = ${JSON.stringify(`${UI_URL}#${THEME_HASH_KEY}=`)} + encodeURIComponent(root.className);
+})();
 </script>`;
 }
 
 function showUi(): void {
-	figma.showUI(bootstrapHtml(), uiOptions());
 	clearTimeout(loadTimer);
-	loadTimer = setTimeout(() => figma.showUI(offlineHtml(), uiOptions()), LOAD_TIMEOUT_MS);
+	figma.showUI(bootstrapHtml(), uiOptions());
 }
 
 function post(message: PluginToUi): void {
@@ -485,9 +518,15 @@ figma.ui.onmessage = (message: unknown, { origin }) => {
 		}
 		return;
 	}
-	// The offline page has a null origin. Its message only opens the UI again.
+	// The first page and the offline page have a null origin. Their messages only open the UI again, or start the wait
+	// for the UI.
 	if (message.kind === "retry") {
 		showUi();
+		return;
+	}
+	if (message.kind === "loading") {
+		clearTimeout(loadTimer);
+		loadTimer = setTimeout(() => figma.showUI(offlineHtml(), uiOptions()), LOAD_TIMEOUT_MS);
 		return;
 	}
 	if (origin !== UI_ORIGIN) {

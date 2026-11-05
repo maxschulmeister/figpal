@@ -5,8 +5,9 @@
 import type { OAuthAuth, OAuthCredential, Provider } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { sleep } from "@earendil-works/pi-ai/utils/sleep";
+import { ROUTES } from "@figpal/shared/routes";
 
-export const CHATGPT_ROUTE = "/api/chatgpt/backend-api";
+export const CHATGPT_ROUTE = `${ROUTES.chatgpt.path}/backend-api`;
 
 const AUTH = "https://auth.openai.com";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";

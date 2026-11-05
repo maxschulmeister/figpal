@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAsServer, USER_AGENT_HEADER } from "./anthropic-route";
+import { USER_AGENT_HEADER } from "@figpal/shared/routes";
+import { fetchAsServer } from "./anthropic-route";
 
 afterEach(() => vi.unstubAllGlobals());
 

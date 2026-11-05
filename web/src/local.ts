@@ -11,6 +11,7 @@ import {
 	type UiToHelper,
 	type WireAttachment,
 } from "@figpal/shared/local";
+import { INSTALL_COMMAND } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { toBase64 } from "./extensions/figma";
 
@@ -135,7 +136,7 @@ export function connectLocal(options: {
 		},
 		async changeFolders(change) {
 			const helper = keeper();
-			if (!helper) throw new Error("The local helper is not running. Run pnpm local:install in the FigPal repo.");
+			if (!helper) throw new Error(`FigPal's local helper is not connected. In Terminal, run ${INSTALL_COMMAND}`);
 			await ask(helper.socket, (id) => ({ kind: "folders", id, change }));
 		},
 		stop() {

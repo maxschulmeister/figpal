@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 type OnMessage = (message: unknown, props: { origin: string }) => void;
 
+/** The origin of FigPal's UI: the FigPal command on this Mac. */
+const UI = "http://127.0.0.1:9310";
+
 /** Runs code.ts with a fake Plugin API. Returns the HTML of each `figma.showUI` call, and the UI channel. */
 async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: object = {}) {
 	const shown: string[] = [];
@@ -44,11 +47,37 @@ const start = async (getAsync: () => Promise<unknown>) => (await startPlugin(get
 afterEach(() => vi.unstubAllGlobals());
 
 describe("code.ts start", () => {
-	// FigPal has one UI, the deployed one (user choice). An old saved choice of the local UI does nothing.
-	it("opens the deployed UI, also with an old saved choice of the local UI", async () => {
+	// The FigPal command serves the UI on this Mac (Phase 8). An old saved choice of a UI does nothing.
+	it("opens the UI of the FigPal command, also with an old saved choice of a UI", async () => {
 		const shown = await start(async () => "local");
 		expect(shown).toHaveLength(1);
-		expect(shown[0]).toContain("https://figpal.maxschulmeister.dev/");
+		expect(shown[0]).toContain("http://127.0.0.1:9310/");
+	});
+
+	// The first page waits for the FigPal command as long as it must. The time limit starts when it loads the UI.
+	it("shows the offline page only when the UI does not answer 10 s after it starts to load", async () => {
+		const page = { id: "0:1", name: "Page 1", type: "PAGE", selection: [] };
+		const plugin = await startPlugin(async () => undefined, { root: { name: "File", getPluginData: () => "ID" }, currentPage: page });
+		vi.useFakeTimers();
+		try {
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(plugin.shown).toHaveLength(1);
+			plugin.send({ kind: "loading" }, "null");
+			await vi.advanceTimersByTimeAsync(9_000);
+			expect(plugin.shown).toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(plugin.shown[1]).toContain("FigPal did not start.");
+			plugin.send({ kind: "retry" }, "null");
+			expect(plugin.shown[2]).toBe(plugin.shown[0]);
+
+			// The UI answers in time.
+			plugin.send({ kind: "loading" }, "null");
+			plugin.send({ kind: "ready" }, UI);
+			await vi.advanceTimersByTimeAsync(20_000);
+			expect(plugin.shown).toHaveLength(3);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	// User request: the deployed UI is the normal case, so its title has no "(remote)".
@@ -81,7 +110,7 @@ describe("code.ts start", () => {
 
 	it("resizes the panel within the limits, and saves the size", async () => {
 		const { posted, saved, ui, send } = await startPlugin(async () => "remote");
-		send({ kind: "request", id: "1", type: "resize", params: { width: 100, height: 600 } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "resize", params: { width: 100, height: 600 } }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(1));
 		expect(ui.resize).toHaveBeenCalledWith(320, 600);
 		expect(posted[0]).toMatchObject({ ok: true, result: { width: 320, height: 600 } });
@@ -91,12 +120,12 @@ describe("code.ts start", () => {
 	// The agent goes on in the hidden panel. A notice that stays brings it back.
 	it("runs in the background: hides the panel, and a notice shows it again", async () => {
 		const { posted, ui, notices, send } = await startPlugin(async () => "remote");
-		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(1));
 		expect(ui.hide).toHaveBeenCalled();
 		expect(notices[0]).toMatchObject({ message: "FigPal works in the background.", options: { timeout: Number.POSITIVE_INFINITY, button: { text: "Show" } } });
 		// A new message replaces the notice.
-		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done." } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done." } }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(2));
 		expect(notices[0]!.cancel).toHaveBeenCalled();
 		notices[1]!.options.button!.action();
@@ -106,10 +135,10 @@ describe("code.ts start", () => {
 	// A run can end after the user clicked Show: its notice must not hide the panel again.
 	it("changes only a notice that is still there", async () => {
 		const { posted, ui, notices, send } = await startPlugin(async () => "remote");
-		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
 		await vi.waitFor(() => expect(notices).toHaveLength(1));
 		notices[0]!.options.button!.action();
-		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(2));
 		expect(ui.hide).toHaveBeenCalledTimes(1);
 		expect(notices).toHaveLength(1);
@@ -121,7 +150,7 @@ describe("code.ts start", () => {
 				throw new Error("no notices");
 			},
 		});
-		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(1));
 		expect(posted[0]).toMatchObject({ ok: false });
 		expect(ui.hide).not.toHaveBeenCalled();
@@ -131,7 +160,7 @@ describe("code.ts start", () => {
 	it("closes FigPal when the user closes the notice", async () => {
 		const closePlugin = vi.fn();
 		const { ui, notices, send } = await startPlugin(async () => "remote", { closePlugin });
-		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
 		await vi.waitFor(() => expect(notices).toHaveLength(1));
 		notices[0]!.options.onDequeue!("dismiss");
 		expect(closePlugin).toHaveBeenCalled();
@@ -142,25 +171,25 @@ describe("code.ts start", () => {
 	it("does not close FigPal when a new notice takes the place of the old one", async () => {
 		const closePlugin = vi.fn();
 		const { notices, send } = await startPlugin(async () => "remote", { closePlugin });
-		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, "https://figpal.maxschulmeister.dev");
-		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, UI);
 		await vi.waitFor(() => expect(notices).toHaveLength(2));
 		notices[0]!.options.onDequeue!("dismiss");
 		expect(closePlugin).not.toHaveBeenCalled();
 	});
 
-	it("opens the remote UI when the setting cannot be read", async () => {
+	it("opens the UI when the saved size cannot be read", async () => {
 		const shown = await start(async () => {
 			throw new Error("storage failed");
 		});
 		expect(shown).toHaveLength(1);
-		expect(shown[0]).toContain("https://figpal.maxschulmeister.dev/");
+		expect(shown[0]).toContain(`${UI}/`);
 	});
 
 	// A newer remote UI can send a request type that this code.js does not know. Without a reply, the call waits forever.
 	it("answers a request of an unknown type from the UI with an error", async () => {
 		const { posted, send } = await startPlugin(async () => "remote");
-		send({ kind: "request", id: "7", type: "something-new", params: {} }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "7", type: "something-new", params: {} }, UI);
 		expect(posted).toEqual([{ kind: "response", id: "7", ok: false, error: expect.stringContaining("something-new") }]);
 	});
 
@@ -172,7 +201,6 @@ describe("code.ts start", () => {
 });
 
 describe("screenshot", () => {
-	const UI = "https://figpal.maxschulmeister.dev";
 	const png = new Uint8Array([137, 80, 78, 71]);
 	/** A page with two top-level frames. Its content is 6000 × 2000 px. */
 	const page = () => ({
@@ -219,7 +247,6 @@ describe("screenshot", () => {
 });
 
 describe("selection events", () => {
-	const UI = "https://figpal.maxschulmeister.dev";
 	const card = { id: "1:2", name: "Card", type: "FRAME" };
 	const logo = { id: "1:3", name: "Logo", type: "VECTOR" };
 
@@ -329,7 +356,7 @@ describe("variables", () => {
 				getLocalVariableCollectionsAsync: async () => [{ ...collection, key: "k1", defaultModeId: "1:0", variableIds: ["VariableID:1"] }],
 			},
 		});
-		send({ kind: "request", id: "1", type: "variables", params: {} }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "variables", params: {} }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(1));
 		expect(posted[0]).toEqual({ kind: "response", id: "1", ok: true, result: { collections: [collection], variables: [variable] }, attachments: [] });
 	});
@@ -358,7 +385,7 @@ describe("components", () => {
 			}),
 		};
 		const { posted, send } = await startPlugin(async () => "remote", api);
-		send({ kind: "request", id: "1", type: "components", params: {} }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "components", params: {} }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(1));
 		return { response: posted[0], api, flags };
 	}
@@ -402,7 +429,6 @@ describe("components", () => {
 });
 
 describe("lint and select", () => {
-	const UI = "https://figpal.maxschulmeister.dev";
 	/** Two pages. A layer knows its parent, as in Figma. */
 	function pages() {
 		const home: Record<string, unknown> = { id: "0:1", name: "Home", type: "PAGE", selection: [] };
@@ -459,7 +485,6 @@ describe("lint and select", () => {
 });
 
 describe("export", () => {
-	const UI = "https://figpal.maxschulmeister.dev";
 	const bytes = new Uint8Array([1, 2, 3]);
 	const node = (id: string, name: string) => ({ id, name, type: "FRAME", exportAsync: vi.fn(async () => bytes) });
 
@@ -546,7 +571,7 @@ describe("rules of the file", () => {
 		const root = { getPluginData: (key: string) => data.get(key) ?? "", setPluginData: (key: string, value: string) => void data.set(key, value) };
 		const { posted, send } = await startPlugin(async () => undefined, { root });
 		const ask = async (id: string, params: object) => {
-			send({ kind: "request", id, type: "rules", params }, "https://figpal.maxschulmeister.dev");
+			send({ kind: "request", id, type: "rules", params }, UI);
 			await vi.waitFor(() => expect(posted.some((reply) => (reply as { id: string }).id === id)).toBe(true));
 			return posted.find((reply) => (reply as { id: string }).id === id);
 		};
@@ -566,8 +591,8 @@ describe("rules of the file", () => {
 				events[event] = listener;
 			},
 		});
-		send({ kind: "request", id: "1", type: "rules", params: { text: "Use" } }, "https://figpal.maxschulmeister.dev");
-		send({ kind: "request", id: "2", type: "rules", params: {} }, "https://figpal.maxschulmeister.dev");
+		send({ kind: "request", id: "1", type: "rules", params: { text: "Use" } }, UI);
+		send({ kind: "request", id: "2", type: "rules", params: {} }, UI);
 		await vi.waitFor(() => expect(posted).toHaveLength(2));
 		expect(posted[1]).toMatchObject({ ok: true, result: "Use" });
 		expect(data.has("figpal.rules")).toBe(false);

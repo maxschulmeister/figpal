@@ -1,15 +1,11 @@
 // Anthropic refuses browser (CORS) requests for Claude subscription accounts: "CORS requests are not allowed for
 // this Organization". So the page sends Claude requests to a route on its own origin. The route forwards them to
-// api.anthropic.com without the browser headers: the dev server (web/vite.config.ts) and Caddy on the VPS
-// (deploy/Caddyfile.figpal).
+// api.anthropic.com without the browser headers: the FigPal command (local/ui-server.ts) and the dev server
+// (web/vite.config.ts).
 
-export const ANTHROPIC_ROUTE = "/api/anthropic";
+import { ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
 
-/** The browser replaces the user-agent that pi-ai and Pi Black set. The route sets it again from this header. */
-export const USER_AGENT_HEADER = "x-figpal-user-agent";
-
-/** Headers that mark a browser request. The route removes them, and all `sec-*` headers. */
-export const BROWSER_HEADERS = ["origin", "referer", "anthropic-dangerous-direct-browser-access"];
+export const ANTHROPIC_ROUTE = ROUTES.anthropic.path;
 
 /**
  * In a browser, the Anthropic SDK reports `browser:chrome` and an unknown OS. Upstream Pi Black runs in Node: these are

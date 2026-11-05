@@ -8,6 +8,7 @@
 	"enablePrivatePluginApi": true,
 	"networkAccess": {
 		"allowedDomains": ["*"],
-		"reasoning": "FigPal loads its UI from figpal.maxschulmeister.dev, and the UI makes the model calls. figma.createImageAsync must load images from any host that the user or the agent finds."
+		"devAllowedDomains": ["http://127.0.0.1:9310"],
+		"reasoning": "FigPal loads its UI from the FigPal command on this Mac (http://127.0.0.1:9310), and the UI makes the model calls. figma.createImageAsync must load images from any host that the user or the agent finds."
 	}
 }

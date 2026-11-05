@@ -91,7 +91,7 @@ describe("local helper connection", () => {
 
 	it("sends a change of the folders to the helper that keeps them", async () => {
 		const { local, sockets } = start();
-		await expect(local.changeFolders({ op: "add" })).rejects.toThrow("pnpm local:install");
+		await expect(local.changeFolders({ op: "add" })).rejects.toThrow("npx figpal@latest install");
 		sockets[0]!.receive(HELLO);
 		sockets[1]!.receive({ ...HELLO, manage: true });
 		const adding = local.changeFolders({ op: "add" });

@@ -8,8 +8,14 @@ export const STORAGE_PREFIX = "figpal.";
 /** The length limit of each text of rules: rules go in each model request. */
 export const MAX_RULES = 4000;
 
-/** Where the UI comes from: the VPS, through Tailscale. */
-export const UI_ORIGIN = "https://figpal.maxschulmeister.dev";
+/**
+ * Where the UI comes from: the FigPal command on this Mac (local/cli.ts). Figma Desktop keeps FigPal's chats and keys
+ * for this origin: a new origin starts empty (Settings → Access → Backup moves them).
+ */
+export const UI_PORT = 9310;
+export const UI_ORIGIN = `http://127.0.0.1:${UI_PORT}`;
+/** Installs or updates FigPal, and starts it. */
+export const INSTALL_COMMAND = "npx figpal@latest install";
 
 /** The image types that models read. Other files go to the user, or to an outside agent as resources. */
 export const MODEL_IMAGES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -158,8 +164,11 @@ export type EventMessage =
 	| ({ kind: "event"; type: "selection"; page: NodeSummary; byAgent: boolean } & Pick<FileInfo, "selection" | "selectionCount">)
 	| { kind: "event"; type: "page"; page: NodeSummary };
 
-/** `ready` tells code.js that the UI loaded. `retry` comes from the offline page. */
-export type UiToPlugin = { kind: "ready" } | { kind: "retry" } | RequestMessage;
+/**
+ * `ready` tells code.js that the UI loaded. The first page sends `loading` when it goes to the UI. `retry` comes from
+ * the offline page.
+ */
+export type UiToPlugin = { kind: "ready" } | { kind: "loading" } | { kind: "retry" } | RequestMessage;
 export type PluginToUi = ResponseMessage | EventMessage;
 
 const REQUEST_TYPES: Record<RequestType, true> = {
@@ -186,7 +195,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 /** Checks the shape of a message from the UI. code.js calls it before it trusts the message. */
 export function isUiToPlugin(value: unknown): value is UiToPlugin {
 	if (!isRecord(value)) return false;
-	if (value.kind === "ready" || value.kind === "retry") return true;
+	if (value.kind === "ready" || value.kind === "loading" || value.kind === "retry") return true;
 	return (
 		value.kind === "request" &&
 		typeof value.id === "string" &&

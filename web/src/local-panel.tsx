@@ -1,5 +1,6 @@
-// Settings → Access: the local helper, the folders that it shares with FigPal's agent, and MCP for outside agents. Each
-// is a section with the header of the accounts: the name, and its status on the right.
+// Settings → Access: the folders that the FigPal command shares with FigPal's agent, and MCP for outside agents. Each is
+// a section with the header of the accounts. The FigPal command serves the UI (Phase 8), so it runs when this shows: no
+// status and no install note for it.
 
 import type { FolderChange } from "@figpal/shared/local";
 import {
@@ -17,7 +18,7 @@ import {
 	Tooltip,
 } from "figma-kit";
 import { type ReactNode, useId, useState } from "react";
-import { Account, errorText, status } from "./accounts";
+import { Account, errorText } from "./accounts";
 import type { LocalState } from "./local";
 import type { Settings } from "./settings";
 
@@ -25,7 +26,7 @@ const json = (value: object) => JSON.stringify(value, null, 2);
 const MCP_SERVERS = json({ mcpServers: { figpal: { command: "figpal", args: ["mcp"] } } });
 
 /**
- * How each agent adds FigPal's MCP server, `figpal mcp`, a command of `pnpm local:install`. From their docs (2026-11);
+ * How each agent adds FigPal's MCP server, `figpal mcp`, a command of the install. From their docs (2026-11);
  * the commands of OpenCode and Droid were tried. `file`: the agent has no command, the user adds the JSON there.
  */
 const AGENTS: { value: string; label: string; setup: string; file?: string }[] = [
@@ -58,18 +59,7 @@ export function LocalHelperSettings(props: {
 
 	return (
 		<>
-			{/* FigPal cannot pick or keep a folder of the Mac: the local helper does it. */}
-			<Dialog.Section>
-				<Account name="Local helper" status={status(local.manage, ["Running", "Not running"])}>
-					<Text className="text-secondary">Shares folders of this Mac with the agent, and connects agents such as Claude Code.</Text>
-					{!local.manage && (
-						<>
-							<Text className="text-secondary">Run this once in the FigPal repo:</Text>
-							<CopyCommand command="pnpm local:install" />
-						</>
-					)}
-				</Account>
-			</Dialog.Section>
+			{/* FigPal cannot pick or keep a folder of the Mac: the FigPal command does it. */}
 			<Dialog.Section>
 				<Account name="Shared folders">
 					<Text className="text-secondary">The agent can read and write these folders, with their subfolders.</Text>

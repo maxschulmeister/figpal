@@ -61,7 +61,6 @@ export default async function local(t: Context) {
 		await frame.getByLabel("Settings").click();
 		await frame.getByRole("tab", { name: "Access" }).click();
 		await frame.getByRole("button", { name: "Remove notes" }).waitFor();
-		t.check("the Access tab shows the shared folders, without the install note", (await frame.getByText("pnpm local:install", { exact: true }).count()) === 0);
 		await frame.getByRole("switch", { name: "Share Home", exact: true }).click();
 		await frame.getByRole("button", { name: `Remove ${basename(process.env.HOME!)}` }).waitFor();
 		await t.screenshot(session, "local-access");

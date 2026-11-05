@@ -3,10 +3,11 @@
 // description). The name and description go into every system prompt, so they are cleaned here.
 
 import { unzipSync } from "fflate";
+import { ROUTES } from "@figpal/shared/routes";
 import { parse as parseYaml } from "yaml";
 import type { GitHubFolder, Skill, SkillFile, SkillSource } from "./store";
 
-export const SKILLS_ROUTE = "/api/skills";
+export const SKILLS_ROUTE = ROUTES.skills.path;
 const GITHUB_API = "https://api.github.com";
 const RAW = "https://raw.githubusercontent.com";
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // The FigPal command (`pnpm local:install` adds it as `figpal`). FigPal's UI finds its bridge on the ports 9300 to 9309.
 //
-//   figpal                    the bridge: it shares the folders of ~/.config/figpal/local.json with FigPal's agent
+//   figpal                    serves FigPal's UI and its routes on http://127.0.0.1:9310, which the plugin window
+//                             loads, from the folder ui/ next to this file (the package has it; the repo does not).
+//                             And the bridge: it shares the folders of ~/.config/figpal/local.json with FigPal's agent
 //                             (the user adds them in Settings → Access), and passes the requests of outside agents to
 //                             FigPal. The install starts it at login.
 //   figpal mcp                an MCP server on stdin and stdout, for an outside agent: `<agent> mcp add figpal -- figpal
@@ -11,15 +13,25 @@
 //   --origin <url>            accept only this UI origin, not FigPal's (tests): the user's FigPal must not use a
 //                             test helper
 //   --port <port>             use only this port, not 9300 to 9309 (tests): a test agent must not use the user's helper
+//   --ui <folder>             serve the UI of this folder (the repo: web/dist)
+//   --ui-port <port>          serve the UI on this port, not 9310 (tests)
 
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { UI_PORT } from "@figpal/shared";
 import { LOCAL_ORIGINS, LOCAL_PORTS } from "@figpal/shared/local";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { joinBridge, mcpServer } from "./mcp.ts";
 import { startHelper } from "./server.ts";
+import { startUiServer } from "./ui-server.ts";
+
+/** The build of the package sets it (local/build.ts). */
+declare const FIGPAL_VERSION: string | undefined;
+const VERSION = typeof FIGPAL_VERSION === "string" ? FIGPAL_VERSION : "dev";
 
 const { values, positionals } = parseArgs({
 	allowPositionals: true,
@@ -27,6 +39,8 @@ const { values, positionals } = parseArgs({
 		config: { type: "string", default: join(homedir(), ".config", "figpal", "local.json") },
 		origin: { type: "string", multiple: true, default: [] },
 		port: { type: "string" },
+		ui: { type: "string", default: fileURLToPath(new URL("ui", import.meta.url)) },
+		"ui-port": { type: "string", default: String(UI_PORT) },
 	},
 });
 
@@ -50,6 +64,8 @@ if (positionals.length > 1 || (positionals[0] !== undefined && positionals[0] !=
 	throw new Error(`Unknown command: figpal ${positionals.join(" ")}. Use: figpal, or figpal mcp.`);
 const ports = values.port === undefined ? LOCAL_PORTS : [Number(values.port)];
 if (!ports.every((port) => Number.isInteger(port) && port > 0)) throw new Error(`--port: "${values.port}" is not a port.`);
+const uiPort = Number(values["ui-port"]);
+if (!Number.isInteger(uiPort) || uiPort <= 0) throw new Error(`--ui-port: "${values["ui-port"]}" is not a port.`);
 
 const origins = values.origin.length ? values.origin : LOCAL_ORIGINS;
 
@@ -63,9 +79,20 @@ if (positionals[0] === "mcp") {
 	// The agent stops the MCP server when it closes stdin. The transport does not see the end of stdin.
 	process.stdin.once("end", exit);
 } else {
+	// The origin of the UI has the port in it: Figma Desktop keeps the chats for that origin, so no other port.
+	const ui = existsSync(values.ui)
+		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://127.0.0.1:${uiPort}`, version: VERSION }).catch(
+				(error: NodeJS.ErrnoException) => {
+					if (error.code !== "EADDRINUSE") throw error;
+					console.error(`The port ${uiPort} is in use: FigPal runs already, or another program uses the port. FigPal needs it.`);
+					process.exit(1);
+				},
+			)
+		: undefined;
+	if (ui) console.error(`FigPal's UI: http://127.0.0.1:${ui.port} (${values.ui}).`);
 	const helper = await startHelper({ origins, ports, folders: { config: values.config, home: homedir(), pick } });
 	console.error(`FigPal helper on port ${helper.port}. Folders: ${values.config}.`);
-	const stop = () => void helper.close().then(() => process.exit(0));
+	const stop = () => void Promise.all([helper.close(), ui?.close()]).then(() => process.exit(0));
 	process.on("SIGINT", stop);
 	process.on("SIGTERM", stop);
 }
