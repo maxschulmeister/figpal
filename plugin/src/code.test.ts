@@ -29,7 +29,8 @@ async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: obj
 		ui,
 		on() {},
 		notify: (message: string, options: NotificationOptions) => {
-			const notice = { message, options, cancel: vi.fn() };
+			// Figma calls onDequeue in cancel of the newest notice (measured).
+			const notice = { message, options, cancel: vi.fn(() => options.onDequeue?.("dismiss")) };
 			notices.push(notice);
 			return notice;
 		},
@@ -182,6 +183,44 @@ describe("code.ts start", () => {
 		await vi.waitFor(() => expect(notices).toHaveLength(2));
 		notices[0]!.options.onDequeue!("dismiss");
 		expect(closePlugin).not.toHaveBeenCalled();
+	});
+
+	// Figma ends a notice under a newer one without its callbacks (measured), and closing FigPal then failed with
+	// "Invalid handle" (user report).
+	it("ends the old notice before it shows the new one", async () => {
+		const closePlugin = vi.fn();
+		const { notices, send } = await startPlugin(async () => "remote", { closePlugin });
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
+		await vi.waitFor(() => expect(notices).toHaveLength(1));
+		const old = notices[0]!;
+		let shownAtCancel = 0;
+		old.cancel.mockImplementation(() => {
+			shownAtCancel = notices.length;
+			old.options.onDequeue?.("dismiss");
+		});
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, UI);
+		await vi.waitFor(() => expect(notices).toHaveLength(2));
+		expect(shownAtCancel).toBe(1);
+		expect(notices[1]!.cancel).not.toHaveBeenCalled();
+		expect(closePlugin).not.toHaveBeenCalled();
+	});
+
+	// Without a notice, the user could not get the panel back.
+	it("shows the panel when Figma cannot show the new notice", async () => {
+		let fail = false;
+		const { posted, ui, send } = await startPlugin(async () => "remote", {
+			notify: (_message: string, options: NotificationOptions) => {
+				if (fail) throw new Error("no notices");
+				return { cancel: () => options.onDequeue?.("dismiss") };
+			},
+		});
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		fail = true;
+		send({ kind: "request", id: "2", type: "background", params: { message: "FigPal is done.", update: true } }, UI);
+		await vi.waitFor(() => expect(posted).toHaveLength(2));
+		expect(posted[1]).toMatchObject({ ok: false });
+		expect(ui.show).toHaveBeenCalled();
 	});
 
 	it("opens the UI when the saved size cannot be read", async () => {

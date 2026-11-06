@@ -455,16 +455,25 @@ const handlers: Handlers = {
 			throw new Error("The message must be text.");
 		// The user clicked Show before the run ended.
 		if (update && !notice) return { result: null };
-		// The new notice first: without a notice, the user could not get the panel back.
+		// The old notice goes first. Figma ends a notice under a newer one without its callbacks, and closing FigPal
+		// then failed with "Invalid handle". Its cancel calls onDequeue with "dismiss": FigPal must stay.
 		const previous = notice;
-		const current = figma.notify(message, {
-			timeout: Number.POSITIVE_INFINITY,
-			button: { text: "Show", action: () => (notice === current ? showPanel() : undefined) },
-			// The notice has Show: when the user closes it, FigPal closes.
-			onDequeue: (reason) => (reason === "dismiss" && notice === current ? figma.closePlugin() : undefined),
-		});
-		notice = current;
+		notice = undefined;
 		previous?.cancel();
+		let current: NotificationHandler;
+		try {
+			current = figma.notify(message, {
+				timeout: Number.POSITIVE_INFINITY,
+				button: { text: "Show", action: () => (notice === current ? showPanel() : undefined) },
+				// The notice has Show: when the user closes it, FigPal closes.
+				onDequeue: (reason) => (reason === "dismiss" && notice === current ? figma.closePlugin() : undefined),
+			});
+		} catch (error) {
+			// Without a notice, the user could not get the panel back.
+			figma.ui.show();
+			throw error;
+		}
+		notice = current;
 		figma.ui.hide();
 		return { result: null };
 	},
