@@ -563,7 +563,14 @@ figma.on("selectionchange", () => {
 	post({ kind: "event", type: "selection", ...selection(nodes), page: summarize(figma.currentPage), byAgent });
 });
 
-figma.on("close", writeRules);
+figma.on("close", () => {
+	writeRules();
+	// Figma cleans up a notice after FigPal's code stopped, and then fails with "Invalid handle". Without a notice, its
+	// onDequeue does not close FigPal again.
+	const open = notice;
+	notice = undefined;
+	open?.cancel();
+});
 
 figma.on("currentpagechange", () => {
 	post({ kind: "event", type: "page", page: summarize(figma.currentPage) });

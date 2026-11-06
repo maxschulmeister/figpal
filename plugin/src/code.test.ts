@@ -223,6 +223,22 @@ describe("code.ts start", () => {
 		expect(ui.show).toHaveBeenCalled();
 	});
 
+	// When FigPal closes with a notice, Figma cleans up the notice after FigPal's code stopped, and fails with "Invalid
+	// handle" (user report). A notice that FigPal ends in the close event has no error (measured).
+	it("ends the notice when FigPal closes", async () => {
+		const closePlugin = vi.fn();
+		const handlers = new Map<string, () => void>();
+		const { notices, send } = await startPlugin(async () => "remote", {
+			closePlugin,
+			on: (name: string, handler: () => void) => handlers.set(name, handler),
+		});
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
+		await vi.waitFor(() => expect(notices).toHaveLength(1));
+		handlers.get("close")!();
+		expect(notices[0]!.cancel).toHaveBeenCalled();
+		expect(closePlugin).not.toHaveBeenCalled();
+	});
+
 	it("opens the UI when the saved size cannot be read", async () => {
 		const shown = await start(async () => {
 			throw new Error("storage failed");
