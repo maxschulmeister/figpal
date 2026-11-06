@@ -1,5 +1,6 @@
-# Publishes the npm package "figpal" (local/) for a tag such as v0.1.0, with provenance. The tag must be the version in
-# local/package.json. The repository needs the secret NPM_TOKEN (an npm automation token).
+# Publishes the npm package "figpal" (local/) for a tag such as v0.1.1, with provenance. The tag must be the version in
+# local/package.json. npm trusted publishing (OIDC): on npmjs.com, the package has this repository and release.yml as
+# its trusted publisher, so no token is necessary. npm refused a token (403: tokens that bypass 2FA cannot publish).
 name: Release
 
 on:
@@ -33,5 +34,3 @@ jobs:
         working-directory: local
       - run: npm publish --provenance --access public
         working-directory: local
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
