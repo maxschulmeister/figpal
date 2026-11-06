@@ -6,10 +6,13 @@
 import { type Context, text } from "../harness.ts";
 
 export default async function unread(t: Context) {
+	// The answer waits until the check has seen the chat in Working: the user opens a new chat while the first one works.
+	// A fixed wait failed on the slower CI runner, where the answer came before the list opened.
+	let answer!: () => void;
+	const answered = new Promise<void>((resolve) => (answer = resolve));
 	const session = await t.open({
-		// A slow answer: the user opens a new chat while the first one works.
 		model: async () => {
-			await new Promise((resolve) => setTimeout(resolve, 3000));
+			await answered;
 			return text("Done.");
 		},
 	});
@@ -34,6 +37,7 @@ export default async function unread(t: Context) {
 	await group("Working").getByText("Test chat").waitFor();
 	t.check("while it works, the first chat is in Working", (await chats()) === JSON.stringify({ Done: ["New chat"], Working: ["Test chat"], Settled: [] }), await chats());
 	await t.screenshot(session, "groups-working");
+	answer();
 
 	await group("Done").getByText("Test chat").waitFor({ timeout: 10_000 });
 	t.check("when it is done, it moves to Done, with a dot", (await chats()) === JSON.stringify({ Done: ["Test chat", "New chat"], Working: [], Settled: [] }), await chats());
