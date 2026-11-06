@@ -27,8 +27,11 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm package
-      # pnpm replaces the workspace: versions in package.json.
-      - run: pnpm --filter figpal publish --access public --no-git-checks
+      # The command bundles its dependencies: users need none. The devDependencies have workspace versions
+      # ("workspace:*"), which pnpm cannot publish for the private package @figpal/shared.
+      - run: npm pkg delete devDependencies
+        working-directory: local
+      - run: npm publish --provenance --access public
+        working-directory: local
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
