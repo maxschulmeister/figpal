@@ -2,6 +2,10 @@
 
 An AI agent in Figma Desktop, for macOS. See [github.com/maxschulmeister/figpal](https://github.com/maxschulmeister/figpal).
 
+- **Built-in MCP server:** Claude Code, Codex, Cursor and other agents can read and change your open Figma file.
+- **Few tokens:** 2 tools, about 300 tokens of tool definitions. `figma-console-mcp` 1.46.0 has 130 tools, about 48,000
+  tokens.
+
 ```sh
 npx figpal@latest install    # install, or update
 npx figpal uninstall         # remove

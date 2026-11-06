@@ -2,6 +2,19 @@
 
 FigPal is an AI agent in Figma Desktop. You tell it what you want, and it does the work in your file.
 
+- **Built-in MCP server.** Claude Code, Codex, Cursor and other agents can read and change the file that you have open,
+  through FigPal. The install adds FigPal to Claude Code. You need no Figma API token.
+- **Few tokens.** FigPal gives an agent 2 tools: one runs Figma Plugin API code, one takes a screenshot. Other Figma MCP
+  servers have one tool for each action, and most agents send all the tool definitions with each request.
+
+| MCP server | Tools | Tool definitions |
+| --- | ---: | --- |
+| **FigPal** 0.1.0 | 2 | about 300 tokens |
+| Talk to Figma (`cursor-talk-to-figma-mcp` 0.3.5) | 40 | about 5,800 tokens |
+| `figma-console-mcp` 1.46.0 | 130 | about 48,000 tokens |
+
+Measured on 2026-11-06: the size of each server's `tools/list` answer, at 4 characters for each token.
+
 ## Install
 
 You need a Mac, Figma Desktop and [Node.js](https://nodejs.org) 22 or later.
@@ -36,7 +49,12 @@ plan, or use an API key.
 
 To point at layers, select them while you type. **Settings** has your rules, skills, models and a backup of your chats.
 
-Agents such as Claude Code or Codex can use FigPal too: turn on **Settings → Access → MCP**.
+## Use FigPal from your agent
+
+1. In FigPal, turn on **Settings → Access → MCP**.
+2. Claude Code has FigPal after the install. For other agents, select your agent under MCP, and FigPal shows the setup,
+   for example `codex mcp add figpal -- figpal mcp`.
+3. Ask your agent, for example: "Build the selected Figma frame in React."
 
 ## Privacy
 
