@@ -79,6 +79,17 @@ let saveTimer = 0;
 /** The notice while the panel is hidden. */
 let notice: NotificationHandler | undefined;
 
+/**
+ * The figma object of the agent's code. A new notice ends FigPal's notice with "dismiss", as its close button does, and
+ * FigPal closed (user report). While the panel is hidden, the agent's notices do not show. figma is frozen, so the Proxy
+ * has an empty target; Figma's methods work with the Proxy as `this` (measured).
+ */
+const agentFigma = new Proxy({} as PluginAPI, {
+	get: (_, key) => (key === "notify" && notice ? () => ({ cancel() {} }) : Reflect.get(figma, key)),
+	set: (_, key, value) => Reflect.set(figma, key, value),
+	has: (_, key) => key in figma,
+});
+
 /** Shows the hidden panel and ends its notice. */
 function showPanel(): void {
 	const previous = notice;
@@ -263,7 +274,7 @@ const handlers: Handlers = {
 	async execute({ code, timeoutMs }) {
 		executing = true;
 		try {
-			const { attachments, ...result } = await execute(code, { figma, timeoutMs });
+			const { attachments, ...result } = await execute(code, { figma: agentFigma, timeoutMs });
 			codeEnded();
 			return { result, attachments };
 		} catch (error) {

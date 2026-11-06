@@ -28,7 +28,7 @@ async function startPlugin(getAsync: (key: string) => Promise<unknown>, api: obj
 		},
 		ui,
 		on() {},
-		notify: (message: string, options: NotificationOptions) => {
+		notify: (message: string, options: NotificationOptions = {}) => {
 			// Figma calls onDequeue in cancel of the newest notice (measured).
 			const notice = { message, options, cancel: vi.fn(() => options.onDequeue?.("dismiss")) };
 			notices.push(notice);
@@ -221,6 +221,28 @@ describe("code.ts start", () => {
 		await vi.waitFor(() => expect(posted).toHaveLength(2));
 		expect(posted[1]).toMatchObject({ ok: false });
 		expect(ui.show).toHaveBeenCalled();
+	});
+
+	// A notice of the agent's code ends FigPal's notice with "dismiss", as the close button does, and FigPal closed
+	// (user report, measured).
+	it("does not show the agent's notices while the panel is hidden", async () => {
+		const closePlugin = vi.fn();
+		const { posted, notices, send } = await startPlugin(async () => "remote", { closePlugin, currentPage: { selection: [] } });
+		send({ kind: "request", id: "1", type: "background", params: { message: "FigPal works in the background." } }, UI);
+		await vi.waitFor(() => expect(notices).toHaveLength(1));
+		send({ kind: "request", id: "2", type: "execute", params: { code: "figma.notify('3 frames updated').cancel(); return 1;" } }, UI);
+		await vi.waitFor(() => expect(posted).toHaveLength(2));
+		expect(posted[1]).toMatchObject({ ok: true });
+		expect(notices).toHaveLength(1);
+		expect(notices[0]!.cancel).not.toHaveBeenCalled();
+		expect(closePlugin).not.toHaveBeenCalled();
+	});
+
+	it("shows the agent's notices while the panel shows", async () => {
+		const { posted, notices, send } = await startPlugin(async () => "remote", { currentPage: { selection: [] } });
+		send({ kind: "request", id: "1", type: "execute", params: { code: "figma.notify('3 frames updated'); return 1;" } }, UI);
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		expect(notices).toMatchObject([{ message: "3 frames updated" }]);
 	});
 
 	// When FigPal closes with a notice, Figma cleans up the notice after FigPal's code stopped, and fails with "Invalid
