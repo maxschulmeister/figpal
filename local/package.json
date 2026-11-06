@@ -1,6 +1,6 @@
 {
 	"name": "figpal",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "An AI agent in Figma Desktop. On macOS: npx figpal@latest install",
 	"license": "AGPL-3.0-or-later",
 	"type": "module",
