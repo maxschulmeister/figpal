@@ -50,15 +50,19 @@ function remote(socket: WebSocket, onClose: () => void): Bridge {
 }
 
 /**
- * The bridge to FigPal: a running bridge on one of `ports`, or else this process starts one with `start`. It connects
- * at once, so that FigPal shows the agent, and again when the other bridge stops.
+ * The bridge to FigPal: a running bridge on one of `ports` of `host`, or else this process starts one with `start`.
+ * Without `start` (a bridge on another computer), the agent gets an error. It connects at once, so that FigPal shows
+ * the agent, and again when the other bridge stops.
  */
-export function joinBridge(ports: readonly number[], start: (port: number) => Promise<Helper>): Bridge {
+export function joinBridge(
+	ports: readonly number[],
+	{ host = "127.0.0.1", start }: { host?: string; start?: (port: number) => Promise<Helper> },
+): Bridge {
 	let bridge: Promise<Bridge> | undefined;
 	const open = (port: number) =>
 		new Promise<WebSocket | undefined>((resolve) => {
 			// Another program on the port can accept the connection and never answer.
-			const socket = new WebSocket(`ws://127.0.0.1:${port}${AGENT_PATH}`, { handshakeTimeout: 2000 });
+			const socket = new WebSocket(`ws://${host}:${port}${AGENT_PATH}`, { handshakeTimeout: 2000 });
 			socket.once("open", () => resolve(socket));
 			socket.once("error", () => resolve(undefined));
 		});
@@ -72,6 +76,10 @@ export function joinBridge(ports: readonly number[], start: (port: number) => Pr
 			const socket = await open(port);
 			if (socket) return remote(socket, reconnect);
 		}
+		if (!start)
+			throw new Error(
+				`FigPal does not answer on ${host} (ports ${ports[0]} to ${ports.at(-1)}). On that computer, open Figma Desktop and run FigPal.`,
+			);
 		for (const port of ports) {
 			const own = await start(port).catch(() => undefined);
 			if (own) return own;
