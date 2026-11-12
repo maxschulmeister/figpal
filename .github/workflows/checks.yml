@@ -1,4 +1,4 @@
-# All checks of the repo. macOS: FigPal is for macOS, and the runner has Google Chrome for the browser checks.
+# All checks of the repo, on macOS and Linux: FigPal is for both. The runners have Google Chrome for the browser checks.
 name: Checks
 
 on:
@@ -8,7 +8,10 @@ on:
 
 jobs:
   checks:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

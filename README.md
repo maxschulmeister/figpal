@@ -17,17 +17,22 @@ Measured on 2026-11-06: the size of each server's `tools/list` answer, at 4 char
 
 ## Install
 
-You need a Mac, Figma Desktop and [Node.js](https://nodejs.org) 22 or later.
+You need a Mac or a Linux computer, Figma Desktop and [Node.js](https://nodejs.org) 22 or later. Figma has no app for
+Linux: on Linux, use [Figma for Linux](https://github.com/Figma-Linux/figma-linux), an app that is not from Figma. FigPal is
+not tested in it yet.
 
-1. In Terminal, run:
+1. In a terminal, run:
 
    ```sh
    npx figpal@latest install
    ```
 
-2. In Figma Desktop, select **Plugins → Development → Import plugin from manifest…**. Press **Cmd+Shift+G**, paste
-   (the install copied the path), and press **Return**.
+2. In Figma Desktop, select **Plugins → Development → Import plugin from manifest…**. Press **Cmd+Shift+G** (on
+   Linux, **Ctrl+L**), paste (the install copied the path), and press **Return**.
 3. Select **Plugins → Development → FigPal**, and connect a model.
+
+On Linux, the install needs systemd. To share folders with FigPal, install `zenity` or `kdialog`. To copy the path,
+install `wl-clipboard` or `xclip`.
 
 To update FigPal, run the same command again. To remove it, run `npx figpal uninstall`.
 
@@ -58,8 +63,8 @@ To point at layers, select them while you type. **Settings** has your rules, ski
 
 ## Privacy
 
-FigPal runs on your Mac. There is no FigPal server. Your keys and chats stay in Figma Desktop, and your requests go from
-your Mac to the model provider that you select.
+FigPal runs on your computer. There is no FigPal server. Your keys and chats stay in Figma Desktop, and your requests go
+from your computer to the model provider that you select.
 
 The agent runs code in your file. Text in a file, on a web page or in a skill can try to control it. Look at what it
 does.

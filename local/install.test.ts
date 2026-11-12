@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { appFolder, command, install, launchAgent, type Probe, stableNode, type System, uninstall } from "./install.ts";
+import { appFolder, command, install, launchAgent, type Probe, stableNode, type System, systemdUnit, uninstall } from "./install.ts";
 
 const temp = (name: string) => mkdtempSync(join(tmpdir(), `figpal-${name}-`));
 
@@ -20,10 +20,10 @@ function pack(assets: string[]) {
 }
 
 /** A Mac in a folder: a home, a node, and fake system calls. FigPal answers on its port after the LaunchAgent starts. */
-function mac(before: Probe = { kind: "free" }, refusedStarts = 0) {
+function mac(before: Probe = { kind: "free" }, refusedStarts = 0, platform: "darwin" | "linux" = "darwin") {
 	const home = temp("home");
 	const bin = temp("bin");
-	const where = { home, node: join(bin, "node"), uid: 501, version: "1.0.0" };
+	const where = { home, node: join(bin, "node"), uid: 501, version: "1.0.0", platform };
 	const runs: string[] = [];
 	const logs: string[] = [];
 	const copied: string[] = [];
@@ -36,13 +36,15 @@ function mac(before: Probe = { kind: "free" }, refusedStarts = 0) {
 				started = true;
 			}
 			if (command === "launchctl" && args[0] === "bootout") started = false;
+			if (command === "systemctl" && args[1] === "enable") started = true;
+			if (command === "systemctl" && args[1] === "disable") started = false;
 			return true;
 		},
-		copy: (text) => copied.push(text),
+		copy: (text) => copied.push(text) > 0,
 		probe: async () => (started ? { kind: "figpal", version: "1.0.0" } : before),
 		log: (line) => logs.push(line),
 	};
-	return { where, system, runs, logs, copied, app: appFolder(home) };
+	return { where, system, runs, logs, copied, app: appFolder(home, platform) };
 }
 
 describe("install", () => {
@@ -129,6 +131,60 @@ describe("install", () => {
 		expect(existsSync(join(where.home, "Library", "LaunchAgents", "dev.figpal.local.plist"))).toBe(false);
 		expect(runs).toEqual(["launchctl bootout gui/501/dev.figpal.local", "claude mcp remove --scope user figpal"]);
 		expect(logs.join("\n")).toContain("~/.config/figpal/local.json");
+	});
+
+	it("on Linux: copies FigPal to ~/.local/share, starts it at login with systemd, and says how to import the plugin", async () => {
+		const { where, system, runs, logs, copied } = mac({ kind: "free" }, 0, "linux");
+		await install(pack(["index-a.js"]), where, system);
+
+		const app = join(where.home, ".local", "share", "figpal");
+		const manifest = join(app, "plugin", "manifest.json");
+		expect(existsSync(manifest)).toBe(true);
+		const unit = join(where.home, ".config", "systemd", "user", "figpal.service");
+		expect(readFileSync(unit, "utf8")).toContain(`ExecStart="${where.node}" "${join(app, "cli.mjs")}"`);
+		expect(existsSync(join(where.home, "Library"))).toBe(false);
+		expect(readFileSync(join(where.node, "..", "figpal"), "utf8")).toBe(command({ node: where.node, cli: join(app, "cli.mjs") }));
+		expect(runs).toEqual([
+			"systemctl --user disable --now figpal.service",
+			"systemctl --user daemon-reload",
+			"systemctl --user enable --now figpal.service",
+			"claude mcp remove --scope user figpal",
+			`claude mcp add --scope user figpal -- ${join(where.node, "..", "figpal")} mcp`,
+		]);
+		expect(copied).toEqual([manifest]);
+		expect(logs[0]).toBe("FigPal 1.0.0 runs, and starts at login.");
+		expect(logs.join("\n")).toContain("press Ctrl+L and paste it");
+	});
+
+	it("on Linux: uninstalls the systemd service", async () => {
+		const { where, system, runs } = mac({ kind: "free" }, 0, "linux");
+		await install(pack(["index-a.js"]), where, system);
+		runs.length = 0;
+		uninstall(where, system);
+		expect(existsSync(join(where.home, ".local", "share", "figpal"))).toBe(false);
+		expect(existsSync(join(where.home, ".config", "systemd", "user", "figpal.service"))).toBe(false);
+		expect(runs).toEqual(["systemctl --user disable --now figpal.service", "claude mcp remove --scope user figpal"]);
+	});
+
+	// User test (Docker): a node of the system (/usr/bin/node) is in a folder that the user cannot write.
+	it("adds the figpal command to ~/.local/bin when the folder of node is read-only", async () => {
+		const { where, system, runs } = mac({ kind: "free" }, 0, "linux");
+		chmodSync(join(where.node, ".."), 0o555);
+		await install(pack(["index-a.js"]), where, system);
+		const bin = join(where.home, ".local", "bin", "figpal");
+		expect(readFileSync(bin, "utf8")).toBe(command({ node: where.node, cli: join(where.home, ".local", "share", "figpal", "cli.mjs") }));
+		expect(runs).toContain(`claude mcp add --scope user figpal -- ${bin} mcp`);
+		uninstall(where, system);
+		expect(existsSync(bin)).toBe(false);
+	});
+
+	// systemd reads % as a specifier, and \ and " inside quotes as escapes.
+	it("on Linux: starts the command at login, and again when it stops", () => {
+		const unit = systemdUnit({ node: "/opt/node", cli: '/home/a "50%" b\\/figpal/cli.mjs', log: "/home/a%/.local/state/figpal/figpal.log" });
+		expect(unit).toContain('ExecStart="/opt/node" "/home/a \\"50%%\\" b\\\\/figpal/cli.mjs"\n');
+		expect(unit).toContain("Restart=always\n");
+		expect(unit).toContain("StandardError=append:/home/a%%/.local/state/figpal/figpal.log\n");
+		expect(unit).toContain("WantedBy=default.target\n");
 	});
 
 	// A Homebrew update replaces the program, not the link on the PATH: the LaunchAgent must use the link.

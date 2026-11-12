@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // The FigPal command: the npm package "figpal". FigPal's UI finds its bridge on the ports 9300 to 9309.
 //
-//   figpal install            copies FigPal to ~/Library/Application Support/FigPal, starts it at login, and adds the
-//                             command figpal next to node (npx figpal@latest install, also for updates; install.ts)
+//   figpal install            copies FigPal to ~/Library/Application Support/FigPal (macOS) or ~/.local/share/figpal
+//                             (Linux), starts it at login, and adds the command figpal next to node
+//                             (npx figpal@latest install, also for updates; install.ts)
 //   figpal uninstall          removes all of it, but not the shared folders
 //
 //   figpal                    serves FigPal's UI and its routes on http://localhost:9310, which the plugin window
@@ -29,7 +30,7 @@ import { parseArgs } from "node:util";
 import { UI_PORT } from "@figpal/shared";
 import { LOCAL_ORIGINS, LOCAL_PORTS } from "@figpal/shared/local";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { install, macSystem, stableNode, uninstall } from "./install.ts";
+import { install, nativeSystem, stableNode, uninstall } from "./install.ts";
 import { joinBridge, mcpServer } from "./mcp.ts";
 import { startHelper } from "./server.ts";
 import { startUiServer } from "./ui-server.ts";
@@ -49,21 +50,41 @@ const { values, positionals } = parseArgs({
 	},
 });
 
-/** The macOS folder picker. Cancel gives no folders. */
-const PICKER = `activate
-set picked to choose folder with prompt "Share folders with FigPal" with multiple selections allowed
+/** The folder picker: osascript on macOS, zenity (GNOME) or kdialog (KDE) on Linux. Cancel gives no folders. */
+const TITLE = "Share folders with FigPal";
+const MAC_PICKER = `activate
+set picked to choose folder with prompt "${TITLE}" with multiple selections allowed
 set paths to ""
 repeat with item_ in picked
 	set paths to paths & POSIX path of item_ & linefeed
 end repeat
 return paths`;
-const pick = () =>
-	new Promise<string[]>((resolve, reject) =>
-		execFile("osascript", ["-e", PICKER], (error, stdout) => {
-			if (error) return error.message.includes("(-128)") ? resolve([]) : reject(error);
-			resolve(stdout.split("\n").filter(Boolean));
+const PICKERS: [command: string, args: string[]][] =
+	process.platform === "darwin"
+		? [["osascript", ["-e", MAC_PICKER]]]
+		: [
+				["zenity", ["--file-selection", "--directory", "--multiple", "--separator=\n", `--title=${TITLE}`]],
+				// kdialog picks one folder.
+				["kdialog", ["--getexistingdirectory", homedir(), "--title", TITLE]],
+			];
+/** The picked folders, or undefined when the picker is not installed. */
+const pickWith = (command: string, args: string[]) =>
+	new Promise<string[] | undefined>((resolve, reject) =>
+		execFile(command, args, (error, stdout) => {
+			if (!error) return resolve(stdout.split("\n").filter(Boolean));
+			if (error.code === "ENOENT") return resolve(undefined);
+			// Cancel: osascript fails with -128, zenity and kdialog exit with 1.
+			if (command === "osascript" ? error.message.includes("(-128)") : error.code === 1) return resolve([]);
+			reject(error);
 		}),
 	);
+const pick = async () => {
+	for (const [command, args] of PICKERS) {
+		const picked = await pickWith(command, args);
+		if (picked) return picked;
+	}
+	throw new Error("To pick folders, install zenity or kdialog.");
+};
 
 const COMMANDS = ["mcp", "install", "uninstall"];
 if (positionals.length > 1 || (positionals[0] !== undefined && !COMMANDS.includes(positionals[0])))
@@ -76,11 +97,14 @@ if (!Number.isInteger(uiPort) || uiPort <= 0) throw new Error(`--ui-port: "${val
 const origins = values.origin.length ? values.origin : LOCAL_ORIGINS;
 
 if (positionals[0] === "install" || positionals[0] === "uninstall") {
-	if (process.platform !== "darwin") throw new Error("FigPal runs on macOS only.");
-	const where = { home: homedir(), node: stableNode(process.execPath), uid: userInfo().uid, version: VERSION };
+	const platform = process.platform;
+	if (platform !== "darwin" && platform !== "linux") throw new Error("FigPal runs on macOS and Linux only.");
+	const where = { home: homedir(), node: stableNode(process.execPath), uid: userInfo().uid, version: VERSION, platform };
+	// SSH without a login session (for example Tailscale SSH) has no XDG_RUNTIME_DIR, and `systemctl --user` needs it.
+	if (platform === "linux") process.env.XDG_RUNTIME_DIR ??= `/run/user/${where.uid}`;
 	try {
-		if (positionals[0] === "install") await install(fileURLToPath(new URL(".", import.meta.url)), where, macSystem);
-		else uninstall(where, macSystem);
+		if (positionals[0] === "install") await install(fileURLToPath(new URL(".", import.meta.url)), where, nativeSystem);
+		else uninstall(where, nativeSystem);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);
 		process.exit(1);

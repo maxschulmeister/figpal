@@ -147,14 +147,14 @@ const copy = document.getElementById("copy");
 copy.onclick = () => {
 	const command = document.getElementById("command");
 	// The plugin window can block the clipboard API, or not have it: the older way works there. If both fail, the
-	// command stays selected for Cmd+C.
+	// command stays selected for Cmd+C (Ctrl+C on Linux).
 	Promise.resolve()
 		.then(() => navigator.clipboard.writeText(command.textContent))
 		.catch(() => {
 			getSelection().selectAllChildren(command);
 			if (!document.execCommand("copy")) throw new Error("Not copied");
 		})
-		.then(() => (copy.textContent = "Copied"), () => (copy.textContent = "Press Cmd+C"));
+		.then(() => (copy.textContent = "Copied"), () => (copy.textContent = /Mac/.test(navigator.platform) ? "Press Cmd+C" : "Press Ctrl+C"));
 };
 (async () => {
 	await theme;
