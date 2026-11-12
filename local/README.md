@@ -15,6 +15,7 @@ The install copies FigPal to `~/Library/Application Support/FigPal` (macOS) or `
 starts it at login. Then, in Figma Desktop, select **Plugins → Development → Import plugin from manifest…** and select
 `plugin/manifest.json` in that folder. On Linux, use [Figma for Linux](https://github.com/Figma-Linux/figma-linux).
 
-Agents use FigPal's MCP server with `figpal mcp`, for example `claude mcp add figpal -- figpal mcp`.
+Agents use FigPal's MCP server with `figpal mcp`, for example `claude mcp add figpal -- figpal mcp`. An agent on another
+computer uses `figpal mcp --host <address>`: see the README on GitHub.
 
 License: AGPL-3.0. The package contains `THIRD_PARTY_NOTICES.md` and `licenses.md`.

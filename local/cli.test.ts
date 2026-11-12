@@ -103,6 +103,25 @@ describe("the helper command", () => {
 		await expect.poll(() => run(agent), { timeout: 10_000 }).toBe(RAN);
 	});
 
+	// An agent on another computer (a VM): FigPal runs on the user's computer, and Tailscale forwards its ports.
+	it("mcp --host sends the agent's requests through the bridge on that computer", async () => {
+		const config = join(mkdtempSync(join(tmpdir(), "figpal-cli-")), "local.json");
+		await saveConfig(config, { folders: [], home: false });
+		bridge = await startHelper({ origins: [UI], ports: [9394], folders: { config, home: tmpdir(), pick: async () => [] } });
+		fakeWindow(9394);
+		const agent = await startAgent(["--host", "127.0.0.1", "--port", "9394", "--origin", UI]);
+		await expect.poll(() => run(agent), { timeout: 10_000 }).toBe(RAN);
+	});
+
+	// A bridge in the VM has no FigPal window: the agent must get an error, not wait for FigPal there.
+	it("mcp --host is no bridge itself: without FigPal on that computer, the agent gets an error", async () => {
+		const agent = await startAgent(["--host", "127.0.0.1", "--port", "9393", "--origin", UI]);
+		const result = await agent.callTool({ name: "figma_execute", arguments: { code: "return 1" } });
+		expect(result.isError).toBe(true);
+		expect(JSON.stringify(result.content)).toContain("FigPal does not answer on 127.0.0.1");
+		expect(await opens(9393, UI)).toBe(false);
+	});
+
 	// As figma-console-mcp: the command works alone. The first agent is the bridge, the others use it, and one of them
 	// takes over when the first stops.
 	it("mcp works without a running bridge: the agents share one bridge", { timeout: 30_000 }, async () => {

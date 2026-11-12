@@ -14,6 +14,8 @@
 //   figpal mcp                an MCP server on stdin and stdout, for an outside agent: `<agent> mcp add figpal -- figpal
 //                             mcp`. The agent acts on the open Figma file through FigPal. It uses the running bridge,
 //                             or is the bridge itself when none runs, as figma-console-mcp (without the folders).
+//   --host <address>          figpal mcp: use the bridge on this computer (for example the Tailscale address of the
+//                             Mac, for an agent in a VM), and never be the bridge itself
 //   --config <path>           another config file (tests)
 //   --origin <url>            accept only this UI origin, not FigPal's (tests): the user's FigPal must not use a
 //                             test helper
@@ -43,6 +45,7 @@ const { values, positionals } = parseArgs({
 	allowPositionals: true,
 	options: {
 		config: { type: "string", default: join(homedir(), ".config", "figpal", "local.json") },
+		host: { type: "string" },
 		origin: { type: "string", multiple: true, default: [] },
 		port: { type: "string" },
 		ui: { type: "string", default: fileURLToPath(new URL("ui", import.meta.url)) },
@@ -111,7 +114,10 @@ if (positionals[0] === "install" || positionals[0] === "uninstall") {
 	}
 } else if (positionals[0] === "mcp") {
 	// This bridge keeps no folders: only the bridge of `figpal` keeps them.
-	const helper = joinBridge(ports, (port) => startHelper({ origins, ports: [port] }));
+	const helper =
+		values.host === undefined
+			? joinBridge(ports, { start: (port) => startHelper({ origins, ports: [port] }) })
+			: joinBridge(ports, { host: values.host });
 	const transport = new StdioServerTransport();
 	const exit = () => process.exit(0);
 	transport.onclose = exit;

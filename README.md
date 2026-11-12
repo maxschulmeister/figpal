@@ -61,6 +61,25 @@ To point at layers, select them while you type. **Settings** has your rules, ski
    for example `codex mcp add figpal -- figpal mcp`.
 3. Ask your agent, for example: "Build the selected Figma frame in React."
 
+### An agent on another computer
+
+An agent on another computer, for example in a VM, can use FigPal on your Mac through
+[Tailscale](https://tailscale.com). On the Mac, forward FigPal's ports to your tailnet:
+
+```sh
+for p in $(seq 9300 9309); do tailscale serve --bg --tcp=$p tcp://127.0.0.1:$p; done
+```
+
+On the other computer, give the Mac's Tailscale address to `figpal mcp`:
+
+```sh
+claude mcp add figpal -- npx -y figpal mcp --host 100.x.y.z
+```
+
+FigPal has no password for this: each device in your tailnet that can reach these ports can run code in your open
+Figma file. To limit access, use a Tailscale access rule. To stop it, run `tailscale serve --tcp=<port> off` for each
+port.
+
 ## Privacy
 
 FigPal runs on your computer. There is no FigPal server. Your keys and chats stay in Figma Desktop, and your requests go
