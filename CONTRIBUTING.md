@@ -4,13 +4,13 @@
 
 ## Build
 
-You need macOS, Node.js 22 or later, and pnpm.
+You need macOS or Linux, Node.js 22 or later, and pnpm.
 
 ```sh
 pnpm install
 pnpm build            # the plugin (plugin/dist) and the UI (web/dist)
 pnpm package          # the npm package figpal in local/dist
-pnpm local:install    # installs that package on this Mac, as npx figpal install does
+pnpm local:install    # installs that package on this computer, as npx figpal install does
 pnpm local:uninstall
 ```
 

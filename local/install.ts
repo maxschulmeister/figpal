@@ -1,15 +1,16 @@
-// Sets up FigPal on macOS: `npx figpal@latest install` (also for updates) and `npx figpal uninstall`.
+// Sets up FigPal on macOS and Linux: `npx figpal@latest install` (also for updates) and `npx figpal uninstall`.
 //
 // The install copies the command, the UI and the plugin to a fixed folder: npx keeps its files in a cache, and Figma and
-// the LaunchAgent need paths that stay. It starts the command at login (a LaunchAgent), adds the command figpal next to
-// node (agents run `figpal mcp`), and gives Claude Code FigPal's MCP server.
+// the login service need paths that stay. It starts the command at login (a LaunchAgent on macOS, a systemd user service
+// on Linux), adds the command figpal next to node (agents run `figpal mcp`), and gives Claude Code FigPal's MCP server.
 
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { INSTALL_COMMAND, UI_PORT } from "@figpal/shared";
 
 const LABEL = "dev.figpal.local";
+const UNIT = "figpal.service";
 /** The first line of figpal after #!: the uninstall removes only this file. */
 const MARK = "# The FigPal command (figpal install).";
 /** Older installs (pnpm local:install) had this mark, and also the command figpal-mcp. */
@@ -26,28 +27,62 @@ export type Probe = { kind: "free" } | { kind: "figpal"; version: string } | { k
 export type System = {
 	/** Runs a command. False when it fails: for example, `claude` is not installed. */
 	run(command: string, args: string[]): boolean;
-	/** Puts the text on the clipboard. */
-	copy(text: string): void;
+	/** Puts the text on the clipboard. False when no clipboard command works. */
+	copy(text: string): boolean;
 	probe(): Promise<Probe>;
 	log(line: string): void;
 };
 
-/** The home folder, the node that runs FigPal, the user ID (for launchctl), and the version of this package. */
-export type Where = { home: string; node: string; uid: number; version: string };
+export type Platform = "darwin" | "linux";
 
-export const appFolder = (home: string) => join(home, "Library", "Application Support", "FigPal");
+/** The home folder, the node that runs FigPal, the user ID (for launchctl), the version of this package, and the OS. */
+export type Where = { home: string; node: string; uid: number; version: string; platform: Platform };
 
-function paths({ home, node, uid }: Where) {
-	const app = appFolder(home);
+export const appFolder = (home: string, platform: Platform) =>
+	platform === "linux" ? join(home, ".local", "share", "figpal") : join(home, "Library", "Application Support", "FigPal");
+
+/** The commands as [command, ...args]. */
+type Run = [string, ...string[]];
+
+function paths({ home, node, uid, platform }: Where) {
+	const app = appFolder(home, platform);
+	// A node of the system (/usr/bin/node) is in a folder that the user cannot write: then ~/.local/bin, as pipx does.
+	const bin = join(writable(dirname(node)) ? dirname(node) : join(home, ".local", "bin"), "figpal");
+	const common = { app, cli: join(app, CLI), manifest: join(app, "plugin", "manifest.json"), bin };
+	if (platform === "linux") {
+		const systemctl = (...args: string[]): Run => ["systemctl", "--user", ...args];
+		return {
+			...common,
+			service: join(home, ".config", "systemd", "user", UNIT),
+			log: join(home, ".local", "state", "figpal", "figpal.log"),
+			unit: systemdUnit,
+			stop: systemctl("disable", "--now", UNIT),
+			start: [systemctl("daemon-reload"), systemctl("enable", "--now", UNIT)],
+			/** The key that opens a path field in the file dialog (GTK and KDE). */
+			goTo: "Ctrl+L",
+		};
+	}
+	const plist = join(home, "Library", "LaunchAgents", `${LABEL}.plist`);
 	return {
-		app,
-		cli: join(app, CLI),
-		manifest: join(app, "plugin", "manifest.json"),
-		plist: join(home, "Library", "LaunchAgents", `${LABEL}.plist`),
+		...common,
+		service: plist,
 		log: join(home, "Library", "Logs", "figpal.log"),
-		bin: join(dirname(node), "figpal"),
-		service: `gui/${uid}`,
+		unit: launchAgent,
+		stop: ["launchctl", "bootout", `gui/${uid}/${LABEL}`] as Run,
+		start: [["launchctl", "bootstrap", `gui/${uid}`, plist]] as Run[],
+		goTo: "Cmd+Shift+G",
 	};
+}
+
+const run = (system: System, [command, ...args]: Run) => system.run(command, args);
+
+function writable(folder: string): boolean {
+	try {
+		accessSync(folder, constants.W_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -63,6 +98,26 @@ export function launchAgent(paths: { node: string; cli: string; log: string }): 
 <key>KeepAlive</key><true/>
 <key>StandardErrorPath</key><string>${xml(paths.log)}</string>
 </dict></plist>
+`;
+}
+
+/** systemd reads % as a specifier everywhere, and \ and " as escapes inside quotes. */
+const percent = (text: string) => text.replaceAll("%", "%%");
+const quoted = (text: string) => `"${percent(text).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+
+/** The systemd user service: Linux starts the command at login, and again when it stops. */
+export function systemdUnit(paths: { node: string; cli: string; log: string }): string {
+	return `[Unit]
+Description=FigPal
+
+[Service]
+ExecStart=${quoted(paths.node)} ${quoted(paths.cli)}
+Restart=always
+RestartSec=1
+StandardError=append:${percent(paths.log)}
+
+[Install]
+WantedBy=default.target
 `;
 }
 
@@ -90,7 +145,7 @@ function copyFiles(from: string, app: string) {
 	for (const name of readdirSync(assets)) if (Date.now() - statSync(join(assets, name)).mtimeMs > KEEP_MS) rmSync(join(assets, name));
 }
 
-/** Waits until this version of FigPal answers: right after the start of the LaunchAgent, the old one can still answer. */
+/** Waits until this version of FigPal answers: right after the start of the service, the old one can still answer. */
 async function started(system: System, version: string): Promise<boolean> {
 	for (let attempt = 0; attempt < 50; attempt++) {
 		const probe = await system.probe();
@@ -113,20 +168,23 @@ export async function install(from: string, where: Where, system: System): Promi
 		throw new Error(`The port ${UI_PORT} is in use by ${before.program}. FigPal needs this port. Stop that program, then run ${INSTALL_COMMAND} again.`);
 	const first = !existsSync(p.manifest);
 	// Stops FigPal of an earlier install.
-	system.run("launchctl", ["bootout", `${p.service}/${LABEL}`]);
+	run(system, p.stop);
 	copyFiles(from, p.app);
-	mkdirSync(dirname(p.plist), { recursive: true });
-	writeFileSync(p.plist, launchAgent({ node: where.node, cli: p.cli, log: p.log }));
+	mkdirSync(dirname(p.service), { recursive: true });
+	// systemd does not make the folder of the log.
+	mkdirSync(dirname(p.log), { recursive: true });
+	writeFileSync(p.service, p.unit({ node: where.node, cli: p.cli, log: p.log }));
 	// Right after the stop of the old FigPal, macOS can refuse the start (user test): try again for 5 seconds.
 	let running = false;
 	for (let attempt = 0; attempt < 10 && !running; attempt++) {
 		if (attempt) await new Promise((resolve) => setTimeout(resolve, 500));
-		running = system.run("launchctl", ["bootstrap", p.service, p.plist]);
+		running = p.start.every((command) => run(system, command));
 	}
-	if (!running) throw new Error(`macOS did not start FigPal. See: launchctl bootstrap ${p.service} ${p.plist}`);
+	if (!running) throw new Error(`The system did not start FigPal. See: ${p.start.map((command) => command.join(" ")).join(" && ")}`);
 	// A write to a link would change the file that it links to, for example the figpal of `npm install -g figpal`.
 	rmSync(p.bin, { force: true });
 	if (ours(join(dirname(p.bin), "figpal-mcp"))) rmSync(join(dirname(p.bin), "figpal-mcp"));
+	mkdirSync(dirname(p.bin), { recursive: true });
 	writeFileSync(p.bin, command({ node: where.node, cli: p.cli }), { mode: 0o755 });
 	system.run("claude", ["mcp", "remove", "--scope", "user", "figpal"]);
 	// The full path: Claude Code can start it also without this node on its PATH.
@@ -134,19 +192,21 @@ export async function install(from: string, where: Where, system: System): Promi
 	if (!(await started(system, where.version))) throw new Error(`FigPal did not start. See the log: ${p.log}`);
 
 	system.log(`FigPal ${where.version} runs, and starts at login.`);
-	system.log(`${claude ? "Claude Code has FigPal's MCP server. Other agents" : "For an agent"}: <agent> mcp add figpal -- figpal mcp`);
+	// ~/.local/bin can be missing from the PATH until the next login.
+	const figpal = dirname(p.bin) === dirname(where.node) ? "figpal" : p.bin;
+	system.log(`${claude ? "Claude Code has FigPal's MCP server. Other agents" : "For an agent"}: <agent> mcp add figpal -- ${figpal} mcp`);
 	if (first) {
-		system.copy(p.manifest);
+		const copied = system.copy(p.manifest);
 		system.log("Now import the plugin in Figma Desktop, once: Plugins → Development → Import plugin from manifest…, then choose");
 		system.log(`  ${p.manifest}`);
-		system.log("The path is on the clipboard: in the file dialog, press Cmd+Shift+G and paste it.");
+		if (copied) system.log(`The path is on the clipboard: in the file dialog, press ${p.goTo} and paste it.`);
 	} else system.log("Run FigPal again in Figma to use the new version.");
 }
 
 export function uninstall(where: Where, system: System): void {
 	const p = paths(where);
-	system.run("launchctl", ["bootout", `${p.service}/${LABEL}`]);
-	rmSync(p.plist, { force: true });
+	run(system, p.stop);
+	rmSync(p.service, { force: true });
 	system.run("claude", ["mcp", "remove", "--scope", "user", "figpal"]);
 	for (const file of [p.bin, join(dirname(p.bin), "figpal-mcp")]) if (ours(file)) rmSync(file);
 	rmSync(p.app, { recursive: true, force: true });
@@ -164,7 +224,10 @@ function listener(): string | undefined {
 	}
 }
 
-export const macSystem: System = {
+/** The clipboard commands: macOS, then Wayland and X11. */
+const CLIPBOARD: Run[] = process.platform === "darwin" ? [["pbcopy"]] : [["wl-copy"], ["xclip", "-selection", "clipboard"]];
+
+export const nativeSystem: System = {
 	run(command, args) {
 		try {
 			execFileSync(command, args, { stdio: "ignore" });
@@ -173,7 +236,16 @@ export const macSystem: System = {
 			return false;
 		}
 	},
-	copy: (text) => execFileSync("pbcopy", { input: text }),
+	copy: (text) =>
+		CLIPBOARD.some(([command, ...args]) => {
+			try {
+				// wl-copy and xclip stay in the background to keep the text: they must not keep the output open.
+				execFileSync(command, args, { input: text, stdio: ["pipe", "ignore", "ignore"] });
+				return true;
+			} catch {
+				return false;
+			}
+		}),
 	async probe() {
 		// Nothing, or an answer that is not FigPal's JSON.
 		// The address where the command listens: Node can try ::1 first for "localhost".
