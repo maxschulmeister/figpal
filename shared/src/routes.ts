@@ -14,7 +14,7 @@ export const ROUTES = {
 /** `/api/forward/<host>/<path>` goes to `https://<host>/<path>`: for the providers that allow no browser requests. */
 export const FORWARD_ROUTE = "/api/forward";
 
-/** The browser replaces the user-agent that pi-ai and Pi Black set. A route sets it again from this header. */
+/** The browser replaces the user-agent that pi-ai and the Claude provider set. A route sets it again from this header. */
 export const USER_AGENT_HEADER = "x-figpal-user-agent";
 
 /** Headers that mark a browser request. The routes remove them, and all `sec-*` headers. */

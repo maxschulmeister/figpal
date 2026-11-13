@@ -14,10 +14,11 @@ import {
 	type SystemMessage,
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { type InputSubmissionDraft, LiveDoc, type TranscriptView } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type InputSubmissionDraft, LiveDoc, type TranscriptView } from "@earendil-works/pi-durable";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
 import { obj } from "@earendil-works/pi-schema";
 import type { Attachment, FileInfo } from "@figpal/shared";
+import type { ClaudeConfig } from "@figpal/shared/claude";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentModels, startAgent, userInput } from "./agent";
 import { type FileDetails, fileById } from "./files";
@@ -45,9 +46,10 @@ function anthropicAnswer(): Response {
 	});
 }
 
-function captureFetch() {
-	const requests: { url: string; headers: Headers; body: { system: { text: string }[] } }[] = [];
+function captureFetch(config: ClaudeConfig = { version: "2.1.280" }) {
+	const requests: { url: string; headers: Headers; body: { system: { text: string }[]; metadata?: unknown } }[] = [];
 	vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+		if (String(input).endsWith("/api/claude")) return Response.json(config);
 		requests.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
 		return anthropicAnswer();
 	}));
@@ -63,16 +65,85 @@ describe("createAgentModels", () => {
 		await credentials.modify("anthropic", async () => ({ type: "api_key", key: "sk-ant-oat01-test" }));
 		const models = createAgentModels(credentials, "https://figpal.example");
 		const model = models.getModel("anthropic", "claude-sonnet-5-5")!;
-		const result = await models.streamSimple(model, { messages: [{ role: "user", content: "Hi", timestamp: 1 }] }).result();
+		const result = await models.streamSimple(model, {
+			systemPrompt: "FigPal rules", messages: [{ role: "user", content: "Reply with exactly: PROBE_OK", timestamp: 1 }],
+		}, { sessionId: "conversation-1" }).result();
 
 		expect(result.content).toEqual([{ type: "text", text: "Hello" }]);
 		const { url, headers, body } = requests[0]!;
 		expect(url).toMatch(/^https:\/\/figpal\.example\/api\/anthropic\/v1\/messages\b/);
 		expect(headers.get("authorization")).toBe("Bearer sk-ant-oat01-test");
-		// The route sets the user-agent from this header. Pi Black adds the billing block.
-		expect(headers.get("x-figpal-user-agent")).toMatch(/^claude-cli\/2\.1\.280 /);
+		expect(result.stopReason).toBe("stop");
+		expect(result.usage).toMatchObject({ input: 10, output: 1 });
+		expect(headers.get("x-figpal-user-agent")).toBe("claude-cli/2.1.280 (external, sdk-cli)");
 		expect(headers.get("x-stainless-runtime")).toBe("node");
-		expect(body.system[0]!.text).toMatch(/^x-anthropic-billing-header: /);
+		expect(headers.get("x-app")).toBe("cli");
+		expect(headers.get("x-claude-code-session-id")).toBe("conversation-1");
+		expect(headers.get("x-client-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+		expect(body.system.map(({ text }) => text)).toEqual([
+			"x-anthropic-billing-header: cc_version=2.1.280.022; cc_entrypoint=sdk-cli; cch=00000;",
+			"You are a Claude agent, built on Anthropic's Claude Agent SDK.", "FigPal rules",
+		]);
+		expect(body).not.toHaveProperty("metadata");
+	});
+
+	it.each(["stream", "streamSimple"] as const)("%s uses local settings for OAuth requests and keeps caller payload edits", async (method) => {
+		const config = { version: "2.2.123", identity: { deviceId: "a".repeat(64), accountUuid: "123e4567-e89b-12d3-a456-426614174000" } };
+		const requests = captureFetch(config);
+		const models = createAgentModels(new InMemoryCredentialStore(), "https://figpal.example");
+		const model = models.getModel("anthropic", "claude-sonnet-5-5")!;
+		const messages = [{ role: "user" as const, content: "Hi", timestamp: 1 }];
+		await models[method](model, { messages }, { apiKey: "sk-ant-api03-test", maxRetries: 0 }).result();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(requests[0]!.body).not.toHaveProperty("metadata");
+		expect(requests[0]!.headers.get("x-api-key")).toBe("sk-ant-api03-test");
+		for (const name of ["x-app", "x-client-request-id", "x-claude-code-session-id"]) expect(requests[0]!.headers.has(name)).toBe(false);
+		for (let i = 0; i < 2; i++) {
+			const result = await models[method](model, { messages }, {
+				apiKey: "sk-ant-oat01-test", maxRetries: 0, sessionId: "conversation-1",
+				onPayload: async (payload) => i === 0 ? { ...(payload as object), metadata: { extra: "kept" } } : requests[1]!.body,
+			}).result();
+			expect(result.stopReason).toBe("stop");
+		}
+		expect(fetch).toHaveBeenCalledTimes(4);
+		expect(requests[2]!.body).toEqual(requests[1]!.body);
+		expect(requests[2]!.headers.get("x-client-request-id")).not.toBe(requests[1]!.headers.get("x-client-request-id"));
+		for (const { body, headers } of requests.slice(1)) {
+			expect(headers.get("x-figpal-user-agent")).toBe("claude-cli/2.2.123 (external, sdk-cli)");
+			expect(body.system).toContainEqual({ type: "text", text: expect.stringMatching(/^x-anthropic-billing-header: cc_version=2\.2\.123\.[0-9a-f]{3}; cc_entrypoint=sdk-cli; cch=00000;$/) });
+			expect(body.metadata).toEqual({ extra: "kept", user_id: JSON.stringify({ device_id: config.identity.deviceId, account_uuid: config.identity.accountUuid, session_id: "conversation-1" }) });
+		}
+	});
+
+	it("reports an invalid caller payload before sending it", async () => {
+		const requests = captureFetch();
+		const models = createAgentModels(new InMemoryCredentialStore(), "https://figpal.example");
+		const result = await models.streamSimple(models.getModel("anthropic", "claude-sonnet-5-5")!, { messages: [] }, {
+			apiKey: "sk-ant-oat01-test", maxRetries: 0, onPayload: () => [],
+		}).result();
+		expect(result.errorMessage).toContain("Expected an Anthropic request object");
+		expect(requests).toEqual([]);
+	});
+
+	it("keeps the session header for later messages in a conversation", async () => {
+		const requests = captureFetch();
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("anthropic", async () => ({ type: "api_key", key: "sk-ant-oat01-test" }));
+		const models = createAgentModels(credentials, "https://figpal.example");
+		const harness = await Harness.open(new MemoryStorage(), { models, registry: createRegistry() }, context);
+		try {
+			const root = await harness.root(context, { agent: { model: { provider: "anthropic", modelId: "claude-sonnet-5-5" } } });
+			for (const content of ["Reply with exactly: PROBE_OK", "Again"]) {
+				const submission = await root.submit({ type: "input", content }, context);
+				expect((await submission.wait(context)).status).toBe("done");
+			}
+			expect(requests).toHaveLength(2);
+			const sessionId = requests[0]!.headers.get("x-claude-code-session-id");
+			expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+			expect(requests[1]!.headers.get("x-claude-code-session-id")).toBe(sessionId);
+		} finally {
+			await harness.close(context);
+		}
 	});
 
 	it("offers each provider's own web search: Claude and ChatGPT", async () => {
@@ -80,6 +151,7 @@ describe("createAgentModels", () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn<typeof fetch>(async (input, init) => {
+				if (String(input).endsWith("/api/claude")) return Response.json({ version: "2.1.280" });
 				const body = init?.body;
 				// pi-ai compresses ChatGPT requests with zstd.
 				const text = typeof body === "string" ? body : zstdDecompressSync(body as Uint8Array).toString();

@@ -1,19 +1,32 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startUiServer, type UiServer } from "./ui-server.ts";
 
 const PORT = 9395;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 let server: UiServer | undefined;
 const closers: (() => void)[] = [];
+let home: string;
+
+beforeEach(() => {
+	home = mkdtempSync(join(tmpdir(), "figpal-claude-"));
+	vi.stubEnv("HOME", home);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", home);
+	vi.stubEnv("CLAUDE_CODE_DEVICE_ID", undefined);
+	vi.stubEnv("CLAUDE_CODE_ACCOUNT_UUID", undefined);
+	vi.stubEnv("PI_OFFLINE", "1");
+});
 
 afterEach(async () => {
 	await server?.close();
 	server = undefined;
 	for (const close of closers.splice(0)) close();
+	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
+	rmSync(home, { recursive: true, force: true });
 });
 
 /** A built UI in a new folder. */
@@ -71,6 +84,75 @@ async function upstream() {
 }
 
 describe("UI server", () => {
+	it("discovers the Claude version once at startup and keeps it for offline starts", async () => {
+		vi.stubEnv("PI_OFFLINE", "0");
+		const registry = vi.fn<typeof fetch>(async () => Response.json({ version: "2.2.123" }));
+		vi.stubGlobal("fetch", registry);
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		const settings = await call("/api/claude");
+		expect(settings.status).toBe(200);
+		expect(settings.headers["cache-control"]).toBe("no-store");
+		expect(JSON.parse(settings.body)).toEqual({ version: "2.2.123" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.2.123" });
+		expect(registry).toHaveBeenCalledExactlyOnceWith("https://registry.npmjs.org/@anthropic-ai%2fclaude-code/latest", { signal: expect.any(AbortSignal) });
+		expect(JSON.parse(readFileSync(join(home, ".config", "figpal", "claude-version.json"), "utf8"))).toEqual({ version: "2.2.123" });
+		await server.close();
+		vi.stubEnv("PI_OFFLINE", "1");
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.2.123" });
+		expect(registry).toHaveBeenCalledTimes(1);
+		expect((await call("/api/claude", { method: "POST" })).status).toBe(405);
+		expect((await call("/api/claude", { headers: { origin: "https://evil.example" } })).status).toBe(403);
+		expect((await call("/api/claude", { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
+	});
+
+	it("loads optional Claude identity from its config, with environment values first, without saving it", async () => {
+		vi.stubEnv("PI_OFFLINE", "0");
+		vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => Response.json({ version: "2.1.280" })));
+		const fileIdentity = { deviceId: "a".repeat(64), accountUuid: "123e4567-e89b-12d3-a456-426614174000" };
+		writeFileSync(join(home, ".claude.json"), JSON.stringify({ userID: fileIdentity.deviceId, oauthAccount: { accountUuid: fileIdentity.accountUuid }, accessToken: "must-not-leave-this-file" }));
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280", identity: fileIdentity });
+		expect(JSON.parse(readFileSync(join(home, ".config", "figpal", "claude-version.json"), "utf8"))).toEqual({ version: "2.1.280" });
+		await server.close();
+		vi.stubEnv("PI_OFFLINE", "1");
+		const environmentIdentity = { deviceId: "b".repeat(64), accountUuid: "223e4567-e89b-42d3-a456-426614174000" };
+		vi.stubEnv("CLAUDE_CODE_DEVICE_ID", environmentIdentity.deviceId);
+		vi.stubEnv("CLAUDE_CODE_ACCOUNT_UUID", environmentIdentity.accountUuid);
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280", identity: environmentIdentity });
+		await server.close();
+		vi.stubEnv("CLAUDE_CODE_DEVICE_ID", "invalid");
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280", identity: fileIdentity });
+	});
+
+	it.each(["offline", "network error", "HTTP error", "invalid JSON", "invalid version"])("keeps the cached Claude version after %s", async (failure) => {
+		const cache = join(home, ".config", "figpal", "claude-version.json");
+		mkdirSync(join(home, ".config", "figpal"), { recursive: true });
+		writeFileSync(cache, '{"version":"2.2.100"}');
+		vi.stubEnv("PI_OFFLINE", failure === "offline" ? "1" : "0");
+		const registry = vi.fn<typeof fetch>(async () => {
+			if (failure === "network error") throw new Error("Registry unavailable");
+			if (failure === "HTTP error") return new Response("Unavailable", { status: 503 });
+			if (failure === "invalid JSON") return new Response("not JSON");
+			return Response.json({ version: "2.2.123-beta" });
+		});
+		vi.stubGlobal("fetch", registry);
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.2.100" });
+		expect(JSON.parse(readFileSync(cache, "utf8"))).toEqual({ version: "2.2.100" });
+		if (failure === "offline") expect(registry).not.toHaveBeenCalled();
+	});
+
+	it.each(["not JSON", '{"version":"invalid"}'])("uses the bundled Claude version with a broken cache: %s", async (cache) => {
+		mkdirSync(join(home, ".config", "figpal"), { recursive: true });
+		writeFileSync(join(home, ".config", "figpal", "claude-version.json"), cache);
+		writeFileSync(join(home, ".claude.json"), '{"userID":"invalid","oauthAccount":{"accountUuid":"invalid"}}');
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280" });
+	});
+
 	it("serves the built UI: the page revalidates, a build's files stay in the cache, and only Figma can frame them", async () => {
 		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
 		const page = await call("/");

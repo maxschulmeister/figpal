@@ -137,14 +137,14 @@ describe("toThread", () => {
 		const { messages } = toThread(
 			view([
 				userEntry(1, "One"),
-				assistant(3, [], "error", "Pi Black OAuth request has an invalid billing block"),
+				assistant(3, [], "error", "Expected an Anthropic request object"),
 				userEntry(4, "Two"),
 				assistant(5, [{ type: "text", text: "Par" }], "aborted"),
 			]),
 		);
 		expect(messages.map((message) => message.status)).toEqual([
 			undefined,
-			{ type: "incomplete", reason: "error", error: "Pi Black OAuth request has an invalid billing block" },
+			{ type: "incomplete", reason: "error", error: "Expected an Anthropic request object" },
 			undefined,
 			{ type: "incomplete", reason: "cancelled" },
 		]);
