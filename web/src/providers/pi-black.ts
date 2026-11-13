@@ -23,7 +23,7 @@
  * SOFTWARE.
  */
 // Browser port of https://github.com/paoloanzn/pi-black at 036a8a7981d369f16f316a11310396e50c8a9c6a.
-// Claude Code protocol: 2.1.280. See docs/pi-black.md for the port's scope.
+// Claude Code protocol: 2.1.280.
 // Local identity discovery is not available in the plugin iframe.
 import type {
 	Api,

@@ -1,7 +1,5 @@
 # Contributing
 
-[PLAN.md](PLAN.md) has the design and the decisions. [NOTES.md](NOTES.md) has the open ideas.
-
 ## Build
 
 You need macOS or Linux, Node.js 22 or later, and pnpm.

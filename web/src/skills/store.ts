@@ -35,7 +35,7 @@ function open(): Promise<IDBDatabase> {
 					request.result.createObjectStore(FILES);
 				}
 				if (event.oldVersion < 2) request.result.createObjectStore(META);
-				// Agent profiles (a later idea, see PLAN.md) added this store. It stays, so that all databases are the same:
+				// Agent profiles (a later idea) added this store. It stays, so that all databases are the same:
 				// a database cannot go back to a lower version.
 				if (event.oldVersion < 3) request.result.createObjectStore("agents", { keyPath: "name" });
 			};
