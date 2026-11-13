@@ -1,6 +1,8 @@
 # Publishes the npm package "figpal" (local/) for a tag such as v0.1.1, with provenance. The tag must be the version in
 # local/package.json. npm trusted publishing (OIDC): on npmjs.com, the package has this repository and release.yml as
 # its trusted publisher, so no token is necessary. npm refused a token (403: tokens that bypass 2FA cannot publish).
+# If the OIDC exchange fails, npm tells only at the log level "verbose". setup-node gets no registry-url: with it, npm
+# uses a placeholder token after the OIDC failure, and the error is a misleading "404 Not Found".
 name: Release
 
 on:
@@ -21,7 +23,6 @@ jobs:
         with:
           node-version: 26
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - name: The tag is the version of the package
         run: test "v$(node -p "require('./local/package.json').version")" = "$GITHUB_REF_NAME"
@@ -32,5 +33,5 @@ jobs:
       # ("workspace:*"), which pnpm cannot publish for the private package @figpal/shared.
       - run: npm pkg delete devDependencies
         working-directory: local
-      - run: npm publish --provenance --access public
+      - run: npm publish --provenance --access public --loglevel verbose
         working-directory: local
