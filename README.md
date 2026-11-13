@@ -1,11 +1,12 @@
 # FigPal
 
-FigPal is an AI agent in Figma Desktop. You tell it what you want, and it does the work in your file.
+FigPal is an AI agent inside Figma Desktop. Tell it what you want, and it makes the change in your file.
 
-- **Built-in MCP server.** Claude Code, Codex, Cursor and other agents can read and change the file that you have open,
-  through FigPal. The install adds FigPal to Claude Code. You need no Figma API token.
-- **Few tokens.** FigPal gives an agent 2 tools: one runs Figma Plugin API code, one takes a screenshot. Other Figma MCP
-  servers have one tool for each action, and most agents send all the tool definitions with each request.
+You can also use FigPal from Claude Code, Codex, Cursor and other agents. They can read and change the Figma file that
+you have open. You do not need a Figma API token.
+
+FigPal uses few tokens. It gives an agent only 2 tools: one runs Figma Plugin API code, and one takes a screenshot. Most
+Figma MCP servers have one tool for each action, and most agents send all tool definitions with each request.
 
 | MCP server | Tools | Tool definitions |
 | --- | ---: | --- |
@@ -13,82 +14,111 @@ FigPal is an AI agent in Figma Desktop. You tell it what you want, and it does t
 | Talk to Figma (`cursor-talk-to-figma-mcp` 0.3.5) | 40 | about 5,800 tokens |
 | `figma-console-mcp` 1.46.0 | 130 | about 48,000 tokens |
 
-Measured on 2026-11-06: the size of each server's `tools/list` answer, at 4 characters for each token.
+<sub>Measured on 2026-11-06: the size of each server's `tools/list` response, at 4 characters for each token.</sub>
 
 ## Install
 
-You need a Mac or a Linux computer, Figma Desktop and [Node.js](https://nodejs.org) 22 or later. Figma has no app for
-Linux: on Linux, use [Figma for Linux](https://github.com/Figma-Linux/figma-linux), an app that is not from Figma. FigPal is
-not tested in it yet.
+You need macOS, [Figma Desktop](https://www.figma.com/downloads/) and [Node.js](https://nodejs.org) 22 or later. Linux
+works too (see below). Windows is not supported yet.
 
-1. In a terminal, run:
+1. Open a terminal and run:
 
    ```sh
    npx figpal@latest install
    ```
 
-2. In Figma Desktop, select **Plugins → Development → Import plugin from manifest…**. Press **Cmd+Shift+G** (on
-   Linux, **Ctrl+L**), paste (the install copied the path), and press **Return**.
-3. Select **Plugins → Development → FigPal**, and connect a model.
+   The install starts FigPal in the background, also after each login, and adds FigPal to Claude Code. It also copies
+   the path of the plugin manifest to your clipboard.
 
-On Linux, the install needs systemd. To share folders with FigPal, install `zenity` or `kdialog`. To copy the path,
-install `wl-clipboard` or `xclip`.
+2. In Figma Desktop, select **Plugins → Development → Import plugin from manifest…**. Press **Cmd+Shift+G**, paste the
+   path, and press **Return**.
 
-To update FigPal, run the same command again. To remove it, run `npx figpal uninstall`.
+To update FigPal, run the install command again. To remove FigPal, run `npx figpal uninstall`.
 
-## Models
+<details>
+<summary>Linux</summary>
 
-- **Claude:** a token from `claude setup-token`, or an Anthropic API key.
+Figma has no Linux app. You can try [Figma for Linux](https://github.com/Figma-Linux/figma-linux), a community app.
+FigPal is not tested in it yet.
+
+- The install needs systemd.
+- To import the manifest, press **Ctrl+L** instead of **Cmd+Shift+G**.
+- To share folders with FigPal, install `zenity` or `kdialog`.
+- To copy the manifest path, install `wl-clipboard` or `xclip`.
+
+</details>
+
+## Plugin
+
+Select **Plugins → Development → FigPal**, and connect a model:
+
+- **Claude:** paste a token from `claude setup-token`, or an Anthropic API key.
 - **ChatGPT:** sign in with your ChatGPT account.
-- **Other providers:** an API key from OpenAI, Google, OpenRouter, Mistral, xAI, DeepSeek and more.
+- **Other providers:** paste an API key from OpenAI, Google, OpenRouter, Mistral, xAI, DeepSeek and more.
 
-Anthropic and OpenAI do not officially support the use of a Claude or ChatGPT plan in FigPal. Read the terms of your
-plan, or use an API key.
+> **Note:**
+> Anthropic and OpenAI do not officially support the use of a Claude or ChatGPT plan in FigPal. Read the terms of your
+> plan, or use an API key.
 
-## What you can ask
+Then ask FigPal, for example:
 
 - "Make a pricing card with auto layout."
 - "Check this page for contrast problems."
 - "Export the color variables as Tailwind tokens."
 - "Fade in the cards one after the other, and export a GIF."
 
-To point at layers, select them while you type. **Settings** has your rules, skills, models and a backup of your chats.
+To point FigPal at layers, select them in Figma while you type. In **Settings**, you can add your own rules and skills,
+pick models, and back up your chats.
 
-## Use FigPal from your agent
+### Local files
+
+FigPal can read and write files on your computer, for example to use your design tokens or to export code. Select
+**Settings → Access → Shared folders → Add folders**, and select the folders. FigPal can use only these folders and
+their subfolders.
+
+## MCP
+
+Use FigPal from your own agent:
 
 1. In FigPal, turn on **Settings → Access → MCP**.
-2. Claude Code has FigPal after the install. For other agents, select your agent under MCP, and FigPal shows the setup,
-   for example `codex mcp add figpal -- figpal mcp`.
+2. Add FigPal to your agent. The install already adds it to Claude Code. For other agents, select your agent under
+   **MCP**, and FigPal shows the command. For example:
+
+   ```sh
+   codex mcp add figpal -- figpal mcp
+   ```
+
 3. Ask your agent, for example: "Build the selected Figma frame in React."
 
-### An agent on another computer
+### MCP over Tailscale
 
-An agent on another computer, for example in a VM, can use FigPal on your Mac through
-[Tailscale](https://tailscale.com). On the Mac, forward FigPal's ports to your tailnet:
+An agent on another computer, for example in a VM, can use FigPal through [Tailscale](https://tailscale.com).
+
+On the computer with Figma, make FigPal's ports available to your tailnet:
 
 ```sh
 for p in $(seq 9300 9309); do tailscale serve --bg --tcp=$p tcp://127.0.0.1:$p; done
 ```
 
-On the other computer, give the Mac's Tailscale address to `figpal mcp`:
+On the other computer, give the Tailscale address of the Figma computer to `figpal mcp`:
 
 ```sh
 claude mcp add figpal -- npx -y figpal mcp --host 100.x.y.z
 ```
 
-FigPal has no password for this: each device in your tailnet that can reach these ports can run code in your open
-Figma file. To limit access, use a Tailscale access rule. To stop it, run `tailscale serve --tcp=<port> off` for each
-port.
+> **Warning:**
+> There is no password. Each device in your tailnet that can reach these ports can run code in your open Figma file. To
+> limit access, use a Tailscale access rule. To stop, run `tailscale serve --tcp=<port> off` for each port.
 
-## Privacy
+## Privacy and safety
 
-FigPal runs on your computer. There is no FigPal server. Your keys and chats stay in Figma Desktop, and your requests go
-from your computer to the model provider that you select.
+FigPal runs on your computer. There is no FigPal server. Your keys and chats stay in Figma Desktop. Your requests go
+directly from your computer to the model provider that you select.
 
-The agent runs code in your file. Text in a file, on a web page or in a skill can try to control it. Look at what it
-does.
+The agent runs code in your Figma file and can write in your shared folders. Text in a file, on a web page or in a
+skill can try to give the agent instructions. Look at what the agent does.
 
 ## License
 
-[AGPL-3.0](LICENSE). FigPal contains code of other projects: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[AGPL-3.0](LICENSE). FigPal contains code from other projects: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 To build FigPal yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
