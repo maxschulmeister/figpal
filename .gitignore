@@ -3,3 +3,4 @@ dist/
 *.local.json
 .env
 .DS_Store
+local/README.md

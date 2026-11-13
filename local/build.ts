@@ -39,4 +39,7 @@ const files = [...Object.keys(metafile.inputs), ...Object.keys(plugin.inputs).ma
 writeFileSync("dist/licenses.md", licenses("Licenses of the libraries in the FigPal command and the plugin", files));
 cpSync("../LICENSE", "dist/LICENSE");
 cpSync("../THIRD_PARTY_NOTICES.md", "dist/THIRD_PARTY_NOTICES.md");
+// npm shows README.md of the package: the repo's README, with links to its files on GitHub.
+const readme = readFileSync("../README.md", "utf8");
+writeFileSync("README.md", readme.replace(/\]\((?!https?:|#)([^)]+)\)/g, "](https://github.com/maxschulmeister/figpal/blob/main/$1)"));
 console.log(`figpal ${version}: dist/`);
