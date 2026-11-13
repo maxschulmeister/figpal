@@ -5,7 +5,6 @@ import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { CompleteAttachment } from "@assistant-ui/react";
 import type { Api, CredentialStore, ImageContent, Model, Provider, StreamOptions, TextContent, TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness, type InputSubmissionDraft, type Report, type Storage } from "@earendil-works/pi-durable";
 import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
 import type { FileInfo } from "@figpal/shared";
@@ -21,7 +20,7 @@ import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
 import { apiKeyProviders, BASE_URL_ROUTES, forwardFetch, forwardUrl, SEARCH_TOOLS } from "./providers/catalog";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { chipsForModel, clean, describeNode } from "./node-chips";
-import { wrapAnthropicProvider } from "./providers/pi-black";
+import { claudeProvider } from "./providers/claude";
 import { UserText } from "./transcript";
 
 /**
@@ -64,9 +63,7 @@ export function createAgentModels(credentials: CredentialStore, origin: string):
 		const server = BASE_URL_ROUTES[provider.id];
 		models.setProvider(server ? throughRoute(provider, {}, (model) => forwardUrl(origin, server(model))) : throughRoute(provider, { fetch: forward }));
 	}
-	// Around Pi Black, so that Pi Black wraps fetchAsServer.
-	const claude = wrapAnthropicProvider(anthropicProvider());
-	models.setProvider(throughRoute(claude, { fetch: fetchAsServer }, () => `${origin}${ANTHROPIC_ROUTE}`));
+	models.setProvider(throughRoute(claudeProvider(origin), { fetch: fetchAsServer }, () => `${origin}${ANTHROPIC_ROUTE}`));
 	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
 	models.setProvider(throughRoute(chatgptProvider(), { transport: "sse" }, () => `${origin}${CHATGPT_ROUTE}`));
 	return models;

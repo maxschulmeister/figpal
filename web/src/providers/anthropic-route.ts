@@ -7,10 +7,6 @@ import { ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
 
 export const ANTHROPIC_ROUTE = ROUTES.anthropic.path;
 
-/**
- * In a browser, the Anthropic SDK reports `browser:chrome` and an unknown OS. Upstream Pi Black runs in Node: these are
- * the values of its SDK on this Mac (macOS on Apple silicon, Node 26), checked on 2026-10-30.
- */
 const NODE_PLATFORM_HEADERS = {
 	"x-stainless-runtime": "node",
 	"x-stainless-runtime-version": "v26.1.0",
