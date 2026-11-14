@@ -334,6 +334,9 @@ function mergeClaudeCodeOptions<T extends StreamOptions>(
 	const transport = options.fetch ?? globalThis.fetch;
 	return {
 		...options,
+		// FigPal change: an Anthropic message thread `continue` (pi-ai 1.5.1) omits `system`, and the billing block must be
+		// in each request.
+		disableContinuation: true,
 		headers: { ...options.headers, ...claudeCodeHeaders(options.sessionId) },
 		fetch: createClaudeCodeFetch(transport),
 		onPayload: async (payload, model) => {
