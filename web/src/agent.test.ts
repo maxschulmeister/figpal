@@ -75,6 +75,39 @@ describe("createAgentModels", () => {
 		expect(body.system[0]!.text).toMatch(/^x-anthropic-billing-header: /);
 	});
 
+	it("adds the newer models of pi.dev, without a refresh of the logins, and sends them through the routes", async () => {
+		const urls: string[] = [];
+		vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+			const url = new URL(input instanceof Request ? input.url : String(input));
+			urls.push(url.href);
+			if (url.host !== "pi.dev") return anthropicAnswer();
+			const provider = url.pathname.split("/").at(-1)!;
+			const bundled = createAgentModels(new InMemoryCredentialStore(), "https://figpal.example").getModels(provider)[0]!;
+			const models = [{ ...bundled, id: `${bundled.id}-next`, name: "Next" }];
+			return new Response(JSON.stringify(models), { headers: { "last-modified": "Wed, 01 Jan 2099 00:00:00 GMT" } });
+		}));
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("anthropic", async () => ({ type: "api_key", key: "sk-ant-oat01-test" }));
+		// An expired ChatGPT login: a catalog refresh must not renew it.
+		await credentials.modify("openai-codex", async () => ({ type: "oauth", access: "a", refresh: "r", expires: 1 }));
+		await credentials.modify("openai", async () => ({ type: "api_key", key: "sk-test" }));
+		const models = createAgentModels(credentials, "https://figpal.example");
+
+		const { errors } = await models.refresh();
+
+		expect(errors.size).toBe(0);
+		expect(urls.map((url) => new URL(url).pathname).sort()).toEqual([
+			"/api/models/providers/anthropic",
+			"/api/models/providers/openai",
+			"/api/models/providers/openai-codex",
+		]);
+		const next = models.getModels("anthropic").find((model) => model.name === "Next")!;
+		expect(models.getModels("openai-codex").some((model) => model.name === "Next")).toBe(true);
+		expect(models.getModels("openai").some((model) => model.name === "Next")).toBe(true);
+		await models.streamSimple(next, { messages: [{ role: "user", content: "Hi", timestamp: 1 }] }).result();
+		expect(urls.at(-1)).toMatch(/^https:\/\/figpal\.example\/api\/anthropic\/v1\/messages\b/);
+	});
+
 	it("offers each provider's own web search: Claude and ChatGPT", async () => {
 		const bodies: { route: string; tools?: unknown[] }[] = [];
 		vi.stubGlobal(

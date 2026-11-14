@@ -3,7 +3,7 @@
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { CompleteAttachment } from "@assistant-ui/react";
-import type { Api, CredentialStore, ImageContent, Model, Provider, StreamOptions, TextContent, TranscriptContext } from "@earendil-works/pi-ai";
+import type { Api, CredentialStore, ImageContent, Model, ModelsStore, Provider, StreamOptions, TextContent, TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness, type InputSubmissionDraft, type Report, type Storage } from "@earendil-works/pi-durable";
@@ -22,6 +22,7 @@ import { apiKeyProviders, BASE_URL_ROUTES, forwardFetch, forwardUrl, SEARCH_TOOL
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { chipsForModel, clean, describeNode } from "./node-chips";
 import { wrapAnthropicProvider } from "./providers/pi-black";
+import { withRemoteCatalog } from "./providers/remote-catalog";
 import { UserText } from "./transcript";
 
 /**
@@ -56,19 +57,22 @@ function throughRoute(provider: Provider, extra: Pick<StreamOptions, "fetch" | "
 /**
  * Claude, ChatGPT and the providers with API keys. Their requests go through routes on the page origin (the FigPal
  * command): their APIs refuse browser requests, or Claude subscription requests must look like server requests.
+ * Providers with a bundled model list also get the newer models of pi.dev (`models.refresh()`), kept in `modelsStore`.
  */
-export function createAgentModels(credentials: CredentialStore, origin: string): Models {
-	const models = createModels({ credentials });
+export function createAgentModels(credentials: CredentialStore, origin: string, modelsStore?: ModelsStore): Models {
+	const models = createModels({ credentials, modelsStore });
 	const forward = forwardFetch(origin);
-	for (const provider of apiKeyProviders()) {
+	// Providers that list their models themselves (Radius) keep their list.
+	const catalog = (provider: Provider) => (provider.refreshModels ? provider : withRemoteCatalog(provider));
+	for (const provider of apiKeyProviders().map(catalog)) {
 		const server = BASE_URL_ROUTES[provider.id];
 		models.setProvider(server ? throughRoute(provider, {}, (model) => forwardUrl(origin, server(model))) : throughRoute(provider, { fetch: forward }));
 	}
 	// Around Pi Black, so that Pi Black wraps fetchAsServer.
-	const claude = wrapAnthropicProvider(anthropicProvider());
+	const claude = wrapAnthropicProvider(catalog(anthropicProvider()));
 	models.setProvider(throughRoute(claude, { fetch: fetchAsServer }, () => `${origin}${ANTHROPIC_ROUTE}`));
 	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
-	models.setProvider(throughRoute(chatgptProvider(), { transport: "sse" }, () => `${origin}${CHATGPT_ROUTE}`));
+	models.setProvider(throughRoute(catalog(chatgptProvider()), { transport: "sse" }, () => `${origin}${CHATGPT_ROUTE}`));
 	return models;
 }
 
