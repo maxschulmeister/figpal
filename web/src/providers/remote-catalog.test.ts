@@ -1,18 +1,8 @@
 import { InMemoryCredentialStore, InMemoryModelsStore, type ModelsStore } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localModelsStore, withRemoteCatalog } from "./remote-catalog";
-
-/** localStorage: Node has none. */
-function memoryStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> {
-	const items = new Map<string, string>();
-	return {
-		getItem: (key) => items.get(key) ?? null,
-		setItem: (key, value) => void items.set(key, value),
-		removeItem: (key) => void items.delete(key),
-	};
-}
 
 /** A model as pi.dev serves it (the shape of pi-ai's catalog). */
 const NEW_MODEL = {
@@ -55,6 +45,17 @@ async function claudeModels(modelsStore: ModelsStore = new InMemoryModelsStore()
 	models.setProvider(withRemoteCatalog(anthropicProvider()));
 	return models;
 }
+
+/** The localStorage of the UI origin. Node has none. */
+let local: Map<string, string>;
+beforeEach(() => {
+	local = new Map();
+	vi.stubGlobal("localStorage", {
+		getItem: (key: string) => local.get(key) ?? null,
+		setItem: (key: string, value: string) => local.set(key, value),
+		removeItem: (key: string) => local.delete(key),
+	});
+});
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -117,21 +118,19 @@ describe("the pi.dev model catalog", () => {
 	});
 
 	it("keeps the catalog in localStorage", async () => {
-		const storage = memoryStorage();
 		piDev(() => catalogResponse([NEW_MODEL]));
-		await (await claudeModels(localModelsStore(storage))).refresh();
+		await (await claudeModels(localModelsStore())).refresh();
 
-		const next = await claudeModels(localModelsStore(storage));
+		const next = await claudeModels(localModelsStore());
 		await next.refresh({ allowNetwork: false });
 
 		expect(next.getModel("anthropic", "claude-test-9")).toBeDefined();
 	});
 
 	it("uses the bundled models when the saved catalog is damaged", async () => {
-		const storage = memoryStorage();
-		storage.setItem("figpal.models.anthropic", "{not json");
+		local.set("figpal.models.anthropic", "{not json");
 		const requests = piDev(() => catalogResponse([NEW_MODEL]));
-		const models = await claudeModels(localModelsStore(storage));
+		const models = await claudeModels(localModelsStore());
 
 		await models.refresh();
 

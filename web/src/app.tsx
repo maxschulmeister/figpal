@@ -85,10 +85,12 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const [settingsTab, setSettingsTab] = useState<string>("models");
 	const busy = useRef(false);
 	const credentials = useMemo(() => uiCredentials(bridge), [bridge]);
-	const models = useMemo(() => createAgentModels(credentials, location.origin, localModelsStore()), [credentials]);
 	// The catalogs that pi.dev gave before: the agent and the model lists wait for them, so that a chat with a newer model
 	// continues.
-	const savedCatalogs = useMemo(() => models.refresh({ allowNetwork: false }), [models]);
+	const [models, savedCatalogs] = useMemo(() => {
+		const models = createAgentModels(credentials, location.origin, localModelsStore());
+		return [models, models.refresh({ allowNetwork: false })] as const;
+	}, [credentials]);
 	// The models for subagents: the enabled models of the connected providers. The agent reads them when it needs them,
 	// from the newest settings, without a code.js call.
 	const allowedModels = useRef<string[]>([]);
@@ -135,20 +137,18 @@ export function App({ bridge }: { bridge: Bridge }) {
 		(url: string) => bridge.request("open-external", { url }).catch((error) => console.error("FigPal:", error)),
 		[bridge],
 	);
-	const refreshConnected = useCallback(async () => {
-		try {
-			const list = await credentials.list();
-			await savedCatalogs;
-			setConnected(new Set(list.map((info) => info.providerId)));
-		} catch (error) {
-			fail(error);
-			return;
-		}
-		// The newer catalogs of pi.dev, for the connected providers: the model lists show them when they come.
-		const { errors } = await models.refresh();
-		for (const [provider, error] of errors) console.warn(`FigPal: the model list of ${provider}:`, error);
-		setConnected((current) => current && new Set(current));
-	}, [credentials, models, savedCatalogs, fail]);
+	const refreshConnected = useCallback(
+		() =>
+			Promise.all([credentials.list(), savedCatalogs]).then(async ([list]) => {
+				setConnected(new Set(list.map((info) => info.providerId)));
+				// The newer catalogs of pi.dev, for the connected providers.
+				const { errors } = await models.refresh();
+				for (const [provider, error] of errors) console.warn(`FigPal: the model list of ${provider}:`, error);
+				// A new Set: the views that read the models with "connected" show the new models.
+				setConnected((current) => current && new Set(current));
+			}, fail),
+		[credentials, models, savedCatalogs, fail],
+	);
 
 	useEffect(() => {
 		if (window.parent === window) {

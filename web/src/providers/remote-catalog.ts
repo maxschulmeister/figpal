@@ -1,18 +1,21 @@
 // Newer model catalogs from pi.dev, as Pi gets them (pi-coding-agent's remote-catalog-provider.ts, ported to the
 // browser): FigPal shows new models without a new release. A catalog that pi.dev gave stays in localStorage, also offline.
 
-import { type AnyModel, type Api, getModelType, isModelType, type Model, type ModelsStore, type ModelsStoreEntry, type Provider } from "@earendil-works/pi-ai";
+import { type AnyModel, getModelType, isModelType, type ModelsStore, type ModelsStoreEntry, type Provider } from "@earendil-works/pi-ai";
 import { getBuiltinModelDataGeneratedAt } from "@earendil-works/pi-ai/providers/all";
 
 const CATALOG_URL = "https://pi.dev/api/models/providers/";
 /** Pi checks pi.dev at most every 4 hours. */
 const REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
+/** Pi waits 4 s for pi.dev: a stalled request must not hold the refresh. */
+const TIMEOUT_MS = 4_000;
+const KEY = "figpal.models.";
 /** The model types that FigPal reads: pi.dev sends all of them only when it gets this list. */
 const MODEL_TYPES = ["chat", "image", "classifier"];
 
 /** The bundled models, with the models of pi.dev in place of bundled models with the same ID. */
-function merge(bundled: readonly AnyModel[], remote: readonly AnyModel[]): AnyModel[] {
-	const merged = new Map<string, AnyModel>();
+function merge<T extends AnyModel>(bundled: readonly T[], remote: readonly T[]): T[] {
+	const merged = new Map<string, T>();
 	for (const model of [...bundled, ...remote]) merged.set(`${getModelType(model)}\0${model.id}`, model);
 	return [...merged.values()];
 }
@@ -32,32 +35,34 @@ function newerModels(entry: ModelsStoreEntry | undefined, generatedAt: number | 
 	return entry && newer ? entry.models : [];
 }
 
+const isEntry = (value: unknown): value is ModelsStoreEntry =>
+	typeof value === "object" && value !== null && "models" in value && Array.isArray(value.models);
+
 /** The saved catalogs, one localStorage item for each provider. A damaged item is as if FigPal had none. */
-export function localModelsStore(storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = localStorage): ModelsStore {
-	const key = (providerId: string) => `figpal.models.${providerId}`;
+export function localModelsStore(): ModelsStore {
 	return {
 		read: async (providerId) => {
 			let value: unknown;
 			try {
-				value = JSON.parse(storage.getItem(key(providerId)) ?? "null");
+				value = JSON.parse(localStorage.getItem(KEY + providerId) ?? "null");
 			} catch {
 				return undefined;
 			}
-			const valid = typeof value === "object" && value !== null && Array.isArray((value as ModelsStoreEntry).models);
-			return valid ? (value as ModelsStoreEntry) : undefined;
+			return isEntry(value) ? value : undefined;
 		},
-		write: async (providerId, entry) => storage.setItem(key(providerId), JSON.stringify(entry)),
-		delete: async (providerId) => storage.removeItem(key(providerId)),
+		write: async (providerId, entry) => localStorage.setItem(KEY + providerId, JSON.stringify(entry)),
+		delete: async (providerId) => localStorage.removeItem(KEY + providerId),
 	};
 }
 
 /** Adds the newer models of pi.dev to a provider with a bundled catalog. */
-export function withRemoteCatalog<TApi extends Api>(provider: Provider<TApi>, generatedAt = getBuiltinModelDataGeneratedAt()): Provider<TApi> {
+export function withRemoteCatalog(provider: Provider): Provider {
+	const generatedAt = getBuiltinModelDataGeneratedAt();
 	let remote: readonly AnyModel[] = [];
 	return {
 		...provider,
-		getModels: () => merge(provider.getModels(), remote.filter((model) => isModelType(model, "chat"))) as Model<TApi>[],
-		getAllModels: () => merge(provider.getAllModels?.() ?? provider.getModels(), remote) as ReturnType<NonNullable<Provider<TApi>["getAllModels"]>>,
+		getModels: () => merge(provider.getModels(), remote.filter((model) => isModelType(model, "chat"))),
+		getAllModels: () => merge(provider.getAllModels?.() ?? provider.getModels(), remote),
 		// pi.dev serves the catalog: an old Claude or ChatGPT login must not stop or fail the refresh.
 		refreshModelsAuth: "configured",
 		refreshModels: async (context) => {
@@ -72,7 +77,7 @@ export function withRemoteCatalog<TApi extends Api>(provider: Provider<TApi>, ge
 			url.searchParams.set("types", MODEL_TYPES.join(","));
 			// The ETag only when a saved list backs it: a 304 must not leave the list empty.
 			const etag = stored && stored.models.length > 0 ? stored.etag : undefined;
-			const response = await fetch(url, { headers: { accept: "application/json", ...(etag ? { "if-none-match": etag } : {}) }, signal: context.signal });
+			const response = await fetch(url, { headers: { accept: "application/json", ...(etag ? { "if-none-match": etag } : {}) }, signal: AbortSignal.any([context.signal, AbortSignal.timeout(TIMEOUT_MS)]) });
 			const checkedAt = Date.now();
 			if (response.status === 304 && stored) {
 				await context.publish({ persist: { ...stored, checkedAt } });
