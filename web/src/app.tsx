@@ -142,10 +142,13 @@ export function App({ bridge }: { bridge: Bridge }) {
 			Promise.all([credentials.list(), savedCatalogs]).then(async ([list]) => {
 				setConnected(new Set(list.map((info) => info.providerId)));
 				// The newer catalogs of pi.dev, for the connected providers.
+				const catalogs = () => JSON.stringify(models.getAllModels());
+				const before = catalogs();
 				const { errors } = await models.refresh();
 				for (const [provider, error] of errors) console.warn(`FigPal: the model list of ${provider}:`, error);
-				// A new Set: the views that read the models with "connected" show the new models.
-				setConnected((current) => current && new Set(current));
+				// Only after a change: a new Set updates the views that read the models with "connected", and a new agent of a
+				// new thread.
+				if (catalogs() !== before) setConnected((current) => current && new Set(current));
 			}, fail),
 		[credentials, models, savedCatalogs, fail],
 	);
