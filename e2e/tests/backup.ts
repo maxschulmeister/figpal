@@ -4,9 +4,9 @@
 import { readFileSync } from "node:fs";
 import type { Context, Session } from "../harness.ts";
 
-async function openAccess(session: Session) {
+async function openGeneral(session: Session) {
 	await session.frame.getByRole("button", { name: "Settings" }).click();
-	await session.frame.getByRole("tab", { name: "Access" }).click();
+	await session.frame.getByRole("tab", { name: "General" }).click();
 }
 
 export default async function backup(t: Context) {
@@ -14,7 +14,7 @@ export default async function backup(t: Context) {
 	const old = await t.open({ fileId });
 	await old.login();
 	await old.ask("Make a card", "Done.");
-	await openAccess(old);
+	await openGeneral(old);
 	const [download] = await Promise.all([old.page.waitForEvent("download"), old.frame.getByRole("button", { name: "Export" }).click()]);
 	const path = await download.path();
 	const text = readFileSync(path, "utf8");
@@ -23,7 +23,7 @@ export default async function backup(t: Context) {
 
 	const fresh = await t.open({ fileId });
 	await fresh.login();
-	await openAccess(fresh);
+	await openGeneral(fresh);
 	await fresh.frame.getByLabel("Backup file").setInputFiles(path);
 	const question = fresh.frame.getByText(/^Import the chats of 1 file/);
 	await question.waitFor();

@@ -111,7 +111,7 @@ describe("local helper connection", () => {
 		sockets[0]!.receive({ kind: "request", id: "7", type: "execute", params: { code: "return 1" } });
 		await flush();
 		expect(bridge.request).not.toHaveBeenCalled();
-		expect(responses(sockets[0]!)).toEqual([{ kind: "response", id: "7", ok: false, error: expect.stringContaining("Settings → Access") }]);
+		expect(responses(sockets[0]!)).toEqual([{ kind: "response", id: "7", ok: false, error: expect.stringContaining("Settings → General") }]);
 	});
 
 	it("runs the allowed requests of an outside agent in code.js", async () => {

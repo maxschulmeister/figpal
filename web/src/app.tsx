@@ -36,6 +36,7 @@ import { connectLocal, type LocalFiles, type LocalState } from "./local";
 import { LocalHelperSettings } from "./local-panel";
 import { installDefaultSkills } from "./skills/defaults";
 import { EnabledModels, TextModel } from "./enabled-models";
+import { UpdateNotice, UpdateSettings, useUpdate } from "./update-panel";
 import { type FoldingGroup, OPEN_GROUPS, ThreadList, threadTitle, UnreadDot } from "./thread-list";
 import {
 	currentThread,
@@ -84,6 +85,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [settingsTab, setSettingsTab] = useState<string>("models");
 	const busy = useRef(false);
+	const update = useUpdate();
 	const credentials = useMemo(() => uiCredentials(bridge), [bridge]);
 	// The catalogs that pi.dev gave before: the agent and the model lists wait for them, so that a chat with a newer model
 	// continues.
@@ -348,6 +350,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 					</Tooltip>
 				</div>
 			</header>
+			<UpdateNotice update={update} />
 			{/* Only the chat list scrolls here. The chat scrolls in its own area, so the message box stays in view. */}
 			<main className={`min-h-0 flex-1 ${showThreads ? "overflow-y-auto" : "overflow-clip"}`}>
 				{showThreads && list ? (
@@ -421,10 +424,10 @@ export function App({ bridge }: { bridge: Bridge }) {
 								</Tooltip>
 								<Dialog.Title>Settings</Dialog.Title>
 								<Tabs.List className="ml-auto">
+									<Tabs.Tab value="general">General</Tabs.Tab>
 									<Tabs.Tab value="rules">Rules</Tabs.Tab>
 									<Tabs.Tab value="models">Models</Tabs.Tab>
 									<Tabs.Tab value="skills">Skills</Tabs.Tab>
-									<Tabs.Tab value="figma">Access</Tabs.Tab>
 								</Tabs.List>
 							</Dialog.Header>
 							<Tabs.Panel value="rules" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
@@ -474,7 +477,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 									<SkillsPanel />
 								</Dialog.Section>
 							</Tabs.Panel>
-							<Tabs.Panel value="figma" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
+							<Tabs.Panel value="general" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
 								<Dialog.Section>
 									<TokenAccount kind={FIGMA} connected={connected} credentials={credentials} onChange={refreshConnected} />
 								</Dialog.Section>
@@ -485,6 +488,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 									onChangeFolders={(change) => localLink.connection?.changeFolders(change) ?? Promise.resolve()}
 								/>
 								<BackupSettings />
+								<UpdateSettings update={update} />
 							</Tabs.Panel>
 						</Tabs.Root>
 					</Dialog.Popup>

@@ -14,6 +14,9 @@ export const ROUTES = {
 /** `/api/forward/<host>/<path>` goes to `https://<host>/<path>`: for the providers that allow no browser requests. */
 export const FORWARD_ROUTE = "/api/forward";
 
+/** A POST starts the update of FigPal (local/install.ts). The answer: `{ started: boolean }`. */
+export const UPDATE_ROUTE = "/api/update";
+
 /** The browser replaces the user-agent that pi-ai and Pi Black set. A route sets it again from this header. */
 export const USER_AGENT_HEADER = "x-figpal-user-agent";
 

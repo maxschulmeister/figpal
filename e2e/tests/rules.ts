@@ -18,7 +18,7 @@ export default async function rules(t: Context) {
 	await frame.getByLabel("Settings").click();
 	// figma-kit's tab has its text twice: a hidden copy keeps the width of the bold text.
 	const tabs = (await frame.getByRole("tab").allTextContents()).map((text) => text.slice(0, text.length / 2));
-	t.check("the tabs are Rules, Models, Skills and Access", JSON.stringify(tabs) === JSON.stringify(["Rules", "Models", "Skills", "Access"]), JSON.stringify(tabs));
+	t.check("the tabs are General, Rules, Models and Skills", JSON.stringify(tabs) === JSON.stringify(["General", "Rules", "Models", "Skills"]), JSON.stringify(tabs));
 	await frame.getByRole("tab", { name: "Rules" }).click();
 	const global = frame.getByRole("textbox", { name: "For all files" });
 	const file = frame.getByRole("textbox", { name: "For this file" });

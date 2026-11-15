@@ -8,6 +8,7 @@ import { startUiServer, type UiServer } from "./ui-server.ts";
 const PORT = 9395;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 let server: UiServer | undefined;
+const noUpdate = async () => ({ started: false });
 const closers: (() => void)[] = [];
 
 afterEach(async () => {
@@ -72,7 +73,7 @@ async function upstream() {
 
 describe("UI server", () => {
 	it("serves the built UI: the page revalidates, a build's files stay in the cache, and only Figma can frame them", async () => {
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		const page = await call("/");
 		expect(page).toMatchObject({ status: 200, body: "<!doctype html><title>FigPal</title>" });
 		expect(page.headers).toMatchObject({
@@ -88,7 +89,7 @@ describe("UI server", () => {
 	});
 
 	it("refuses other host names (DNS rebinding) and paths out of the UI folder", async () => {
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect((await call("/", { headers: { host: "evil.example:9395" } })).status).toBe(403);
 		expect((await call("/", { headers: { host: `localhost:${PORT}` } })).status).toBe(200);
 		expect((await call("/../figpal-outside/secret.txt")).status).toBe(404);
@@ -96,7 +97,7 @@ describe("UI server", () => {
 	});
 
 	it("answers /health, so that the plugin and the install know that FigPal runs, and its version", async () => {
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		// The plugin asks from its first page, which has no origin.
 		const health = await call("/health", { headers: { origin: "null", "sec-fetch-site": "cross-site" } });
 		expect(health.status).toBe(200);
@@ -105,7 +106,7 @@ describe("UI server", () => {
 
 	it("sends a route upstream without the browser headers, with the user-agent that the page wanted, and streams the answer", async () => {
 		const { seen, targets, route } = await upstream();
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route });
 		const reply = await call("/api/anthropic/v1/messages?beta=true", {
 			method: "POST",
 			body: '{"model":"claude"}',
@@ -133,7 +134,7 @@ describe("UI server", () => {
 
 	it("maps the routes of ChatGPT, skills.sh and other providers to their servers", async () => {
 		const { targets, route } = await upstream();
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route });
 		const same = { "sec-fetch-site": "same-origin" };
 		await call("/api/chatgpt/backend-api/codex/responses", { method: "POST", headers: { ...same, origin: ORIGIN } });
 		await call("/api/skills/search?q=figma", { headers: same });
@@ -155,7 +156,7 @@ describe("UI server", () => {
 		await new Promise<void>((resolve) => broken.listen(0, "127.0.0.1", resolve));
 		closers.push(() => broken.close());
 		const { port } = broken.address() as { port: number };
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route: (target) => new URL(target.pathname, `http://127.0.0.1:${port}`) });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route: (target) => new URL(target.pathname, `http://127.0.0.1:${port}`) });
 		await call("/api/forward/api.example.com/v1", { headers: { "sec-fetch-site": "same-origin" } }).catch(() => undefined);
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect((await call("/health")).status).toBe(200);
@@ -163,10 +164,26 @@ describe("UI server", () => {
 
 	it("refuses route requests of other web pages", async () => {
 		const { seen, route } = await upstream();
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route });
 		expect((await call("/api/skills/search?q=x", { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
 		expect((await call("/api/anthropic/v1/messages", { method: "POST", headers: { origin: "https://evil.example" } })).status).toBe(403);
 		expect((await call("/api/forward/", { headers: { "sec-fetch-site": "same-origin" } })).status).toBe(404);
 		expect(seen).toEqual([]);
+	});
+
+	it("starts the update for a POST of the UI, and for no other request", async () => {
+		let updates = 0;
+		const update = async () => {
+			updates++;
+			return { started: true };
+		};
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update });
+		expect((await call("/api/update", { method: "POST", headers: { origin: "https://evil.example" } })).status).toBe(403);
+		expect((await call("/api/update", { method: "POST", headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
+		expect((await call("/api/update", { headers: { "sec-fetch-site": "same-origin" } })).status).toBe(405);
+		expect(updates).toBe(0);
+		const reply = await call("/api/update", { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin" } });
+		expect([reply.status, reply.headers["content-type"], reply.body]).toEqual([200, "application/json", '{"started":true}']);
+		expect(updates).toBe(1);
 	});
 });

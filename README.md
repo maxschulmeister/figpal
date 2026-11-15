@@ -73,14 +73,14 @@ pick models, and back up your chats.
 ### Local files
 
 FigPal can read and write files on your computer, for example to use your design tokens or to export code. Select
-**Settings → Access → Shared folders → Add folders**, and select the folders. FigPal can use only these folders and
+**Settings → General → Shared folders → Add folders**, and select the folders. FigPal can use only these folders and
 their subfolders.
 
 ## MCP
 
 Use FigPal from your own agent:
 
-1. In FigPal, turn on **Settings → Access → MCP**.
+1. In FigPal, turn on **Settings → General → MCP**.
 2. Add FigPal to your agent. The install already adds it to Claude Code. For other agents, select your agent under
    **MCP**, and FigPal shows the command. For example:
 
