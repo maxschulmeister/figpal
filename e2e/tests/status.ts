@@ -19,7 +19,7 @@ export default async function status(t: Context) {
 	await frame.getByLabel("Settings").click();
 	const models = [await tone("Claude"), await tone("ChatGPT")];
 	t.check("with Claude: Connected in green, ChatGPT Not signed in in grey", JSON.stringify(models) === JSON.stringify(["Connected: success", "Not signed in: secondary"]), JSON.stringify(models));
-	await frame.getByRole("tab", { name: "Access" }).click();
+	await frame.getByRole("tab", { name: "General" }).click();
 	const access = await tone("Personal access token");
 	t.check("an optional part that is off is grey", access === "Not connected: secondary", access);
 	await t.screenshot(session, "status-access");

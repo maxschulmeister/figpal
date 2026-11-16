@@ -9,7 +9,7 @@ import { createServer, type IncomingMessage, request as httpRequest, type Server
 import { request as httpsRequest } from "node:https";
 import { extname, resolve, sep } from "node:path";
 import { pipeline } from "node:stream";
-import { BROWSER_HEADERS, FORWARD_ROUTE, ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
+import { BROWSER_HEADERS, FORWARD_ROUTE, ROUTES, UPDATE_ROUTE, USER_AGENT_HEADER } from "@figpal/shared/routes";
 import { CLAUDE_CONFIG_ROUTE } from "@figpal/shared/claude";
 import { discoverClaude, serveClaudeConfig } from "./claude.ts";
 
@@ -49,6 +49,8 @@ export async function startUiServer(options: {
 	/** The origin of the UI: the only page that can use the routes. */
 	origin: string;
 	version: string;
+	/** Starts the update of FigPal (install.ts). */
+	update(): Promise<{ started: boolean }>;
 	/** Tests: where a route request goes, in place of its server. */
 	route?: (target: URL) => URL;
 }): Promise<UiServer> {
@@ -111,6 +113,13 @@ export async function startUiServer(options: {
 		if (url.pathname.startsWith("/api/")) {
 			if (!fromUi(incoming)) return end(response, 403, "Forbidden");
 			if (url.pathname === CLAUDE_CONFIG_ROUTE) return serveClaudeConfig(incoming, response, claude);
+			if (url.pathname === UPDATE_ROUTE) {
+				if (incoming.method !== "POST") return end(response, 405, "Method not allowed");
+				return void options.update().then(
+					(result) => response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result)),
+					(error: Error) => end(response, 500, `FigPal could not start the update: ${error.message}`),
+				);
+			}
 			const to = target(url.pathname, url.search);
 			return to ? proxy(incoming, response, to) : end(response, 404, "Not found");
 		}

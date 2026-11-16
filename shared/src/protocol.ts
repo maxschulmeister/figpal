@@ -10,7 +10,7 @@ export const MAX_RULES = 4000;
 
 /**
  * Where the UI comes from: the FigPal command on this Mac (local/cli.ts). Figma Desktop keeps FigPal's chats and keys
- * for this origin: a new origin starts empty (Settings → Access → Backup moves them). "localhost", not "127.0.0.1":
+ * for this origin: a new origin starts empty (Settings → General → Backup moves them). "localhost", not "127.0.0.1":
  * Figma refuses an IP address in the manifest's devAllowedDomains. The command listens on 127.0.0.1, and the browser
  * finds it there for "localhost".
  */

@@ -1,4 +1,4 @@
-export const BUNDLED_CLAUDE_VERSION = "2.1.280";
+export const BUNDLED_CLAUDE_VERSION = "2.1.325";
 export const CLAUDE_CONFIG_ROUTE = "/api/claude";
 
 export type ClaudeIdentity = { deviceId: string; accountUuid: string };

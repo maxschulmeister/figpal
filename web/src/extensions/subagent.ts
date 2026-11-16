@@ -2,7 +2,7 @@
 // tool call owns (pi-durable example 21). Stopping the call stops the children, and after a restart the call finds
 // the same children and submissions. A child has the same tools without `subagent`, and it starts without history.
 
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { boundOutput } from "@earendil-works/chord/output";
 import { type AssistantMessage, contentText } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";

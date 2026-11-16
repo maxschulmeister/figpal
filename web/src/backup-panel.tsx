@@ -1,4 +1,4 @@
-// Settings → Access → Backup: the chats and the skills in a file, and back. FigPal starts again for an import.
+// Settings → General → Backup: the chats and the skills in a file, and back. FigPal starts again for an import.
 
 import { Button, Dialog, Text } from "figma-kit";
 import { useRef, useState } from "react";

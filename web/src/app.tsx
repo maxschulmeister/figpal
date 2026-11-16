@@ -26,6 +26,7 @@ import { BackupSettings } from "./backup-panel";
 import type { Bridge } from "./bridge";
 import { Chat } from "./chat";
 import { uiCredentials } from "./credentials";
+import { localModelsStore } from "./providers/remote-catalog";
 import { clampThinkingLevel, type Models } from "@earendil-works/pi-ai/models";
 import { defaultModel, enabledModelGroups, loadSettings, type Settings, saveSettings, TEXT_SIZES, type TextSize, textModel } from "./settings";
 import { chipLabels } from "./node-chips";
@@ -35,6 +36,7 @@ import { connectLocal, type LocalFiles, type LocalState } from "./local";
 import { LocalHelperSettings } from "./local-panel";
 import { installDefaultSkills } from "./skills/defaults";
 import { EnabledModels, TextModel } from "./enabled-models";
+import { UpdateNotice, UpdateSettings, useUpdate } from "./update-panel";
 import { type FoldingGroup, OPEN_GROUPS, ThreadList, threadTitle, UnreadDot } from "./thread-list";
 import {
 	currentThread,
@@ -83,8 +85,14 @@ export function App({ bridge }: { bridge: Bridge }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [settingsTab, setSettingsTab] = useState<string>("models");
 	const busy = useRef(false);
+	const update = useUpdate();
 	const credentials = useMemo(() => uiCredentials(bridge), [bridge]);
-	const models = useMemo(() => createAgentModels(credentials, location.origin), [credentials]);
+	// The catalogs that pi.dev gave before: the agent and the model lists wait for them, so that a chat with a newer model
+	// continues.
+	const [models, savedCatalogs] = useMemo(() => {
+		const models = createAgentModels(credentials, location.origin, localModelsStore());
+		return [models, models.refresh({ allowNetwork: false })] as const;
+	}, [credentials]);
 	// The models for subagents: the enabled models of the connected providers. The agent reads them when it needs them,
 	// from the newest settings, without a code.js call.
 	const allowedModels = useRef<string[]>([]);
@@ -132,8 +140,19 @@ export function App({ bridge }: { bridge: Bridge }) {
 		[bridge],
 	);
 	const refreshConnected = useCallback(
-		() => credentials.list().then((list) => setConnected(new Set(list.map((info) => info.providerId))), fail),
-		[credentials, fail],
+		() =>
+			Promise.all([credentials.list(), savedCatalogs]).then(async ([list]) => {
+				setConnected(new Set(list.map((info) => info.providerId)));
+				// The newer catalogs of pi.dev, for the connected providers.
+				const catalogs = () => JSON.stringify(models.getAllModels());
+				const before = catalogs();
+				const { errors } = await models.refresh();
+				for (const [provider, error] of errors) console.warn(`FigPal: the model list of ${provider}:`, error);
+				// Only after a change: a new Set updates the views that read the models with "connected", and a new agent of a
+				// new thread.
+				if (catalogs() !== before) setConnected((current) => current && new Set(current));
+			}, fail),
+		[credentials, models, savedCatalogs, fail],
 	);
 
 	useEffect(() => {
@@ -181,6 +200,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 			onStart: () => setPhase({ kind: "importing", blocked: false }),
 			onBlocked: () => setPhase({ kind: "importing", blocked: true }),
 		})
+			.then(() => savedCatalogs)
 			.then(() => {
 				// In the background: the Skills tab shows an error.
 				installDefaultSkills().catch((error) => console.warn("FigPal: default skills:", error));
@@ -194,7 +214,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 					),
 				fail,
 			);
-	}, [fileId, fileKey, models, bridge, credentials, refreshConnected, fail, localLink]);
+	}, [fileId, fileKey, models, savedCatalogs, bridge, credentials, refreshConnected, fail, localLink]);
 
 	const harness = phase.kind === "ready" ? phase.harness : undefined;
 	// When the work of a chat ends, it is unread if another chat is open then (also work that a restart continues).
@@ -330,6 +350,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 					</Tooltip>
 				</div>
 			</header>
+			<UpdateNotice update={update} />
 			{/* Only the chat list scrolls here. The chat scrolls in its own area, so the message box stays in view. */}
 			<main className={`min-h-0 flex-1 ${showThreads ? "overflow-y-auto" : "overflow-clip"}`}>
 				{showThreads && list ? (
@@ -403,10 +424,10 @@ export function App({ bridge }: { bridge: Bridge }) {
 								</Tooltip>
 								<Dialog.Title>Settings</Dialog.Title>
 								<Tabs.List className="ml-auto">
+									<Tabs.Tab value="general">General</Tabs.Tab>
 									<Tabs.Tab value="rules">Rules</Tabs.Tab>
 									<Tabs.Tab value="models">Models</Tabs.Tab>
 									<Tabs.Tab value="skills">Skills</Tabs.Tab>
-									<Tabs.Tab value="figma">Access</Tabs.Tab>
 								</Tabs.List>
 							</Dialog.Header>
 							<Tabs.Panel value="rules" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
@@ -456,7 +477,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 									<SkillsPanel />
 								</Dialog.Section>
 							</Tabs.Panel>
-							<Tabs.Panel value="figma" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
+							<Tabs.Panel value="general" keepMounted className="min-h-0 flex-1 overflow-y-auto data-[hidden]:hidden">
 								<Dialog.Section>
 									<TokenAccount kind={FIGMA} connected={connected} credentials={credentials} onChange={refreshConnected} />
 								</Dialog.Section>
@@ -467,6 +488,7 @@ export function App({ bridge }: { bridge: Bridge }) {
 									onChangeFolders={(change) => localLink.connection?.changeFolders(change) ?? Promise.resolve()}
 								/>
 								<BackupSettings />
+								<UpdateSettings update={update} />
 							</Tabs.Panel>
 						</Tabs.Root>
 					</Dialog.Popup>

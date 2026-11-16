@@ -1,4 +1,4 @@
-// Settings → Access: the folders that the FigPal command shares with FigPal's agent, and MCP for outside agents. Each is
+// Settings → General: the folders that the FigPal command shares with FigPal's agent, and MCP for outside agents. Each is
 // a section with the header of the accounts. The FigPal command serves the UI (Phase 8), so it runs when this shows: no
 // status and no install note for it.
 
@@ -170,7 +170,7 @@ function SwitchRow(props: { label: string; checked: boolean; disabled?: boolean;
 }
 
 /** A command for Terminal or a piece of JSON, with a Copy button. */
-function CopyCommand({ command }: { command: string }) {
+export function CopyCommand({ command }: { command: string }) {
 	const [copied, setCopied] = useState(false);
 	const copy = async () => {
 		await navigator.clipboard.writeText(command).catch(() => {

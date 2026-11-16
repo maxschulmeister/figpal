@@ -128,6 +128,23 @@ export function command(paths: { node: string; cli: string }): string {
 	return `#!/bin/sh\n${MARK}\nexec ${shell(paths.node)} ${shell(paths.cli)} "$@"\n`;
 }
 
+/**
+ * Starts the update outside the FigPal service: the install stops the service, and the system would stop a child
+ * process of the service with it. On macOS, Terminal runs a script (`open` needs no Automation permission), so the user
+ * sees the progress and the errors. On Linux, the terminal app differs from system to system: the user runs the command.
+ * The script uses the npx next to the node of FigPal: the PATH of Terminal can have no node, or another one.
+ */
+export async function startUpdate(where: { home: string; node: string; platform: Platform }, open: (file: string) => Promise<void>): Promise<{ started: boolean }> {
+	if (where.platform !== "darwin") return { started: false };
+	const app = appFolder(where.home, where.platform);
+	const script = join(app, "update.command");
+	mkdirSync(app, { recursive: true });
+	// npm_config_yes: npx asks before it downloads a new version, and the user clicked Update already.
+	writeFileSync(script, `#!/bin/sh\nPATH=${shell(dirname(where.node))}:"$PATH" npm_config_yes=true ${INSTALL_COMMAND}\n`, { mode: 0o755 });
+	await open(script);
+	return { started: true };
+}
+
 /** The node of the PATH when it is the same program: a Homebrew update replaces the program, not the link. */
 export function stableNode(execPath: string, path = process.env.PATH ?? ""): string {
 	const program = realpathSync(execPath);

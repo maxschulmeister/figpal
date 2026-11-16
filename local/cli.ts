@@ -9,7 +9,7 @@
 //   figpal                    serves FigPal's UI and its routes on http://localhost:9310, which the plugin window
 //                             loads, from the folder ui/ next to this file (the package has it; the repo does not).
 //                             And the bridge: it shares the folders of ~/.config/figpal/local.json with FigPal's agent
-//                             (the user adds them in Settings → Access), and passes the requests of outside agents to
+//                             (the user adds them in Settings → General), and passes the requests of outside agents to
 //                             FigPal. The install starts it at login.
 //   figpal mcp                an MCP server on stdin and stdout, for an outside agent: `<agent> mcp add figpal -- figpal
 //                             mcp`. The agent acts on the open Figma file through FigPal. It uses the running bridge,
@@ -26,13 +26,13 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { UI_PORT } from "@figpal/shared";
 import { LOCAL_ORIGINS, LOCAL_PORTS } from "@figpal/shared/local";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { install, nativeSystem, stableNode, uninstall } from "./install.ts";
+import { install, nativeSystem, stableNode, startUpdate, uninstall } from "./install.ts";
 import { joinBridge, mcpServer } from "./mcp.ts";
 import { startHelper } from "./server.ts";
 import { startUiServer } from "./ui-server.ts";
@@ -126,8 +126,13 @@ if (positionals[0] === "install" || positionals[0] === "uninstall") {
 	process.stdin.once("end", exit);
 } else {
 	// The origin of the UI has the port in it: Figma Desktop keeps the chats for that origin, so no other port.
+	const open = (file: string) => new Promise<void>((resolve, reject) => execFile("open", [file], (error) => (error ? reject(error) : resolve())));
+	// The service has the PATH of launchd or systemd, without the folder of node. argv[0] is the node of the service (the
+	// stable path that the install chose): the install that the script starts must find the same node first.
+	const node = stableNode(process.execPath, dirname(process.argv0));
+	const update = () => startUpdate({ home: homedir(), node, platform: process.platform === "darwin" ? "darwin" : "linux" }, open);
 	const ui = existsSync(values.ui)
-		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://localhost:${uiPort}`, version: VERSION }).catch(
+		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://localhost:${uiPort}`, version: VERSION, update }).catch(
 				(error: NodeJS.ErrnoException) => {
 					if (error.code !== "EADDRINUSE") throw error;
 					console.error(`The port ${uiPort} is in use: FigPal runs already, or another program uses the port. FigPal needs it.`);

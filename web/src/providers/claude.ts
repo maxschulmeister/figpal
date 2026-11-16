@@ -93,6 +93,8 @@ function mergeOptions<T extends StreamOptions>(
 	const transport = options.fetch ?? globalThis.fetch;
 	return {
 		...options,
+		// Continuation requests omit system blocks, but Claude OAuth needs the billing block on every request.
+		disableContinuation: true,
 		headers: {
 			...options.headers,
 			"x-app": "cli",

@@ -1,7 +1,7 @@
 // Turns the pi-durable transcript of a conversation into assistant-ui messages.
 
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import { calculateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {

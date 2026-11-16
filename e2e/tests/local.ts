@@ -49,9 +49,9 @@ export default async function local(t: Context) {
 		const { frame } = session;
 		// The user comes back to FigPal after starting the helpers: FigPal looks for them when its window gets the focus.
 		await frame.locator("body").evaluate(() => dispatchEvent(new Event("focus")));
-		// FigPal is connected to the bridge when the folder shows in Access: then its agent has the local tools.
+		// FigPal is connected to the bridge when the folder shows in General: then its agent has the local tools.
 		await frame.getByLabel("Settings").click();
-		await frame.getByRole("tab", { name: "Access" }).click();
+		await frame.getByRole("tab", { name: "General" }).click();
 		await frame.getByRole("button", { name: "Remove notes" }).waitFor();
 		await frame.getByRole("button", { name: "Back to the chat" }).click();
 		await session.ask("Read my notes", "Done: I read the notes.");
@@ -59,7 +59,7 @@ export default async function local(t: Context) {
 		t.check("FigPal connects without a setting, and its agent reads a file of a shared folder", read === "Hello from disk", read);
 
 		await frame.getByLabel("Settings").click();
-		await frame.getByRole("tab", { name: "Access" }).click();
+		await frame.getByRole("tab", { name: "General" }).click();
 		await frame.getByRole("button", { name: "Remove notes" }).waitFor();
 		await frame.getByRole("switch", { name: "Share Home", exact: true }).click();
 		await frame.getByRole("button", { name: `Remove ${basename(process.env.HOME!)}` }).waitFor();

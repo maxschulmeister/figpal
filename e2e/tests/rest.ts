@@ -1,16 +1,16 @@
-// The Figma token in Settings → Access, and figma_rest: calls only to api.figma.com, with the token.
+// The Figma token in Settings → General, and figma_rest: calls only to api.figma.com, with the token.
 
 import { type Context, resultText, type Session, text, toolResults, toolUse } from "../harness.ts";
 import { CORS } from "./diff.ts";
 
-/** Saves a Figma token in Settings → Access. The settings stay open. */
+/** Saves a Figma token in Settings → General. The settings stay open. */
 export async function saveFigmaToken(session: Session, token: string) {
 	const { frame, page } = session;
 	if (!(await frame.getByRole("dialog").isVisible())) {
 		await frame.getByLabel("Settings").click();
 		await page.waitForTimeout(300);
 	}
-	await frame.getByRole("tab", { name: "Access" }).click();
+	await frame.getByRole("tab", { name: "General" }).click();
 	await page.waitForTimeout(300);
 	await frame.getByLabel("Personal access token").fill(token);
 	await frame.getByRole("dialog").getByRole("button", { name: "Save" }).click();

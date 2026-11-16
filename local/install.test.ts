@@ -1,8 +1,8 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { appFolder, command, install, launchAgent, type Probe, stableNode, type System, systemdUnit, uninstall } from "./install.ts";
+import { appFolder, command, install, launchAgent, type Probe, stableNode, startUpdate, type System, systemdUnit, uninstall } from "./install.ts";
 
 const temp = (name: string) => mkdtempSync(join(tmpdir(), `figpal-${name}-`));
 
@@ -213,5 +213,28 @@ describe("install", () => {
 		expect(command({ node: "/opt/node", cli: "/Users/a b/FigPal/cli.mjs" })).toBe(
 			`#!/bin/sh\n# The FigPal command (figpal install).\nexec '/opt/node' '/Users/a b/FigPal/cli.mjs' "$@"\n`,
 		);
+	});
+});
+
+// Update in FigPal's settings: the update must run outside the service, because it stops the service.
+describe("update", () => {
+	it("on macOS: opens a script in Terminal that runs the install with the npx next to the node of FigPal", async () => {
+		const home = temp("home");
+		const opened: string[] = [];
+		const started = await startUpdate({ home, node: "/Users/a b/.nvm/bin/node", platform: "darwin" }, async (file) => void opened.push(file));
+		const script = join(home, "Library", "Application Support", "FigPal", "update.command");
+		expect(started).toEqual({ started: true });
+		expect(opened).toEqual([script]);
+		expect(readFileSync(script, "utf8")).toBe(`#!/bin/sh\nPATH='/Users/a b/.nvm/bin':"$PATH" npm_config_yes=true npx figpal@latest install\n`);
+		expect(statSync(script).mode & 0o777).toBe(0o755);
+	});
+
+	it("on Linux: starts nothing, because the terminal app differs; the user runs the command", async () => {
+		const home = temp("home");
+		const opened: string[] = [];
+		const started = await startUpdate({ home, node: "/usr/bin/node", platform: "linux" }, async (file) => void opened.push(file));
+		expect(started).toEqual({ started: false });
+		expect(opened).toEqual([]);
+		expect(existsSync(join(home, ".local", "share", "figpal"))).toBe(false);
 	});
 });

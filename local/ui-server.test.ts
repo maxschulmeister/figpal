@@ -8,6 +8,7 @@ import { startUiServer, type UiServer } from "./ui-server.ts";
 const PORT = 9395;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 let server: UiServer | undefined;
+const noUpdate = async () => ({ started: false });
 const closers: (() => void)[] = [];
 let home: string;
 
@@ -88,7 +89,7 @@ describe("UI server", () => {
 		vi.stubEnv("PI_OFFLINE", "0");
 		const registry = vi.fn<typeof fetch>(async () => Response.json({ version: "2.2.123" }));
 		vi.stubGlobal("fetch", registry);
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		const settings = await call("/api/claude");
 		expect(settings.status).toBe(200);
 		expect(settings.headers["cache-control"]).toBe("no-store");
@@ -98,7 +99,7 @@ describe("UI server", () => {
 		expect(JSON.parse(readFileSync(join(home, ".config", "figpal", "claude-version.json"), "utf8"))).toEqual({ version: "2.2.123" });
 		await server.close();
 		vi.stubEnv("PI_OFFLINE", "1");
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.2.123" });
 		expect(registry).toHaveBeenCalledTimes(1);
 		expect((await call("/api/claude", { method: "POST" })).status).toBe(405);
@@ -111,7 +112,7 @@ describe("UI server", () => {
 		vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => Response.json({ version: "2.1.280" })));
 		const fileIdentity = { deviceId: "a".repeat(64), accountUuid: "123e4567-e89b-12d3-a456-426614174000" };
 		writeFileSync(join(home, ".claude.json"), JSON.stringify({ userID: fileIdentity.deviceId, oauthAccount: { accountUuid: fileIdentity.accountUuid }, accessToken: "must-not-leave-this-file" }));
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280", identity: fileIdentity });
 		expect(JSON.parse(readFileSync(join(home, ".config", "figpal", "claude-version.json"), "utf8"))).toEqual({ version: "2.1.280" });
 		await server.close();
@@ -119,11 +120,11 @@ describe("UI server", () => {
 		const environmentIdentity = { deviceId: "b".repeat(64), accountUuid: "223e4567-e89b-42d3-a456-426614174000" };
 		vi.stubEnv("CLAUDE_CODE_DEVICE_ID", environmentIdentity.deviceId);
 		vi.stubEnv("CLAUDE_CODE_ACCOUNT_UUID", environmentIdentity.accountUuid);
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280", identity: environmentIdentity });
 		await server.close();
 		vi.stubEnv("CLAUDE_CODE_DEVICE_ID", "invalid");
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280", identity: fileIdentity });
 	});
 
@@ -139,7 +140,7 @@ describe("UI server", () => {
 			return Response.json({ version: "2.2.123-beta" });
 		});
 		vi.stubGlobal("fetch", registry);
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.2.100" });
 		expect(JSON.parse(readFileSync(cache, "utf8"))).toEqual({ version: "2.2.100" });
 		if (failure === "offline") expect(registry).not.toHaveBeenCalled();
@@ -149,12 +150,12 @@ describe("UI server", () => {
 		mkdirSync(join(home, ".config", "figpal"), { recursive: true });
 		writeFileSync(join(home, ".config", "figpal", "claude-version.json"), cache);
 		writeFileSync(join(home, ".claude.json"), '{"userID":"invalid","oauthAccount":{"accountUuid":"invalid"}}');
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
-		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.280" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
+		expect(JSON.parse((await call("/api/claude")).body)).toEqual({ version: "2.1.325" });
 	});
 
 	it("serves the built UI: the page revalidates, a build's files stay in the cache, and only Figma can frame them", async () => {
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		const page = await call("/");
 		expect(page).toMatchObject({ status: 200, body: "<!doctype html><title>FigPal</title>" });
 		expect(page.headers).toMatchObject({
@@ -170,7 +171,7 @@ describe("UI server", () => {
 	});
 
 	it("refuses other host names (DNS rebinding) and paths out of the UI folder", async () => {
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		expect((await call("/", { headers: { host: "evil.example:9395" } })).status).toBe(403);
 		expect((await call("/", { headers: { host: `localhost:${PORT}` } })).status).toBe(200);
 		expect((await call("/../figpal-outside/secret.txt")).status).toBe(404);
@@ -178,7 +179,7 @@ describe("UI server", () => {
 	});
 
 	it("answers /health, so that the plugin and the install know that FigPal runs, and its version", async () => {
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3" });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate });
 		// The plugin asks from its first page, which has no origin.
 		const health = await call("/health", { headers: { origin: "null", "sec-fetch-site": "cross-site" } });
 		expect(health.status).toBe(200);
@@ -187,7 +188,7 @@ describe("UI server", () => {
 
 	it("sends a route upstream without the browser headers, with the user-agent that the page wanted, and streams the answer", async () => {
 		const { seen, targets, route } = await upstream();
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route });
 		const reply = await call("/api/anthropic/v1/messages?beta=true", {
 			method: "POST",
 			body: '{"model":"claude"}',
@@ -215,7 +216,7 @@ describe("UI server", () => {
 
 	it("maps the routes of ChatGPT, skills.sh and other providers to their servers", async () => {
 		const { targets, route } = await upstream();
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route });
 		const same = { "sec-fetch-site": "same-origin" };
 		await call("/api/chatgpt/backend-api/codex/responses", { method: "POST", headers: { ...same, origin: ORIGIN } });
 		await call("/api/skills/search?q=figma", { headers: same });
@@ -237,7 +238,7 @@ describe("UI server", () => {
 		await new Promise<void>((resolve) => broken.listen(0, "127.0.0.1", resolve));
 		closers.push(() => broken.close());
 		const { port } = broken.address() as { port: number };
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route: (target) => new URL(target.pathname, `http://127.0.0.1:${port}`) });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route: (target) => new URL(target.pathname, `http://127.0.0.1:${port}`) });
 		await call("/api/forward/api.example.com/v1", { headers: { "sec-fetch-site": "same-origin" } }).catch(() => undefined);
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect((await call("/health")).status).toBe(200);
@@ -245,10 +246,26 @@ describe("UI server", () => {
 
 	it("refuses route requests of other web pages", async () => {
 		const { seen, route } = await upstream();
-		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", route });
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, route });
 		expect((await call("/api/skills/search?q=x", { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
 		expect((await call("/api/anthropic/v1/messages", { method: "POST", headers: { origin: "https://evil.example" } })).status).toBe(403);
 		expect((await call("/api/forward/", { headers: { "sec-fetch-site": "same-origin" } })).status).toBe(404);
 		expect(seen).toEqual([]);
+	});
+
+	it("starts the update for a POST of the UI, and for no other request", async () => {
+		let updates = 0;
+		const update = async () => {
+			updates++;
+			return { started: true };
+		};
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update });
+		expect((await call("/api/update", { method: "POST", headers: { origin: "https://evil.example" } })).status).toBe(403);
+		expect((await call("/api/update", { method: "POST", headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
+		expect((await call("/api/update", { headers: { "sec-fetch-site": "same-origin" } })).status).toBe(405);
+		expect(updates).toBe(0);
+		const reply = await call("/api/update", { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin" } });
+		expect([reply.status, reply.headers["content-type"], reply.body]).toEqual([200, "application/json", '{"started":true}']);
+		expect(updates).toBe(1);
 	});
 });
