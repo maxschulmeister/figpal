@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { UI_ORIGIN } from "@figpal/shared";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -78,7 +78,9 @@ describe("the helper command", () => {
 		const ui = mkdtempSync(join(tmpdir(), "figpal-ui-"));
 		writeFileSync(join(ui, "index.html"), "<title>FigPal</title>");
 		const config = join(mkdtempSync(join(tmpdir(), "figpal-cli-")), "local.json");
-		helper = spawn("node", [CLI, "--config", config, "--ui", ui, "--ui-port", "9397", "--port", "9398"]);
+		helper = spawn("node", [CLI, "--config", config, "--ui", ui, "--ui-port", "9397", "--port", "9398"], {
+			env: { ...process.env, PI_OFFLINE: "1", HOME: dirname(config), CLAUDE_CONFIG_DIR: dirname(config), CLAUDE_CODE_DEVICE_ID: "", CLAUDE_CODE_ACCOUNT_UUID: "" },
+		});
 		let log = "";
 		helper.stderr!.on("data", (data) => (log += String(data)));
 		await expect.poll(() => log, { timeout: 10_000 }).toContain("FigPal's UI: http://localhost:9397");

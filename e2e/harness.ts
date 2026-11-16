@@ -274,6 +274,7 @@ export class Context {
 			const own = (url.startsWith(this.ui) && !url.startsWith(`${this.ui}/api/`)) || url === PARENT_URL;
 			return own ? route.continue() : route.abort("blockedbyclient");
 		});
+		await page.route(`${this.ui}/api/claude`, (route) => route.fulfill({ json: { version: "2.2.123" } }));
 		const model = options.model ?? (() => text("Done."));
 		await page.route(`${this.ui}/api/anthropic/**`, async (route) => {
 			const request = JSON.parse(route.request().postData() ?? "{}") as ModelRequest;

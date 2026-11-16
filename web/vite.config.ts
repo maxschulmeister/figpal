@@ -1,8 +1,10 @@
 import { BROWSER_HEADERS, ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
+import { CLAUDE_CONFIG_ROUTE } from "@figpal/shared/claude";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin, type ProxyOptions } from "vite";
 import { licenses } from "../local/licenses.ts";
+import { discoverClaude, serveClaudeConfig } from "../local/claude.ts";
 
 /** As the FigPal command (local/ui-server.ts): no browser headers upstream, and the user-agent that the page wanted. */
 const asServerRequest: ProxyOptions["configure"] = (proxy) => {
@@ -23,6 +25,17 @@ const proxy = Object.fromEntries(
 	}),
 );
 
+const claudeSettings: Plugin = {
+	name: "figpal-claude",
+	async configureServer(server) {
+		const config = await discoverClaude();
+		server.middlewares.use((incoming, response, next) => {
+			if (incoming.url?.split("?")[0] !== CLAUDE_CONFIG_ROUTE) return next();
+			serveClaudeConfig(incoming, response, config);
+		});
+	},
+};
+
 /** licenses.md in the build: the bundled libraries with their licenses (THIRD_PARTY_NOTICES.md). */
 const licenseFile: Plugin = {
 	name: "figpal-licenses",
@@ -33,6 +46,6 @@ const licenseFile: Plugin = {
 };
 
 export default defineConfig({
-	plugins: [react(), tailwindcss(), licenseFile],
+	plugins: [react(), tailwindcss(), licenseFile, claudeSettings],
 	server: { port: 5173, strictPort: true, proxy },
 });
