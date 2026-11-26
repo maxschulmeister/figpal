@@ -673,7 +673,7 @@ const renderMessage = ({ message }: { message: { role: string } }) =>
 
 function UserMessage() {
 	return (
-		<MessagePrimitive.Root className="chat-text ml-10 flex flex-col gap-1 self-end rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap break-words">
+		<MessagePrimitive.Root className="chat-text ml-10 flex flex-col gap-1 self-end rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap wrap-anywhere">
 			<SentFiles />
 			{/* One block: the chips and the text of the message are in one line. */}
 			<div>
