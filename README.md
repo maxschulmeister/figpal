@@ -54,6 +54,8 @@ Select **Plugins → Development → FigPal**, and connect a model:
 
 - **Claude:** paste a token from `claude setup-token`, or an Anthropic API key.
 - **ChatGPT:** sign in with your ChatGPT account.
+- **Google Antigravity:** sign in with your Google account. The first sign-in installs Antigravity's agent, about
+  400 MB. FigPal gives the agent FigPal's tools, and refuses the agent's own tools, for example commands and file edits.
 - **Other providers:** paste an API key from OpenAI, Google, OpenRouter, Mistral, xAI, DeepSeek and more.
 
 > **Note:**
