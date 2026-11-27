@@ -28,9 +28,12 @@ import { currentThread } from "./threads";
 import { toThread, watchTranscript } from "./transcript";
 import { removeSkill, saveSkill } from "./skills/store";
 import { videoFrames } from "./video-frames";
+import { shrinkImage } from "./images";
 
 // jsdom cannot decode videos: the Chrome run in /tmp/pw checks the real frames.
 vi.mock("./video-frames", async (actual) => ({ ...(await actual<typeof import("./video-frames")>()), videoFrames: vi.fn() }));
+// Node cannot draw images: the e2e run in Chrome checks the real copies.
+vi.mock("./images", async (actual) => ({ ...(await actual<typeof import("./images")>()), shrinkImage: vi.fn() }));
 
 function anthropicAnswer(): Response {
 	const events = [
@@ -368,6 +371,66 @@ describe("token budget", () => {
 		await harness.close(context);
 		const characters = JSON.stringify(system!.sections).length + JSON.stringify(system!.toolsAdded).length;
 		expect(Math.round(characters / 3.5)).toBeLessThan(3200);
+	});
+});
+
+/** The first bytes of a PNG of this size, as base64: FigPal reads the size from the header. */
+function pngHeader(width: number, height: number): string {
+	const bytes = Buffer.alloc(33);
+	bytes.set([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
+	bytes.writeUInt32BE(width, 16);
+	bytes.writeUInt32BE(height, 20);
+	return bytes.toString("base64");
+}
+
+// User report: with more than 20 images, Claude refuses a request with an image over 3,000 px, and the thread stops.
+describe("images over 2000 px", () => {
+	it("a thread with such an image from an older FigPal goes on: the model gets a note instead of the image", async () => {
+		const faux = fauxProvider({ provider: "faux", models: [{ id: "script", input: ["text", "image"] }] });
+		const requests: Message[][] = [];
+		faux.setResponses([
+			(request) => {
+				requests.push(request.messages);
+				return fauxAssistantMessage(fauxText("Done."));
+			},
+		]);
+		const models = createModels();
+		models.setProvider(faux.provider);
+		const large = pngHeader(4000, 100);
+		const small = pngHeader(2000, 100);
+		const input: InputSubmissionDraft = {
+			type: "input",
+			content: [
+				{ type: "text", text: "Check these" },
+				{ type: "image", mimeType: "image/png", data: large },
+				{ type: "image", mimeType: "image/png", data: small },
+			],
+		};
+		const { settled } = await run(models, fakeBridge(() => ({ result: null })).bridge, input);
+
+		expect(settled.status).toBe("done");
+		expect(requests[0]!.at(-1)).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text", text: "Check these" },
+				{ type: "text", text: "[FigPal removed an image of 4000 × 100 px here: it is larger than 2000 px. If you need it, make a smaller image.]" },
+				{ type: "image", mimeType: "image/png", data: small },
+			],
+		});
+	});
+
+	// For example, the agent attaches an export at scale 2.
+	it("figma_execute gives the model a smaller copy of such an image", async () => {
+		vi.mocked(shrinkImage).mockResolvedValue(new Blob([new Uint8Array([1, 2, 3])], { type: "image/webp" }));
+		const { models, requests } = scriptedModels("figma_execute", { code: "return 1" });
+		const large = Buffer.from(pngHeader(4000, 100), "base64");
+		const { bridge } = fakeBridge(() => ({ result: { value: "1" }, attachments: [{ name: "Hero.png", mime: "image/png", bytes: large }] }));
+		await run(models, bridge);
+
+		expect(await (vi.mocked(shrinkImage).mock.calls[0]![0] as Blob).bytes()).toEqual(new Uint8Array(large));
+		expect(requests[1]!.at(-1)).toMatchObject({
+			content: [{ type: "text", text: "1" }, { type: "image", mimeType: "image/webp", data: "AQID" }],
+		});
 	});
 });
 

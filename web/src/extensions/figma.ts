@@ -8,6 +8,7 @@ import { type Attachment, EXECUTE_OUTPUT_LIMIT, EXECUTE_TIMEOUT_MS, EXPORT_FORMA
 import { AUDIT, auditDesignSystem } from "../audit";
 import type { Bridge } from "../bridge";
 import { type FileDetails, filesNote, keepFiles } from "../files";
+import { oversize, shrinkImage } from "../images";
 import { LINT, lint } from "../lint";
 import { literals, nodeIdOf } from "../schema";
 import { exportTokens, TOKEN_EXPORT } from "../tokens";
@@ -41,11 +42,17 @@ export function toBase64(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
+/** The attachment, or a smaller copy if it is an image over MODEL_IMAGE_MAX_PX, for example an export at scale 2. */
+export async function fitImage(attachment: Attachment): Promise<Attachment> {
+	if (!MODEL_IMAGES.has(attachment.mime) || !oversize(attachment.bytes)) return attachment;
+	const image = await shrinkImage(new Blob([attachment.bytes as Uint8Array<ArrayBuffer>], { type: attachment.mime }));
+	return { ...attachment, mime: image.type, bytes: new Uint8Array(await image.arrayBuffer()) };
+}
+
 /** Image attachments go to the model as images. */
-function images(attachments: Attachment[]): ImageContent[] {
-	return attachments
-		.filter((attachment) => MODEL_IMAGES.has(attachment.mime))
-		.map((attachment) => ({ type: "image", data: toBase64(attachment.bytes), mimeType: attachment.mime }));
+async function images(attachments: Attachment[]): Promise<ImageContent[]> {
+	const shown = await Promise.all(attachments.filter((attachment) => MODEL_IMAGES.has(attachment.mime)).map(fitImage));
+	return shown.map((attachment) => ({ type: "image", data: toBase64(attachment.bytes), mimeType: attachment.mime }));
 }
 
 const text = (value: string): TextContent => ({ type: "text", text: value });
@@ -136,7 +143,7 @@ export function figmaExtension(
 				execute: async ({ code, timeout_ms }, _api, context) => {
 					const request = bridge.request("execute", { code, timeoutMs: timeout_ms });
 					const { result, attachments } = await awaitWithContext(request, context);
-					const shown = images(attachments);
+					const shown = await images(attachments);
 					const files = keepFiles(attachments.filter((attachment) => !MODEL_IMAGES.has(attachment.mime)));
 					const note = files.length ? `\n${filesNote(files)}` : "";
 					return { output: [text(result.value + note), ...shown], ...(files.length && { details: { files } satisfies FileDetails }) };
@@ -152,7 +159,7 @@ export function figmaExtension(
 					const request = bridge.request("screenshot", { nodeId: node_id && nodeIdOf(node_id), scale });
 					const { result, attachments } = await awaitWithContext(request, context);
 					return {
-						output: [text(`Screenshot of ${result.nodeId} (${result.width} × ${result.height} px).`), ...images(attachments)],
+						output: [text(`Screenshot of ${result.nodeId} (${result.width} × ${result.height} px).`), ...(await images(attachments))],
 					};
 				},
 			}),

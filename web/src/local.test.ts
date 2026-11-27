@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { shrinkImage } from "./images";
 import { connectLocal, type LocalState } from "./local";
+
+// Node cannot draw images: the e2e run in Chrome checks the real copies.
+vi.mock("./images", async (actual) => ({ ...(await actual<typeof import("./images")>()), shrinkImage: vi.fn() }));
 
 /** A fake WebSocket to a helper: the test sends its messages, and keeps the messages of FigPal. */
 class FakeSocket extends EventTarget {
@@ -123,5 +127,18 @@ describe("local helper connection", () => {
 		expect(responses(sockets[0]!)).toEqual([
 			{ kind: "response", id: "7", ok: true, result: { value: "1" }, attachments: [{ name: "a.png", mime: "image/png", data: "AQID" }] },
 		]);
+	});
+
+	// Claude refuses a request with more than 20 images if one of them is over 3,000 px.
+	it("gives an outside agent a smaller copy of an image over 2000 px", async () => {
+		const { sockets, bridge } = start(true);
+		const large = new Uint8Array(33);
+		large.set([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0x0f, 0xa0, 0, 0, 0, 100]);
+		bridge.request.mockResolvedValueOnce({ result: { value: "1" }, attachments: [{ name: "a.png", mime: "image/png", bytes: large }] });
+		vi.mocked(shrinkImage).mockResolvedValue(new Blob([new Uint8Array([1, 2, 3])], { type: "image/webp" }));
+		sockets[0]!.receive(HELLO);
+		sockets[0]!.receive({ kind: "request", id: "7", type: "execute", params: { code: "return 1" } });
+		await vi.waitFor(() => expect(responses(sockets[0]!)).toHaveLength(1));
+		expect(responses(sockets[0]!)[0]).toMatchObject({ attachments: [{ name: "a.png", mime: "image/webp", data: "AQID" }] });
 	});
 });

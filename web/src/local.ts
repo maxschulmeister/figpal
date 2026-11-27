@@ -13,7 +13,7 @@ import {
 } from "@figpal/shared/local";
 import { INSTALL_COMMAND } from "@figpal/shared";
 import type { Bridge } from "./bridge";
-import { toBase64 } from "./extensions/figma";
+import { fitImage, toBase64 } from "./extensions/figma";
 
 /** The shared folders; whether the helper that keeps the folders is connected, and whether it shares the home folder. */
 export type LocalState = { folders: string[]; manage: boolean; home: boolean };
@@ -69,7 +69,8 @@ export function connectLocal(options: {
 		}
 		try {
 			const { result, attachments } = await options.bridge.request(message.type, message.params as never);
-			const files: WireAttachment[] = attachments.map(({ bytes, ...file }) => ({ ...file, data: toBase64(bytes) }));
+			const fitted = await Promise.all(attachments.map(fitImage));
+			const files: WireAttachment[] = fitted.map(({ bytes, ...file }) => ({ ...file, data: toBase64(bytes) }));
 			send(socket, { kind: "response", id: message.id, ok: true, result, attachments: files });
 		} catch (error) {
 			send(socket, { kind: "response", id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) });

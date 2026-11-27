@@ -10,6 +10,7 @@ import { IndexedDbStorage } from "@earendil-works/pi-durable/storage/indexeddb";
 import type { FileInfo } from "@figpal/shared";
 import type { Bridge } from "./bridge";
 import { figmaExtension } from "./extensions/figma";
+import { imagesExtension } from "./extensions/images";
 import { skillsExtension } from "./extensions/skills";
 import { subagentExtension } from "./extensions/subagent";
 import { localExtension } from "./extensions/local";
@@ -93,6 +94,7 @@ export async function startAgent(storage: Storage, options: AgentOptions): Promi
 	registry.install(skillsExtension());
 	registry.install(webExtension());
 	registry.install(subagentExtension({ subagentModels: options.subagentModels }));
+	registry.install(imagesExtension());
 	// Last: the user's rules come after FigPal's own instructions.
 	registry.install(rulesExtension(options.bridge));
 	// The file tools only while a helper shares folders.
