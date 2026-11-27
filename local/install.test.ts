@@ -6,10 +6,11 @@ import { appFolder, command, install, launchAgent, type Probe, stableNode, start
 
 const temp = (name: string) => mkdtempSync(join(tmpdir(), `figpal-${name}-`));
 
-/** The dist folder of the package: the command, a UI build and the plugin. */
+/** The dist folder of the package: the command, its supervisor of Antigravity, a UI build and the plugin. */
 function pack(assets: string[]) {
 	const from = temp("pack");
 	writeFileSync(join(from, "cli.mjs"), "// cli");
+	writeFileSync(join(from, "supervisor.mjs"), "// supervisor");
 	mkdirSync(join(from, "ui", "assets"), { recursive: true });
 	writeFileSync(join(from, "ui", "index.html"), assets.join(","));
 	for (const name of assets) writeFileSync(join(from, "ui", "assets", name), name);
@@ -53,6 +54,7 @@ describe("install", () => {
 		await install(pack(["index-a.js"]), where, system);
 
 		expect(readFileSync(join(app, "cli.mjs"), "utf8")).toBe("// cli");
+		expect(readFileSync(join(app, "supervisor.mjs"), "utf8")).toBe("// supervisor");
 		expect(readFileSync(join(app, "ui", "assets", "index-a.js"), "utf8")).toBe("index-a.js");
 		const manifest = join(app, "plugin", "manifest.json");
 		expect(existsSync(manifest)).toBe(true);

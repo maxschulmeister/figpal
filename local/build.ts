@@ -1,6 +1,6 @@
-// Builds the npm package "figpal" in dist/: the command (one file, with its dependencies), FigPal's UI, the plugin, the
-// license and the notices, with the licenses of the bundled libraries. `pnpm package` at the repo root builds the UI
-// and the plugin first.
+// Builds the npm package "figpal" in dist/: the command (one file, with its dependencies, and the supervisor of
+// Antigravity's ACP server), FigPal's UI, the plugin, the license and the notices, with the licenses of the bundled
+// libraries. `pnpm package` at the repo root builds the UI and the plugin first.
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,6 +27,8 @@ const { metafile } = await esbuild.build({
 	metafile: true,
 	logLevel: "warning",
 });
+// Next to cli.mjs: antigravity/process.ts finds it there.
+cpSync("antigravity/supervisor.mjs", "dist/supervisor.mjs");
 cpSync("../web/dist", "dist/ui", { recursive: true });
 mkdirSync("dist/plugin");
 cpSync("../plugin/dist/code.js", "dist/plugin/code.js");

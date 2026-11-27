@@ -17,6 +17,7 @@ const MARK = "# The FigPal command (figpal install).";
 const OLD_MARK = "# FigPal's MCP helper (pnpm local:install).";
 /** The command: .mjs, so that Node runs it as an ES module without a package.json next to it (Node 22.0 to 22.6). */
 const CLI = "cli.mjs";
+const SUPERVISOR = "supervisor.mjs";
 /** The UI files of a build stay this long: an open FigPal window loads parts of its build later. */
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -40,6 +41,9 @@ export type Where = { home: string; node: string; uid: number; version: string; 
 
 export const appFolder = (home: string, platform: Platform) =>
 	platform === "linux" ? join(home, ".local", "share", "figpal") : join(home, "Library", "Application Support", "FigPal");
+
+/** Antigravity's ACP server and its Google login: in the app folder, which the uninstall removes. */
+export const antigravityFolder = (home: string, platform: NodeJS.Platform) => join(appFolder(home, platform === "darwin" ? "darwin" : "linux"), "antigravity");
 
 /** The commands as [command, ...args]. */
 type Run = [string, ...string[]];
@@ -155,6 +159,8 @@ export function stableNode(execPath: string, path = process.env.PATH ?? ""): str
 /** Copies the package's files. The UI files of earlier builds stay for 30 days. */
 function copyFiles(from: string, app: string) {
 	cpSync(join(from, CLI), join(app, CLI));
+	// Next to the command: it starts Antigravity's ACP server (antigravity/process.ts).
+	cpSync(join(from, SUPERVISOR), join(app, SUPERVISOR));
 	cpSync(join(from, "plugin"), join(app, "plugin"), { recursive: true });
 	// A copy has the time of the install, so the age of a file is the age of its build here.
 	cpSync(join(from, "ui"), join(app, "ui"), { recursive: true });

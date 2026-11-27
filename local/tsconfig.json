@@ -1,5 +1,5 @@
 {
 	"extends": "../tsconfig.base.json",
 	"compilerOptions": { "types": ["node"], "allowImportingTsExtensions": true, "erasableSyntaxOnly": true, "lib": ["ES2022"] },
-	"include": ["*.ts"]
+	"include": ["*.ts", "antigravity/*.ts"]
 }

@@ -1,5 +1,5 @@
-// The FigPal agent: a pi-durable Harness for one Figma file, and its models: Claude, ChatGPT and the providers of pi-ai
-// with API keys, all through routes of the FigPal command.
+// The FigPal agent: a pi-durable Harness for one Figma file, and its models: Claude, ChatGPT, Google Antigravity and the
+// providers of pi-ai with API keys, all through routes of the FigPal command.
 
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { CompleteAttachment } from "@assistant-ui/react";
@@ -18,6 +18,7 @@ import { rulesExtension } from "./extensions/rules";
 import { webExtension } from "./extensions/web";
 import type { LocalFiles } from "./local";
 import { ANTHROPIC_ROUTE, fetchAsServer } from "./providers/anthropic-route";
+import { antigravityProvider } from "./providers/antigravity";
 import { apiKeyProviders, BASE_URL_ROUTES, forwardFetch, forwardUrl, SEARCH_TOOLS } from "./providers/catalog";
 import { CHATGPT_ROUTE, chatgptProvider } from "./providers/chatgpt";
 import { chipsForModel, clean, describeNode } from "./node-chips";
@@ -71,6 +72,8 @@ export function createAgentModels(credentials: CredentialStore, origin: string, 
 	models.setProvider(throughRoute(catalog(claudeProvider(origin)), { fetch: fetchAsServer }, () => `${origin}${ANTHROPIC_ROUTE}`));
 	// A browser WebSocket cannot send headers, so ChatGPT uses SSE.
 	models.setProvider(throughRoute(catalog(chatgptProvider()), { transport: "sse" }, () => `${origin}${CHATGPT_ROUTE}`));
+	// Its ACP server lists the models of the account.
+	models.setProvider(antigravityProvider(origin));
 	return models;
 }
 

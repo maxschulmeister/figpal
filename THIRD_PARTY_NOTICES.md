@@ -7,6 +7,8 @@ other projects:
   - [figma-console-mcp](https://github.com/southleft/figma-console-mcp) (MIT): the checks in
     `plugin/src/vendor/figma-console-mcp`, and the token export, version diff and design-system audit in
     `web/src/vendor/figma-console-mcp`. The license is next to the code.
+  - [pi-antigravity-acp-provider](https://github.com/zacbemis/pi-antigravity-acp-provider) (MIT): the connection to
+    Google Antigravity's ACP server in `local/antigravity`, changed for FigPal. The license is next to the code.
 - **Libraries** in the builds. The builds list each one with its license:
   - the UI: `licenses.md` in the UI build (`web/dist`, and `dist/ui` in the npm package);
   - the FigPal command and the plugin: `licenses.md` in the npm package.

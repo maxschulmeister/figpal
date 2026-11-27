@@ -1,10 +1,11 @@
-// The accounts: the Claude token, the ChatGPT login and the other providers with API keys (on the first screen and in
-// the settings), and the Figma token.
+// The accounts: the Claude token, the ChatGPT login, the Google Antigravity login and the other providers with API keys
+// (on the first screen and in the settings), and the Figma token.
 
-import type { AuthPrompt, CredentialStore, Provider } from "@earendil-works/pi-ai";
+import type { AuthEvent, AuthPrompt, CredentialStore, Provider } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";
 import { Button, ChevronDownIcon, Combobox, Input, Paragraph, Text } from "figma-kit";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { ANTIGRAVITY_ID, signOutOfAntigravity } from "./providers/antigravity";
 
 const CHATGPT_ID = "openai-codex";
 
@@ -22,13 +23,14 @@ type AccountsProps = {
 
 export function Accounts(props: AccountsProps) {
 	// The other providers of the models: pi-ai's providers with an API key (agent.ts).
-	const others = props.models.getProviders().filter((provider) => provider.id !== CLAUDE.id && provider.id !== CHATGPT_ID);
-	// FigPal needs one model account: without any, Claude and ChatGPT say so in red.
+	const others = props.models.getProviders().filter((provider) => ![CLAUDE.id, CHATGPT_ID, ANTIGRAVITY_ID].includes(provider.id));
+	// FigPal needs one model account: without any, Claude, ChatGPT and Antigravity say so in red.
 	const required = !props.models.getProviders().some((provider) => props.connected.has(provider.id));
 	return (
 		<div className="flex flex-col gap-5">
 			<TokenAccount {...props} kind={CLAUDE} required={required} />
 			<ChatGptAccount {...props} required={required} />
+			<AntigravityAccount {...props} required={required} />
 			{others
 				.filter((provider) => props.connected.has(provider.id))
 				.map((provider) => (
@@ -319,27 +321,45 @@ function TokenForm({ kind, onSave, onCancel }: { kind: TokenKind; onSave(token: 
 	);
 }
 
-type Login = { code?: string; url?: string; controller: AbortController };
+/** What a sign-in shows while it runs: the step, and the page that the user must open. */
+type Step = { text: ReactNode; url?: string };
+type Login = Step & { controller: AbortController };
 
-function ChatGptAccount({ connected, models, credentials, openExternal, onChange, required }: AccountsProps & { required: boolean }) {
+type OAuthAccountProps = AccountsProps & {
+	required: boolean;
+	id: string;
+	name: string;
+	/** Before the sign-in. */
+	intro: string;
+	signInLabel: string;
+	/** The first step, before the first event of the sign-in. */
+	starting: string;
+	/** The step of an event of the sign-in, if it changes the step. FigPal opens its URL. */
+	step(event: AuthEvent): Step | undefined;
+	signOut(): Promise<void>;
+};
+
+/** An account that signs in on a page of the provider: ChatGPT and Google Antigravity. */
+function OAuthAccount({ connected, models, openExternal, onChange, required, id, name, intro, signInLabel, starting, step, signOut }: OAuthAccountProps) {
 	const [login, setLogin] = useState<Login>();
 	const [error, setError] = useState<string>();
-	// Closing the settings stops the login. Without this, it polls OpenAI for up to 15 minutes.
+	// Closing the settings stops the login. Without this, the ChatGPT login polls OpenAI for up to 15 minutes.
 	const controller = login?.controller;
 	useEffect(() => () => controller?.abort(), [controller]);
 
 	const signIn = () => {
-		const current: Login = { controller: new AbortController() };
+		const current: Login = { text: starting, controller: new AbortController() };
 		setLogin(current);
 		setError(undefined);
 		models
-			.login(CHATGPT_ID, "oauth", {
+			.login(id, "oauth", {
 				signal: current.controller.signal,
 				prompt: () => Promise.reject(new Error("Not supported")),
 				notify: (event) => {
-					if (event.type !== "device_code") return;
-					setLogin({ ...current, code: event.userCode, url: event.verificationUri });
-					openExternal(event.verificationUri);
+					const next = step(event);
+					if (!next) return;
+					setLogin((login) => login && { ...login, ...next });
+					if (next.url) openExternal(next.url);
 				},
 			})
 			.then(onChange, (reason) => {
@@ -347,30 +367,22 @@ function ChatGptAccount({ connected, models, credentials, openExternal, onChange
 			})
 			.finally(() => setLogin(undefined));
 	};
-	const signOut = () => credentials.delete(CHATGPT_ID).then(onChange, (reason) => setError(errorText(reason)));
+	const signOutAndUpdate = () => signOut().then(onChange, (reason) => setError(errorText(reason)));
 
-	if (connected.has(CHATGPT_ID))
+	if (connected.has(id))
 		return (
-			<Account name="ChatGPT" status={status(true, ["Signed in", "Not signed in"])}>
+			<Account name={name} status={status(true, ["Signed in", "Not signed in"])}>
 				<div className="flex gap-2">
-					<Button onClick={signOut}>Sign out</Button>
+					<Button onClick={signOutAndUpdate}>Sign out</Button>
 				</div>
 				{error && <Text className="text-danger">{error}</Text>}
 			</Account>
 		);
 	return (
-		<Account name="ChatGPT" status={status(false, ["Signed in", "Not signed in"], required)}>
+		<Account name={name} status={status(false, ["Signed in", "Not signed in"], required)}>
 			{login ? (
 				<>
-					<Paragraph>
-						{login.code ? (
-							<>
-								On the page that opened, enter the code <strong className="select-all">{login.code}</strong>.
-							</>
-						) : (
-							"Starting the login…"
-						)}
-					</Paragraph>
+					<Paragraph>{login.text}</Paragraph>
 					<div className="flex gap-2">
 						{login.url && <Button onClick={() => openExternal(login.url!)}>Open the page again</Button>}
 						<Button onClick={() => login.controller.abort()}>Cancel</Button>
@@ -378,13 +390,62 @@ function ChatGptAccount({ connected, models, credentials, openExternal, onChange
 				</>
 			) : (
 				<>
-					<Paragraph>Use your ChatGPT plan.</Paragraph>
+					<Paragraph>{intro}</Paragraph>
 					<div className="flex gap-2">
-						<Button onClick={signIn}>Sign in with ChatGPT</Button>
+						<Button onClick={signIn}>{signInLabel}</Button>
 					</div>
 				</>
 			)}
 			{error && <Text className="text-danger">{error}</Text>}
 		</Account>
+	);
+}
+
+/** Device code login: the user enters a code on OpenAI's page. */
+function ChatGptAccount(props: AccountsProps & { required: boolean }) {
+	return (
+		<OAuthAccount
+			{...props}
+			id={CHATGPT_ID}
+			name="ChatGPT"
+			intro="Use your ChatGPT plan."
+			signInLabel="Sign in with ChatGPT"
+			starting="Starting the login…"
+			step={(event) =>
+				event.type === "device_code"
+					? {
+							text: (
+								<>
+									On the page that opened, enter the code <strong className="select-all">{event.userCode}</strong>.
+								</>
+							),
+							url: event.verificationUri,
+						}
+					: undefined
+			}
+			signOut={() => props.credentials.delete(CHATGPT_ID)}
+		/>
+	);
+}
+
+/** FigPal's command installs Antigravity's agent on the first sign-in, and keeps the Google login. */
+function AntigravityAccount(props: AccountsProps & { required: boolean }) {
+	return (
+		<OAuthAccount
+			{...props}
+			id={ANTIGRAVITY_ID}
+			name="Google Antigravity"
+			intro="Use your Google AI plan. The first sign-in installs Antigravity's agent: about 400 MB."
+			signInLabel="Sign in with Google"
+			starting="Starting the sign-in…"
+			step={(event) =>
+				event.type === "progress"
+					? { text: event.message }
+					: event.type === "auth_url"
+						? { text: "Sign in on the Google page that opened.", url: event.url }
+						: undefined
+			}
+			signOut={() => signOutOfAntigravity(location.origin, props.credentials)}
+		/>
 	);
 }
