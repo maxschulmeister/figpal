@@ -1,6 +1,8 @@
 # Publishes the npm package "figpal" (local/) for a tag such as v0.1.1, with provenance. The tag must be the version in
-# local/package.json. npm trusted publishing (OIDC): on npmjs.com, the package has this repository and release.yml as
-# its trusted publisher, so no token is necessary. npm refused a token (403: tokens that bypass 2FA cannot publish).
+# local/package.json. A push to the branch next (pnpm next) publishes a preview, for example 0.1.9-next.12, with the npm
+# tag "next": `npx figpal@next install`. `npx figpal` and figpal@latest never get a preview.
+# npm trusted publishing (OIDC): on npmjs.com, the package has this repository and release.yml as its trusted publisher,
+# so no token is necessary. npm refused a token (403: tokens that bypass 2FA cannot publish).
 # If the OIDC exchange fails, npm tells only at the log level "verbose". setup-node gets no registry-url: with it, npm
 # uses a placeholder token after the OIDC failure, and the error is a misleading "404 Not Found".
 name: Release
@@ -8,6 +10,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    branches: [next]
+
+# A new push to next replaces the preview that is not published yet.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 permissions:
   contents: read
@@ -25,7 +33,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: The tag is the version of the package
+        if: github.ref_type == 'tag'
         run: test "v$(node -p "require('./local/package.json').version")" = "$GITHUB_REF_NAME"
+      # The next patch version, before the build: the command and the UI show it. The run number makes each preview newer.
+      - name: The version of the preview
+        if: github.ref_type == 'branch'
+        working-directory: local
+        run: npm pkg set version="$(node -p "require('./package.json').version.replace(/\d+$/, (patch) => Number(patch) + 1)")-next.$GITHUB_RUN_NUMBER"
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm package
@@ -33,5 +47,5 @@ jobs:
       # ("workspace:*"), which pnpm cannot publish for the private package @figpal/shared.
       - run: npm pkg delete devDependencies
         working-directory: local
-      - run: npm publish --provenance --access public --loglevel verbose
+      - run: npm publish --provenance --access public --loglevel verbose --tag ${{ github.ref_type == 'tag' && 'latest' || 'next' }}
         working-directory: local

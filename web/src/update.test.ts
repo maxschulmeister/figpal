@@ -14,6 +14,13 @@ describe("update version", () => {
 		expect(updateVersion("dev", "0.1.6")).toBeUndefined();
 	});
 
+	// A preview (npx figpal@next install) is older than the release of its version: the release has all merged changes.
+	it("gives the release for a preview of the same or an older version", () => {
+		expect(updateVersion("0.1.9-next.5", "0.1.9")).toBe("0.1.9");
+		expect(updateVersion("0.1.9-next.5", "0.2.0")).toBe("0.2.0");
+		expect(updateVersion("0.1.9-next.5", "0.1.8")).toBeUndefined();
+	});
+
 	it("gives nothing for the version that the user closed, until a newer version comes out", () => {
 		expect(updateVersion("0.1.5", "0.1.6", "0.1.6")).toBeUndefined();
 		expect(updateVersion("0.1.5", "0.1.7", "0.1.6")).toBe("0.1.7");

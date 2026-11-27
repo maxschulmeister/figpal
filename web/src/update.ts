@@ -32,11 +32,14 @@ export async function startUpdate(): Promise<{ started: boolean }> {
 
 /** The numbers of a release version "1.2.3", or undefined (for example "dev", or a pre-release). */
 const parts = (version: string) => (/^\d+\.\d+\.\d+$/.test(version) ? version.split(".").map(Number) : undefined);
+/** A preview "1.2.3-next.4" (npx figpal@next install) comes before the release "1.2.3". */
+const PREVIEW = /^(\d+\.\d+\.\d+)-next\.\d+$/;
 
 /** The latest version when it is newer than the running one, and the user did not close its notice. */
 export function updateVersion(running: string, latest: string, closed?: string): string | undefined {
-	const [have, next] = [parts(running), parts(latest)];
+	const preview = PREVIEW.exec(running)?.[1];
+	const [have, next] = [parts(preview ?? running), parts(latest)];
 	if (!have || !next || latest === closed) return undefined;
 	const difference = next.map((part, index) => part - have[index]!).find((part) => part !== 0) ?? 0;
-	return difference > 0 ? latest : undefined;
+	return difference > 0 || (preview && difference === 0) ? latest : undefined;
 }
