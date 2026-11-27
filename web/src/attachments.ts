@@ -8,7 +8,8 @@ import {
 	SimpleImageAttachmentAdapter,
 	SimpleTextAttachmentAdapter,
 } from "@assistant-ui/react";
-import { MODEL_IMAGE_MAX_PX, MODEL_IMAGES } from "@figpal/shared";
+import { MODEL_IMAGES } from "@figpal/shared";
+import { shrinkImage } from "./images";
 
 /** Pasted text from this size on becomes an attachment, not text in the message (the agent chose the numbers). */
 export const isLongText = (text: string) => text.length >= 2000 || text.split("\n").length >= 30;
@@ -43,18 +44,9 @@ class Images extends SimpleImageAttachmentAdapter {
 	}
 	/** A large image gets smaller, as for screenshots: some models refuse images over 2000 px. */
 	override async send(attachment: PendingAttachment, options?: { signal?: AbortSignal }) {
-		const bitmap = await createImageBitmap(attachment.file);
-		const scale = MODEL_IMAGE_MAX_PX / Math.max(bitmap.width, bitmap.height);
-		if (scale >= 1) {
-			bitmap.close();
-			return super.send(attachment, options);
-		}
-		const canvas = new OffscreenCanvas(Math.round(bitmap.width * scale), Math.round(bitmap.height * scale));
-		canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-		bitmap.close();
-		// WebP keeps transparency and stays small; all of FigPal's models read it.
-		const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.9 });
-		return super.send({ ...attachment, file: new File([blob], attachment.name, { type: "image/webp" }) }, options);
+		const image = await shrinkImage(attachment.file);
+		if (image === attachment.file) return super.send(attachment, options);
+		return super.send({ ...attachment, file: new File([image], attachment.name, { type: image.type }) }, options);
 	}
 }
 
