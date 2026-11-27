@@ -10,7 +10,8 @@
 //                             loads, from the folder ui/ next to this file (the package has it; the repo does not).
 //                             And the bridge: it shares the folders of ~/.config/figpal/local.json with FigPal's agent
 //                             (the user adds them in Settings → General), and passes the requests of outside agents to
-//                             FigPal. The install starts it at login.
+//                             FigPal. The install starts it at login. It also runs Google Antigravity's ACP server
+//                             for FigPal's agent, once the user signs in to Antigravity (antigravity/).
 //   figpal mcp                an MCP server on stdin and stdout, for an outside agent: `<agent> mcp add figpal -- figpal
 //                             mcp`. The agent acts on the open Figma file through FigPal. It uses the running bridge,
 //                             or is the bridge itself when none runs, as figma-console-mcp (without the folders).
@@ -32,7 +33,7 @@ import { parseArgs } from "node:util";
 import { UI_PORT } from "@figpal/shared";
 import { LOCAL_ORIGINS, LOCAL_PORTS } from "@figpal/shared/local";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { install, nativeSystem, stableNode, startUpdate, uninstall } from "./install.ts";
+import { antigravityFolder, install, nativeSystem, stableNode, startUpdate, uninstall } from "./install.ts";
 import { joinBridge, mcpServer } from "./mcp.ts";
 import { startHelper } from "./server.ts";
 import { startUiServer } from "./ui-server.ts";
@@ -131,8 +132,9 @@ if (positionals[0] === "install" || positionals[0] === "uninstall") {
 	// stable path that the install chose): the install that the script starts must find the same node first.
 	const node = stableNode(process.execPath, dirname(process.argv0));
 	const update = () => startUpdate({ home: homedir(), node, platform: process.platform === "darwin" ? "darwin" : "linux" }, open);
+	const antigravity = antigravityFolder(homedir(), process.platform);
 	const ui = existsSync(values.ui)
-		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://localhost:${uiPort}`, version: VERSION, update }).catch(
+		? await startUiServer({ root: values.ui, port: uiPort, origin: `http://localhost:${uiPort}`, version: VERSION, update, antigravity }).catch(
 				(error: NodeJS.ErrnoException) => {
 					if (error.code !== "EADDRINUSE") throw error;
 					console.error(`The port ${uiPort} is in use: FigPal runs already, or another program uses the port. FigPal needs it.`);

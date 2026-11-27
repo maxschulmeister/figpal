@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -267,5 +267,17 @@ describe("UI server", () => {
 		const reply = await call("/api/update", { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin" } });
 		expect([reply.status, reply.headers["content-type"], reply.body]).toEqual([200, "application/json", '{"started":true}']);
 		expect(updates).toBe(1);
+	});
+
+	it("passes the Antigravity routes of the UI to Antigravity, and refuses other web pages", async () => {
+		const antigravity = join(home, "antigravity");
+		mkdirSync(join(antigravity, "gemini", "antigravity-acp"), { recursive: true });
+		writeFileSync(join(antigravity, "gemini", "antigravity-acp", "acp_token.json"), '{"refresh_token":"x"}');
+		server = await startUiServer({ root: ui(), port: PORT, origin: ORIGIN, version: "1.2.3", update: noUpdate, antigravity });
+		expect((await call("/api/antigravity/logout", { method: "POST", headers: { origin: "https://evil.example" } })).status).toBe(403);
+		expect(existsSync(join(antigravity, "gemini", "antigravity-acp", "acp_token.json"))).toBe(true);
+		const reply = await call("/api/antigravity/logout", { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin" } });
+		expect(reply.status).toBe(200);
+		expect(existsSync(join(antigravity, "gemini", "antigravity-acp", "acp_token.json"))).toBe(false);
 	});
 });
