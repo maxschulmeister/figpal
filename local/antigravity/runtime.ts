@@ -1,8 +1,9 @@
 // The Antigravity ACP server as a pi-ai model. Antigravity is an agent with its own loop: FigPal's tools reach it on a
 // local MCP server (bridge.ts). When Antigravity calls one, this ends the pi-ai stream with "toolUse", FigPal's agent
 // (pi-durable, in the browser) runs the tool, and the next stream gives the result to the waiting MCP call: the
-// Antigravity turn continues. Antigravity's own tools (shell, file edits) ask for permission, and FigPal refuses them:
-// FigPal can change only the Figma file and the shared folders.
+// Antigravity turn continues. In the mode "default", Antigravity asks for permission before each tool: FigPal allows its
+// own tools and refuses Antigravity's tools (shell, file edits), because FigPal can change only the Figma file and the
+// shared folders.
 
 import type {
 	ContentBlock,
@@ -24,7 +25,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
 
 import { isGoogleLoginMarker, newGoogleLoginMarker } from "./auth.ts";
-import { PiMcpBridge, type PiToolInvocation, piToolFingerprint } from "./bridge.ts";
+import { MCP_SERVER, PiMcpBridge, type PiToolInvocation, piToolFingerprint } from "./bridge.ts";
 import { AntigravityAcpConnection, type AntigravityConnectionOptions } from "./connection.ts";
 import { buildPromptParts, currentSystemInstructions, type PromptParts } from "./context.ts";
 import { abortError, AntigravityAcpError } from "./errors.ts";
@@ -67,6 +68,8 @@ interface Binding {
 	pendingContextFingerprint: string;
 	writer: PiEventWriter | undefined;
 	pendingTools: Map<string, PendingPiTool>;
+	/** The tool calls that Antigravity marked as MCP calls: calls of FigPal's tools. */
+	mcpCalls: Set<string>;
 	/** Latest `usage_update.used` and the inference count of the running ACP prompt. */
 	contextUsed: number | undefined;
 	inferences: number;
@@ -561,7 +564,7 @@ export class AntigravityRuntime {
 			...launch,
 			handlers: {
 				onUpdate: (notification) => this.consumeUpdate(binding, notification),
-				onPermission: (request) => this.refusePermission(binding, request),
+				onPermission: (request) => this.decidePermission(binding, request),
 			},
 		});
 		try {
@@ -601,6 +604,7 @@ export class AntigravityRuntime {
 				pendingContextFingerprint: messagesFingerprint([]),
 				writer,
 				pendingTools: new Map(),
+				mcpCalls: new Set(),
 				contextUsed: undefined,
 				inferences: 0,
 				toolBatchTimer: undefined,
@@ -673,12 +677,26 @@ export class AntigravityRuntime {
 		});
 	}
 
-	/** Antigravity's own tools (shell, file edits) would run outside FigPal's shared folders: FigPal refuses them. */
-	private async refusePermission(binding: Binding | undefined, request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-		const title = request.toolCall.title?.replace(/\s+/gu, " ").trim().slice(0, 200) || "a tool";
+	/**
+	 * FigPal's tools may run: FigPal runs them itself. Antigravity's own tools (shell, file edits) would run outside
+	 * FigPal's shared folders: FigPal refuses them.
+	 */
+	private async decidePermission(binding: Binding | undefined, request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+		const call = request.toolCall;
+		const meta = call._meta as Record<string, unknown> | null | undefined;
+		const input = call.rawInput as Record<string, unknown> | null | undefined;
+		// A direct MCP call (agy marks it), or one through call_mcp_tool, which names the server.
+		const figpal = meta?.is_mcp_tool_call === true || binding?.mcpCalls.has(call.toolCallId) === true || input?.ServerName === MCP_SERVER;
+		const choose = (...kinds: string[]) => {
+			const option = kinds.map((kind) => request.options.find((option) => option.kind === kind)).find(Boolean);
+			return option ? { outcome: { outcome: "selected" as const, optionId: option.optionId } } : { outcome: { outcome: "cancelled" as const } };
+		};
+		if (figpal) return choose("allow_once", "allow_always");
+		const title = call.title?.replace(/\s+/gu, " ").trim().slice(0, 200) || "a tool";
 		binding?.writer?.thinking(`\n[FigPal refused Antigravity's own tool: ${title}. Use FigPal's tools.]\n`);
-		const reject = request.options.find((option) => option.kind === "reject_once") ?? request.options.find((option) => option.kind === "reject_always");
-		return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } };
+		// The log tells the form of a refused request, without its values.
+		console.error("FigPal refused an Antigravity tool:", JSON.stringify({ title, kind: call.kind, meta: Object.keys(meta ?? {}), input: Object.keys(input ?? {}) }));
+		return choose("reject_once", "reject_always");
 	}
 
 	private consumeUpdate(binding: Binding | undefined, notification: SessionNotification): void {
@@ -690,6 +708,11 @@ export class AntigravityRuntime {
 			binding.writer?.fail(new AntigravityAcpError("protocol", "Antigravity changed the permission mode unexpectedly; session closed"), false);
 			void this.invalidateBinding(binding).catch(() => undefined);
 			return;
+		}
+		const update = notification.update;
+		if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
+			if (update.status === "completed" || update.status === "failed") binding.mcpCalls.delete(update.toolCallId);
+			else if (update._meta?.is_mcp_tool_call === true) binding.mcpCalls.add(update.toolCallId);
 		}
 		if (!binding.writer) return;
 		for (const activity of mapSessionUpdate(notification)) {

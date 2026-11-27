@@ -141,6 +141,17 @@ describe("Antigravity routes", { timeout: 20_000 }, () => {
 		expect(prompts()[0]!.prompt[0]!.resource!.text).toContain("the tool figma_execute is figpal_figma_execute");
 	});
 
+	it("lets Antigravity call FigPal's tools through call_mcp_tool", async () => {
+		const marker = await signIn();
+		const first = context("Use the proxy", [echo]);
+		const call = await ask(marker, first);
+		const toolCall = call.content.find((block) => block.type === "toolCall");
+		expect(toolCall).toMatchObject({ name: "echo", arguments: { text: "from antigravity" } });
+		const result = { role: "toolResult" as const, toolCallId: toolCall!.id, toolName: "echo", content: [{ type: "text" as const, text: "echoed" }], isError: false, timestamp: 3 };
+		const answer = await ask(marker, { messages: [...first.messages, call, result] });
+		expect(answer.content.at(-1)).toEqual({ type: "text", text: "Tool said: echoed" });
+	});
+
 	it("refuses Antigravity's own tools", async () => {
 		const answer = await ask(await signIn(), context("Run a native command"));
 		expect(answer.content.at(-1)).toEqual({ type: "text", text: "Decision: reject-once" });

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // A fake Antigravity ACP server for the tests (after pi-antigravity-acp-provider's fixture). The prompt text selects
-// the answer: "tool" calls FigPal's tool figpal_echo, "native" asks to run its own tool, "hang" waits for a cancel,
-// and anything else answers "Hello". FAKE_AGENT_LOG gets the prompts.
+// the answer: "tool" calls FigPal's tool figpal_echo, "proxy" calls it through call_mcp_tool, "native" asks to run its
+// own tool, "hang" waits for a cancel, and anything else answers "Hello". As agy in the mode "default", it asks for
+// permission before each tool. FAKE_AGENT_LOG gets the prompts.
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -28,9 +29,7 @@ for await (const line of readline.createInterface({ input: process.stdin, crlfDe
 		if (hanging !== undefined) send({ jsonrpc: "2.0", id: hanging, result: { stopReason: "cancelled" } });
 		hanging = undefined;
 	} else if (id === "permission" && method === undefined) {
-		const decision = message.result?.outcome?.optionId ?? message.result?.outcome?.outcome;
-		notify(permission.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Decision: ${decision}` } });
-		send({ jsonrpc: "2.0", id: permission.id, result: { stopReason: "end_turn" } });
+		permission.answer(message.result?.outcome?.optionId ?? message.result?.outcome?.outcome);
 	} else if (method === "initialize") {
 		send({
 			jsonrpc: "2.0",
@@ -83,26 +82,30 @@ function prompt(id, params) {
 	const text = params.prompt.filter((block) => block.type === "text").map((block) => block.text).join("\n");
 	const continuing = text.includes("Continue the current FigPal user request");
 	const end = () => send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } } });
+	const reply = (text) => {
+		notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+		end();
+	};
+	/** Asks for permission to run `toolCall`, then runs `allowed` or says that it may not. */
+	const ask = (toolCall, allowed) => {
+		permission = { answer: (decision) => (decision === "allow-once" ? allowed() : reply(`Decision: ${decision}`)) };
+		const options = [
+			{ optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+			{ optionId: "reject-once", name: "Reject", kind: "reject_once" },
+		];
+		send({ jsonrpc: "2.0", id: "permission", method: "session/request_permission", params: { sessionId, toolCall, options } });
+	};
+	const echo = () => void callTool(mcpServer, { text: "from antigravity" }).then((result) => reply(`Tool said: ${result}`));
 	if (!continuing && text.includes("tool") && mcpServer) {
-		void callTool(mcpServer, { text: "from antigravity" }).then((result) => {
-			notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Tool said: ${result}` } });
-			end();
-		});
+		// agy marks its MCP calls in the tool_call update, not in the permission request.
+		notify(sessionId, { sessionUpdate: "tool_call", toolCallId: "mcp-1", title: "Running figpal_echo", kind: "other", status: "pending", _meta: { is_mcp_tool_call: true } });
+		ask({ toolCallId: "mcp-1", title: "Run figpal_echo?" }, echo);
+	} else if (!continuing && text.includes("proxy") && mcpServer) {
+		const call = { toolCallId: "proxy-1", title: "MCP Tool figpal_echo", kind: "execute", rawInput: { ServerName: "figpal", ToolName: "figpal_echo", Arguments: { text: "from antigravity" } } };
+		ask(call, echo);
 	} else if (text.includes("native")) {
-		permission = { id, sessionId };
-		send({
-			jsonrpc: "2.0",
-			id: "permission",
-			method: "session/request_permission",
-			params: {
-				sessionId,
-				toolCall: { toolCallId: "native-1", title: "Run rm -rf ~", kind: "execute" },
-				options: [
-					{ optionId: "allow-once", name: "Allow once", kind: "allow_once" },
-					{ optionId: "reject-once", name: "Reject", kind: "reject_once" },
-				],
-			},
-		});
+		notify(sessionId, { sessionUpdate: "tool_call", toolCallId: "native-1", title: "Run rm -rf ~", kind: "execute", status: "pending" });
+		ask({ toolCallId: "native-1", title: "Run rm -rf ~", kind: "execute", rawInput: { ServerName: "elsewhere" } }, () => reply("Ran it"));
 	} else if (text.includes("hang")) hanging = id;
 	else {
 		notify(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Checking" } });

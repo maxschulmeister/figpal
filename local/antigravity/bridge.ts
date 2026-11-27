@@ -15,6 +15,8 @@ import { projectToolSchema } from "./schema.ts";
 
 /** Antigravity's own tools have other names. */
 export const TOOL_PREFIX = "figpal_";
+/** The name of the MCP server in the session. FigPal's GEMINI_HOME has no other MCP servers. */
+export const MCP_SERVER = "figpal";
 const BODY_LIMIT = 1024 * 1024;
 const PROGRESS_KEEPALIVE_MS = 15_000;
 
@@ -101,7 +103,7 @@ export class PiMcpBridge {
 		if (!this.url) throw new AntigravityAcpError("spawn", "MCP bridge is not listening");
 		return {
 			type: "http",
-			name: "figpal",
+			name: MCP_SERVER,
 			url: this.url,
 			headers: [{ name: "Authorization", value: `Bearer ${this.token}` }],
 		};
