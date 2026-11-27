@@ -12,7 +12,8 @@
 		"lint": "biome lint",
 		"package": "pnpm build && pnpm --filter figpal build",
 		"local:install": "pnpm package && node local/dist/cli.mjs install",
-		"local:uninstall": "node local/cli.ts uninstall"
+		"local:uninstall": "node local/cli.ts uninstall",
+		"next": "sh scripts/next.sh"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.4",
