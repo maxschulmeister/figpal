@@ -1,8 +1,11 @@
-import { BROWSER_HEADERS, ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
+import { homedir } from "node:os";
+import { ANTIGRAVITY_ROUTE, BROWSER_HEADERS, ROUTES, USER_AGENT_HEADER } from "@figpal/shared/routes";
 import { CLAUDE_CONFIG_ROUTE } from "@figpal/shared/claude";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin, type ProxyOptions } from "vite";
+import { antigravityRoutes } from "../local/antigravity/routes.ts";
+import { antigravityFolder } from "../local/install.ts";
 import { licenses } from "../local/licenses.ts";
 import { discoverClaude, serveClaudeConfig } from "../local/claude.ts";
 
@@ -36,6 +39,24 @@ const claudeSettings: Plugin = {
 	},
 };
 
+/** Antigravity as the FigPal command runs it, with the ACP server and the Google login of the installed FigPal. */
+const antigravity: Plugin = {
+	name: "figpal-antigravity",
+	configureServer(server) {
+		const routes = antigravityRoutes({ root: antigravityFolder(homedir(), process.platform) });
+		server.httpServer?.on("close", () => void routes.close());
+		server.middlewares.use((incoming, response, next) => {
+			const path = incoming.url?.split("?")[0] ?? "";
+			if (!path.startsWith(`${ANTIGRAVITY_ROUTE}/`)) return next();
+			// As the FigPal command: only the page of this server.
+			const { host, origin, "sec-fetch-site": site } = incoming.headers;
+			if ((origin !== undefined && origin !== `http://${host}`) || (site !== undefined && site !== "same-origin"))
+				return void response.writeHead(403).end("Forbidden");
+			routes.handle(incoming, response, path.slice(ANTIGRAVITY_ROUTE.length));
+		});
+	},
+};
+
 /** licenses.md in the build: the bundled libraries with their licenses (THIRD_PARTY_NOTICES.md). */
 const licenseFile: Plugin = {
 	name: "figpal-licenses",
@@ -46,6 +67,6 @@ const licenseFile: Plugin = {
 };
 
 export default defineConfig({
-	plugins: [react(), tailwindcss(), licenseFile, claudeSettings],
+	plugins: [react(), tailwindcss(), licenseFile, claudeSettings, antigravity],
 	server: { port: 5173, strictPort: true, proxy },
 });

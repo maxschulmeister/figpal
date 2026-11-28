@@ -9,8 +9,9 @@ import { createServer, type IncomingMessage, request as httpRequest, type Server
 import { request as httpsRequest } from "node:https";
 import { extname, resolve, sep } from "node:path";
 import { pipeline } from "node:stream";
-import { BROWSER_HEADERS, FORWARD_ROUTE, ROUTES, UPDATE_ROUTE, USER_AGENT_HEADER } from "@figpal/shared/routes";
+import { ANTIGRAVITY_ROUTE, BROWSER_HEADERS, FORWARD_ROUTE, ROUTES, UPDATE_ROUTE, USER_AGENT_HEADER } from "@figpal/shared/routes";
 import { CLAUDE_CONFIG_ROUTE } from "@figpal/shared/claude";
+import { antigravityRoutes } from "./antigravity/routes.ts";
 import { discoverClaude, serveClaudeConfig } from "./claude.ts";
 
 export type UiServer = { port: number; close(): Promise<void> };
@@ -51,10 +52,13 @@ export async function startUiServer(options: {
 	version: string;
 	/** Starts the update of FigPal (install.ts). */
 	update(): Promise<{ started: boolean }>;
+	/** The folder of Antigravity's ACP server and its login. Without it, no Antigravity routes. */
+	antigravity?: string;
 	/** Tests: where a route request goes, in place of its server. */
 	route?: (target: URL) => URL;
 }): Promise<UiServer> {
 	const claude = await discoverClaude();
+	const antigravity = options.antigravity === undefined ? undefined : antigravityRoutes({ root: options.antigravity });
 	const root = resolve(options.root);
 	const hosts = [`127.0.0.1:${options.port}`, `localhost:${options.port}`];
 	const end = (response: ServerResponse, status: number, text: string) => response.writeHead(status, { "content-type": "text/plain; charset=utf-8" }).end(text);
@@ -113,6 +117,8 @@ export async function startUiServer(options: {
 		if (url.pathname.startsWith("/api/")) {
 			if (!fromUi(incoming)) return end(response, 403, "Forbidden");
 			if (url.pathname === CLAUDE_CONFIG_ROUTE) return serveClaudeConfig(incoming, response, claude);
+			if (antigravity && url.pathname.startsWith(`${ANTIGRAVITY_ROUTE}/`))
+				return antigravity.handle(incoming, response, url.pathname.slice(ANTIGRAVITY_ROUTE.length));
 			if (url.pathname === UPDATE_ROUTE) {
 				if (incoming.method !== "POST") return end(response, 405, "Method not allowed");
 				return void options.update().then(
@@ -132,10 +138,13 @@ export async function startUiServer(options: {
 	});
 	return {
 		port: options.port,
-		close: () =>
-			new Promise((resolve) => {
+		close: async () => {
+			// The Antigravity servers stop too.
+			await antigravity?.close();
+			await new Promise<void>((resolve) => {
 				server.closeAllConnections();
 				server.close(() => resolve());
-			}),
+			});
+		},
 	};
 }

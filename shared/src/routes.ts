@@ -14,6 +14,9 @@ export const ROUTES = {
 /** `/api/forward/<host>/<path>` goes to `https://<host>/<path>`: for the providers that allow no browser requests. */
 export const FORWARD_ROUTE = "/api/forward";
 
+/** Google Antigravity, through its ACP server, which the FigPal command runs (local/antigravity/routes.ts). */
+export const ANTIGRAVITY_ROUTE = "/api/antigravity";
+
 /** A POST starts the update of FigPal (local/install.ts). The answer: `{ started: boolean }`. */
 export const UPDATE_ROUTE = "/api/update";
 

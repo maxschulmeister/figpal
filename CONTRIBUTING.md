@@ -16,8 +16,9 @@ The repo has these parts:
 
 - `plugin/`: the plugin's main thread (`code.js`) and its manifest.
 - `web/`: the UI in the plugin window, with the agent.
-- `local/`: the npm package `figpal`. It serves the UI on `http://localhost:9310`, forwards the model requests, and is
-  the MCP server for outside agents (`figpal mcp`).
+- `local/`: the npm package `figpal`. It serves the UI on `http://localhost:9310`, forwards the model requests, runs
+  Google Antigravity's ACP server for the agent (`local/antigravity`), and is the MCP server for outside agents
+  (`figpal mcp`).
 - `shared/`: the messages between these parts.
 
 ## Checks

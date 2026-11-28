@@ -37,8 +37,8 @@ export const THINKING_LABELS: Record<ModelThinkingLevel, string> = {
 export const TEXT_SIZES = ["small", "medium", "large"] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];
 
-/** FigPal's names of its two accounts. They come first; the other providers follow by pi-ai's name. */
-const ACCOUNTS: Record<string, string> = { anthropic: "Claude", "openai-codex": "ChatGPT" };
+/** FigPal's names of its own accounts. They come first; the other providers follow by pi-ai's name. */
+const ACCOUNTS: Record<string, string> = { anthropic: "Claude", "openai-codex": "ChatGPT", "antigravity-acp": "Antigravity" };
 
 /** The model of new threads until the user picks one. Other providers: their first model. */
 const DEFAULT_MODELS: Record<string, string> = {
@@ -65,7 +65,7 @@ export function parseModelRef(text: string): ModelRef | undefined {
 export type ModelGroup = { provider: ProviderLabel; models: Model<Api>[] };
 
 /**
- * The models of the connected providers: Claude and ChatGPT first, then the others by name. A dated ID repeats a
+ * The models of the connected providers: Claude, ChatGPT and Antigravity first, then the others by name. A dated ID repeats a
  * model that is also in the list without a date.
  */
 export function modelGroups(models: Models, connected: ReadonlySet<string>): ModelGroup[] {
