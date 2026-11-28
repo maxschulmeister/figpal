@@ -1,7 +1,7 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk/unstable";
 import { getCurrentSystemPrompt, type Context, type Message } from "@earendil-works/pi-ai";
 
-import { TOOL_PREFIX } from "./bridge.ts";
+import { MCP_SERVER, TOOL_PREFIX } from "./bridge.ts";
 import { AntigravityAcpError } from "./errors.ts";
 
 const MAX_RECONSTRUCTION_CHARS = 32_000;
@@ -17,7 +17,7 @@ const CONTINUATION_LABEL =
 	`Continue the current FigPal user request below. Incorporate the latest tool results from the FigPal context without repeating completed tool actions.\n\n${REQUEST_HEADING}`;
 const WARM_CONTINUATION =
 	"Continue the current FigPal user request already given in this session. Incorporate the latest tool results without repeating completed tool actions.";
-const TOOL_NOTE = `FigPal's tools are on the MCP server "figpal", with the prefix "${TOOL_PREFIX}": for example, the tool figma_execute is ${TOOL_PREFIX}figma_execute.`;
+const TOOL_NOTE = `FigPal's tools are on the MCP server "${MCP_SERVER}", with the prefix "${TOOL_PREFIX}": for example, the tool figma_execute is ${TOOL_PREFIX}figma_execute.`;
 const LINE_BREAKS = /[\r\n\v\f\u0085\u2028\u2029]+/gu;
 /**
  * agy runs `/plan` when it is matched per text block at the start or after (Python) whitespace, and `/logout`

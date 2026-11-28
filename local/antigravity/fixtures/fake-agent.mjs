@@ -86,26 +86,29 @@ function prompt(id, params) {
 		notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 		end();
 	};
-	/** Asks for permission to run `toolCall`, then runs `allowed` or says that it may not. */
-	const ask = (toolCall, allowed) => {
+	/** Asks for permission to run `toolCall`, then runs `allowed` or says that it may not. `update` goes in the same write. */
+	const ask = (toolCall, allowed, update) => {
 		permission = { answer: (decision) => (decision === "allow-once" ? allowed() : reply(`Decision: ${decision}`)) };
 		const options = [
 			{ optionId: "allow-once", name: "Allow once", kind: "allow_once" },
 			{ optionId: "reject-once", name: "Reject", kind: "reject_once" },
 		];
-		send({ jsonrpc: "2.0", id: "permission", method: "session/request_permission", params: { sessionId, toolCall, options } });
+		const request = { jsonrpc: "2.0", id: "permission", method: "session/request_permission", params: { sessionId, toolCall, options } };
+		const lines = [...(update ? [{ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } }] : []), request];
+		process.stdout.write(lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
 	};
 	const echo = () => void callTool(mcpServer, { text: "from antigravity" }).then((result) => reply(`Tool said: ${result}`));
 	if (!continuing && text.includes("tool") && mcpServer) {
-		// agy marks its MCP calls in the tool_call update, not in the permission request.
-		notify(sessionId, { sessionUpdate: "tool_call", toolCallId: "mcp-1", title: "Running figpal_echo", kind: "other", status: "pending", _meta: { is_mcp_tool_call: true } });
-		ask({ toolCallId: "mcp-1", title: "Run figpal_echo?" }, echo);
+		// agy marks its MCP calls in the tool_call update, not in the permission request, and can send both in one chunk.
+		const update = { sessionUpdate: "tool_call", toolCallId: "mcp-1", title: "Running figpal_echo", kind: "other", status: "pending", _meta: { is_mcp_tool_call: true } };
+		ask({ toolCallId: "mcp-1", title: "Run figpal_echo?" }, echo, update);
 	} else if (!continuing && text.includes("proxy") && mcpServer) {
 		const call = { toolCallId: "proxy-1", title: "MCP Tool figpal_echo", kind: "execute", rawInput: { ServerName: "figpal", ToolName: "figpal_echo", Arguments: { text: "from antigravity" } } };
 		ask(call, echo);
 	} else if (text.includes("native")) {
 		notify(sessionId, { sessionUpdate: "tool_call", toolCallId: "native-1", title: "Run rm -rf ~", kind: "execute", status: "pending" });
-		ask({ toolCallId: "native-1", title: "Run rm -rf ~", kind: "execute", rawInput: { ServerName: "elsewhere" } }, () => reply("Ran it"));
+		// The model writes rawInput: it can name FigPal's server in the arguments of a native tool.
+		ask({ toolCallId: "native-1", title: "Run rm -rf ~", kind: "execute", rawInput: { CommandLine: "rm -rf ~", ServerName: "figpal", ToolName: "figpal_echo" } }, () => reply("Ran it"));
 	} else if (text.includes("hang")) hanging = id;
 	else {
 		notify(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Checking" } });

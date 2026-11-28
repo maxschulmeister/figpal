@@ -8,6 +8,7 @@
 import type {
 	ContentBlock,
 	InitializeResponse,
+	PermissionOption,
 	RequestPermissionRequest,
 	RequestPermissionResponse,
 	SessionNotification,
@@ -25,11 +26,12 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
 
 import { isGoogleLoginMarker, newGoogleLoginMarker } from "./auth.ts";
-import { MCP_SERVER, PiMcpBridge, type PiToolInvocation, piToolFingerprint } from "./bridge.ts";
+import { MCP_SERVER, PiMcpBridge, type PiToolInvocation, piToolFingerprint, TOOL_PREFIX } from "./bridge.ts";
 import { AntigravityAcpConnection, type AntigravityConnectionOptions } from "./connection.ts";
 import { buildPromptParts, currentSystemInstructions, type PromptParts } from "./context.ts";
 import { abortError, AntigravityAcpError } from "./errors.ts";
 import { mapSessionUpdate } from "./events.ts";
+import { isJsonObject } from "./json.ts";
 import { acpEnvironment, type AntigravityLaunch, clearGoogleLogin, hasSavedGoogleLogin, removeConversation, workspaceFolder } from "./launch.ts";
 import { type AntigravityModel, FALLBACK_MODELS, projectModels, resolveAcpModelId } from "./models.ts";
 import { OAuthCapture } from "./oauth.ts";
@@ -452,6 +454,7 @@ export class AntigravityRuntime {
 				if (onTurnAbort) options.signal?.removeEventListener("abort", onTurnAbort);
 				// ACP can time out before FigPal's tool finishes; replay late results in a new prompt, not a dead continuation.
 				cancelPiTools(binding, "Antigravity prompt ended before FigPal returned the tool result");
+				binding.mcpCalls.clear();
 				completeTurn?.();
 				binding.turnCompletion = undefined;
 				binding.abortRequested = false;
@@ -683,20 +686,26 @@ export class AntigravityRuntime {
 	 */
 	private async decidePermission(binding: Binding | undefined, request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
 		const call = request.toolCall;
-		const meta = call._meta as Record<string, unknown> | null | undefined;
-		const input = call.rawInput as Record<string, unknown> | null | undefined;
-		// A direct MCP call (agy marks it), or one through call_mcp_tool, which names the server.
-		const figpal = meta?.is_mcp_tool_call === true || binding?.mcpCalls.has(call.toolCallId) === true || input?.ServerName === MCP_SERVER;
-		const choose = (...kinds: string[]) => {
-			const option = kinds.map((kind) => request.options.find((option) => option.kind === kind)).find(Boolean);
+		// agy sets _meta; the model writes rawInput, so only its exact call_mcp_tool form counts.
+		const marked = call._meta?.is_mcp_tool_call === true || binding?.mcpCalls.has(call.toolCallId) === true;
+		const input = isJsonObject(call.rawInput) ? call.rawInput : undefined;
+		const proxied =
+			input !== undefined &&
+			Object.keys(input).every((key) => PROXY_KEYS.includes(key)) &&
+			input.ServerName === MCP_SERVER &&
+			typeof input.ToolName === "string" &&
+			input.ToolName.startsWith(TOOL_PREFIX);
+		const choose = (kind: PermissionOption["kind"]) => {
+			const option = request.options.find((option) => option.kind === kind);
 			return option ? { outcome: { outcome: "selected" as const, optionId: option.optionId } } : { outcome: { outcome: "cancelled" as const } };
 		};
-		if (figpal) return choose("allow_once", "allow_always");
+		// Only once: a lasting grant would stop the questions, and with them FigPal's check.
+		if (marked || proxied) return choose("allow_once");
 		const title = call.title?.replace(/\s+/gu, " ").trim().slice(0, 200) || "a tool";
 		binding?.writer?.thinking(`\n[FigPal refused Antigravity's own tool: ${title}. Use FigPal's tools.]\n`);
-		// The log tells the form of a refused request, without its values.
-		console.error("FigPal refused an Antigravity tool:", JSON.stringify({ title, kind: call.kind, meta: Object.keys(meta ?? {}), input: Object.keys(input ?? {}) }));
-		return choose("reject_once", "reject_always");
+		// The form of the request, without its values (the title can have a command or a path).
+		console.error("FigPal refused an Antigravity tool:", JSON.stringify({ kind: call.kind, meta: Object.keys(call._meta ?? {}), input: Object.keys(input ?? {}) }));
+		return choose("reject_once");
 	}
 
 	private consumeUpdate(binding: Binding | undefined, notification: SessionNotification): void {
@@ -711,7 +720,9 @@ export class AntigravityRuntime {
 		}
 		const update = notification.update;
 		if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
-			if (update.status === "completed" || update.status === "failed") binding.mcpCalls.delete(update.toolCallId);
+			const ended = update.status === "completed" || update.status === "failed";
+			// A new call sets the mark: an ID of an earlier MCP call does not stay allowed.
+			if (ended || (update.sessionUpdate === "tool_call" && update._meta?.is_mcp_tool_call !== true)) binding.mcpCalls.delete(update.toolCallId);
 			else if (update._meta?.is_mcp_tool_call === true) binding.mcpCalls.add(update.toolCallId);
 		}
 		if (!binding.writer) return;
@@ -846,6 +857,9 @@ export class AntigravityRuntime {
 		if (this.disposed) throw new AntigravityAcpError("process_exit", "Antigravity ACP runtime is closed");
 	}
 }
+
+/** The arguments of agy's call_mcp_tool. */
+const PROXY_KEYS = ["ServerName", "ToolName", "Arguments"];
 
 function inDefaultMode(state: SessionState): boolean {
 	const modes = sessionModes(state);
