@@ -7,7 +7,6 @@ import { Button, ChevronDownIcon, Combobox, Input, Paragraph, Text } from "figma
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ANTIGRAVITY_ID, signOutOfAntigravity } from "./providers/antigravity";
 
-const CHATGPT_ID = "openai-codex";
 
 export const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -23,14 +22,14 @@ type AccountsProps = {
 
 export function Accounts(props: AccountsProps) {
 	// The other providers of the models: pi-ai's providers with an API key (agent.ts).
-	const others = props.models.getProviders().filter((provider) => ![CLAUDE.id, CHATGPT_ID, ANTIGRAVITY_ID].includes(provider.id));
+	const others = props.models.getProviders().filter((provider) => ![CLAUDE.id, CHATGPT.id, ANTIGRAVITY.id].includes(provider.id));
 	// FigPal needs one model account: without any, Claude, ChatGPT and Antigravity say so in red.
 	const required = !props.models.getProviders().some((provider) => props.connected.has(provider.id));
 	return (
 		<div className="flex flex-col gap-5">
 			<TokenAccount {...props} kind={CLAUDE} required={required} />
-			<ChatGptAccount {...props} required={required} />
-			<AntigravityAccount {...props} required={required} />
+			<OAuthAccount {...props} kind={CHATGPT} required={required} />
+			<OAuthAccount {...props} kind={ANTIGRAVITY} required={required} />
 			{others
 				.filter((provider) => props.connected.has(provider.id))
 				.map((provider) => (
@@ -325,22 +324,62 @@ function TokenForm({ kind, onSave, onCancel }: { kind: TokenKind; onSave(token: 
 type Step = { text: ReactNode; url?: string };
 type Login = Step & { controller: AbortController };
 
-type OAuthAccountProps = AccountsProps & {
-	required: boolean;
+/** An account that signs in on a page of the provider. */
+type OAuthKind = {
 	id: string;
 	name: string;
 	/** Before the sign-in. */
 	intro: string;
 	signInLabel: string;
-	/** The first step, before the first event of the sign-in. */
-	starting: string;
 	/** The step of an event of the sign-in, if it changes the step. FigPal opens its URL. */
 	step(event: AuthEvent): Step | undefined;
-	signOut(): Promise<void>;
+	signOut(credentials: CredentialStore): Promise<void>;
 };
 
-/** An account that signs in on a page of the provider: ChatGPT and Google Antigravity. */
-function OAuthAccount({ connected, models, openExternal, onChange, required, id, name, intro, signInLabel, starting, step, signOut }: OAuthAccountProps) {
+/** Device code login: the user enters a code on OpenAI's page. */
+const CHATGPT: OAuthKind = {
+	id: "openai-codex",
+	name: "ChatGPT",
+	intro: "Use your ChatGPT plan.",
+	signInLabel: "Sign in with ChatGPT",
+	step: (event) =>
+		event.type === "device_code"
+			? {
+					text: (
+						<>
+							On the page that opened, enter the code <strong className="select-all">{event.userCode}</strong>.
+						</>
+					),
+					url: event.verificationUri,
+				}
+			: undefined,
+	signOut: (credentials) => credentials.delete(CHATGPT.id),
+};
+
+/** FigPal's command installs Antigravity's agent on the first sign-in, and keeps the Google login. */
+const ANTIGRAVITY: OAuthKind = {
+	id: ANTIGRAVITY_ID,
+	name: "Google Antigravity",
+	intro: "Use your Google AI plan. The first sign-in installs Antigravity's agent: about 400 MB.",
+	signInLabel: "Sign in with Google",
+	step: (event) =>
+		event.type === "progress"
+			? { text: event.message }
+			: event.type === "auth_url"
+				? { text: "Sign in on the Google page that opened.", url: event.url }
+				: undefined,
+	signOut: (credentials) => signOutOfAntigravity(location.origin, credentials),
+};
+
+function OAuthAccount({
+	kind,
+	connected,
+	models,
+	credentials,
+	openExternal,
+	onChange,
+	required,
+}: Pick<AccountsProps, "connected" | "models" | "credentials" | "openExternal" | "onChange"> & { kind: OAuthKind; required: boolean }) {
 	const [login, setLogin] = useState<Login>();
 	const [error, setError] = useState<string>();
 	// Closing the settings stops the login. Without this, the ChatGPT login polls OpenAI for up to 15 minutes.
@@ -348,38 +387,41 @@ function OAuthAccount({ connected, models, openExternal, onChange, required, id,
 	useEffect(() => () => controller?.abort(), [controller]);
 
 	const signIn = () => {
-		const current: Login = { text: starting, controller: new AbortController() };
+		const current: Login = { text: "Starting the sign-in…", controller: new AbortController() };
+		// Only this sign-in: the end of a cancelled one must not change a new one.
+		const update = (change: (login: Login) => Login | undefined) =>
+			setLogin((login) => (login?.controller === current.controller ? change(login) : login));
 		setLogin(current);
 		setError(undefined);
 		models
-			.login(id, "oauth", {
+			.login(kind.id, "oauth", {
 				signal: current.controller.signal,
 				prompt: () => Promise.reject(new Error("Not supported")),
 				notify: (event) => {
-					const next = step(event);
+					const next = kind.step(event);
 					if (!next) return;
-					setLogin((login) => login && { ...login, ...next });
+					update((login) => ({ ...login, ...next }));
 					if (next.url) openExternal(next.url);
 				},
 			})
 			.then(onChange, (reason) => {
 				if (!current.controller.signal.aborted) setError(errorText(reason));
 			})
-			.finally(() => setLogin(undefined));
+			.finally(() => update(() => undefined));
 	};
-	const signOutAndUpdate = () => signOut().then(onChange, (reason) => setError(errorText(reason)));
+	const signOut = () => kind.signOut(credentials).then(onChange, (reason) => setError(errorText(reason)));
 
-	if (connected.has(id))
+	if (connected.has(kind.id))
 		return (
-			<Account name={name} status={status(true, ["Signed in", "Not signed in"])}>
+			<Account name={kind.name} status={status(true, ["Signed in", "Not signed in"])}>
 				<div className="flex gap-2">
-					<Button onClick={signOutAndUpdate}>Sign out</Button>
+					<Button onClick={signOut}>Sign out</Button>
 				</div>
 				{error && <Text className="text-danger">{error}</Text>}
 			</Account>
 		);
 	return (
-		<Account name={name} status={status(false, ["Signed in", "Not signed in"], required)}>
+		<Account name={kind.name} status={status(false, ["Signed in", "Not signed in"], required)}>
 			{login ? (
 				<>
 					<Paragraph>{login.text}</Paragraph>
@@ -390,62 +432,13 @@ function OAuthAccount({ connected, models, openExternal, onChange, required, id,
 				</>
 			) : (
 				<>
-					<Paragraph>{intro}</Paragraph>
+					<Paragraph>{kind.intro}</Paragraph>
 					<div className="flex gap-2">
-						<Button onClick={signIn}>{signInLabel}</Button>
+						<Button onClick={signIn}>{kind.signInLabel}</Button>
 					</div>
 				</>
 			)}
 			{error && <Text className="text-danger">{error}</Text>}
 		</Account>
-	);
-}
-
-/** Device code login: the user enters a code on OpenAI's page. */
-function ChatGptAccount(props: AccountsProps & { required: boolean }) {
-	return (
-		<OAuthAccount
-			{...props}
-			id={CHATGPT_ID}
-			name="ChatGPT"
-			intro="Use your ChatGPT plan."
-			signInLabel="Sign in with ChatGPT"
-			starting="Starting the login…"
-			step={(event) =>
-				event.type === "device_code"
-					? {
-							text: (
-								<>
-									On the page that opened, enter the code <strong className="select-all">{event.userCode}</strong>.
-								</>
-							),
-							url: event.verificationUri,
-						}
-					: undefined
-			}
-			signOut={() => props.credentials.delete(CHATGPT_ID)}
-		/>
-	);
-}
-
-/** FigPal's command installs Antigravity's agent on the first sign-in, and keeps the Google login. */
-function AntigravityAccount(props: AccountsProps & { required: boolean }) {
-	return (
-		<OAuthAccount
-			{...props}
-			id={ANTIGRAVITY_ID}
-			name="Google Antigravity"
-			intro="Use your Google AI plan. The first sign-in installs Antigravity's agent: about 400 MB."
-			signInLabel="Sign in with Google"
-			starting="Starting the sign-in…"
-			step={(event) =>
-				event.type === "progress"
-					? { text: event.message }
-					: event.type === "auth_url"
-						? { text: "Sign in on the Google page that opened.", url: event.url }
-						: undefined
-			}
-			signOut={() => signOutOfAntigravity(location.origin, props.credentials)}
-		/>
 	);
 }
